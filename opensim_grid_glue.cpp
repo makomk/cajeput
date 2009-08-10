@@ -207,6 +207,7 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   // WTF? Why such an odd path?
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
+  uinfo.is_child = 0;
   sim_prepare_new_user(state->sim, &uinfo);
 
  
@@ -260,8 +261,8 @@ static void got_validate_session_resp(SoupSession *session, SoupMessage *msg,
   delete vs;
 }
 
-void validate_session(struct simulator_ctx* sim, char* agent_id,
-		      char *session_id, grid_glue_ctx* grid,
+void validate_session(struct simulator_ctx* sim, const char* agent_id,
+		      const char *session_id, grid_glue_ctx* grid,
 		      validate_session_cb callback, void *priv)  {
   GHashTable *hash;
   SoupMessage *val_msg;
@@ -547,11 +548,135 @@ void pretty_print_json(JsonNode *node) {
   g_free(data);
 }
 
+static int helper_json_to_boolean(JsonObject *obj, const char* key, int *val) {
+  const char* str;
+  JsonNode *node = json_object_get_member(obj, key);
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+    return -1;
+  *val = json_node_get_boolean(node);
+  return 0;
+}
+
+static int helper_json_to_uuid(JsonObject *obj, const char* key, uuid_t uuid) {
+  const char* str;
+  JsonNode *node = json_object_get_member(obj, key);
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+    return -1;
+  str = json_node_get_string(node);
+  if(str == NULL) return -1;
+  return uuid_parse(str, uuid);
+}
+
+static const char* helper_json_to_string(JsonObject *obj, const char* key) {
+  JsonNode *node = json_object_get_member(obj, key);
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+    return NULL;
+  return json_node_get_string(node);
+}
+
+struct agent_POST_state {
+  SoupServer *server;
+  SoupMessage *msg;
+  JsonParser *parser;
+  struct simulator_ctx* sim;
+};
+
+static void agent_POST_stage2(void *priv, int is_ok) {
+  int is_child = 0;
+  char seed_cap[50]; const char *caps_path, *s;
+  agent_POST_state* st = (agent_POST_state*)priv;
+  JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
+  struct sim_new_user uinfo;
+ 
+  soup_server_unpause_message(st->server,st->msg);
+  if(helper_json_to_uuid(object, "agent_id", uinfo.user_id)) {
+    printf("DEBUG agent POST: couldn't get agent_id\n");
+    is_ok = 0; goto out;
+  }
+  if(helper_json_to_uuid(object, "session_id", uinfo.session_id)) {
+    printf("DEBUG agent POST: couldn't get session_id\n");
+    is_ok = 0; goto out;
+  }
+  if(helper_json_to_uuid(object, "secure_session_id", uinfo.session_id)) {
+    printf("DEBUG agent POST: couldn't get secure_session_id\n");
+    is_ok = 0; goto out;
+  }
+  // HACK
+  uinfo.first_name = (char*)helper_json_to_string(object, "first_name");
+  uinfo.last_name = (char*)helper_json_to_string(object, "last_name");
+  if(uinfo.first_name == NULL || uinfo.last_name == NULL) {
+    printf("DEBUG agent POST: couldn't get user name\n");
+    is_ok = 0; goto out;
+  }
+  caps_path = (char*)helper_json_to_string(object, "caps_path");
+  s = (char*)helper_json_to_string(object, "circuit_code");
+  if(caps_path == NULL || s == NULL) {
+    printf("DEBUG agent POST: caps path or circuit_code missing\n");
+    is_ok = 0; goto out;
+  }
+  uinfo.circuit_code = atol(s);
+  if(helper_json_to_boolean(object, "child", &is_child)) {
+    printf("DEBUG agent POST: \"child\" attribute missing\n");
+    is_ok = 0; goto out;    
+  }
+  
+  // WTF? Why such an odd path?
+  snprintf(seed_cap,50,"%s0000/",caps_path);
+  uinfo.seed_cap = seed_cap;
+  uinfo.is_child = 1;
+  sim_prepare_new_user(st->sim, &uinfo);
+
+  is_ok = 0;
+  
+ out:
+  delete st;
+  soup_message_set_status(st->msg,200); // FIXME - application/json?
+  soup_message_set_response(st->msg,"text/plain",SOUP_MEMORY_STATIC,
+			    is_ok?"true":"false", is_ok?4:5); 
+}
+
 static void agent_POST_handler(SoupServer *server,
 			       SoupMessage *msg,
 			       uuid_t agent_id,
 			       JsonParser *parser,
 			       struct simulator_ctx* sim) {
+  const char *agent_id_st, *session_id_st;
+  JsonObject *object; uuid_t u;
+  JsonNode * node = json_parser_get_root(parser);
+  GRID_PRIV_DEF(sim);
+
+  if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
+    printf("Root JSON node not object?!\n");
+    goto out_fail;
+  }
+  object = json_node_get_object(node);
+  agent_id_st = helper_json_to_string(object, "agent_id");
+  session_id_st = helper_json_to_string(object,"session_id");
+  if(agent_id_st == NULL || session_id_st == NULL) {
+    printf("Missing agent or session id from agent REST POST\n");
+    goto out_fail;
+  }
+  if(uuid_parse(agent_id_st,u) || uuid_compare(u,agent_id) != 0) {
+    printf("Bad/mismatched agent id in agent REST POST\n");
+    goto out_fail;
+  }
+  
+  soup_server_pause_message(server,msg);
+
+  {
+    agent_POST_state *state = new agent_POST_state();
+    state->server = server;
+    state->msg = msg;
+    g_object_ref(parser);  
+    state->parser = parser;
+    state->sim = sim;
+    validate_session(sim, agent_id_st, session_id_st, grid,
+		     agent_POST_stage2, state);
+  }
+
+  return;
+
+ out_fail:
   soup_message_set_status(msg,500);
 }
 
@@ -580,6 +705,8 @@ static void agent_rest_handler(SoupServer *server,
 
   assert(strncmp(path,"/agent/",7) == 0);
   path += 7;
+
+  // FIXME - do authentication
 
   s = strchr(path, '/');
   if(s == NULL) {
@@ -635,7 +762,7 @@ static void agent_rest_handler(SoupServer *server,
   return;
   
  out_fail:
-  soup_message_set_status(msg,500);
+  soup_message_set_status(msg,400);
 }
 
 static void user_created(struct simulator_ctx* sim,

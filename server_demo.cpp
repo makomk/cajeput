@@ -830,7 +830,11 @@ void sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->addr.sin_port = 0;
   ctx->sim = sim;
   ctx->next = sim->ctxts; sim->ctxts = ctx;
-  ctx->flags = AGENT_FLAG_INCOMING; // FIXME - handle child agents
+  if(uinfo->is_child) {
+    ctx->flags = AGENT_FLAG_CHILD;
+  } else {
+    ctx->flags = AGENT_FLAG_INCOMING;
+  }
   ctx->first_name = strdup(uinfo->first_name);
   ctx->last_name = strdup(uinfo->last_name);
   ctx->name = (char*)malloc(2+strlen(ctx->first_name)+strlen(ctx->last_name));
@@ -864,7 +868,7 @@ static void simstatus_rest_handler (SoupServer *server,
   /* struct simulator_ctx* sim = (struct simulator_ctx*) user_data; */
   // For OpenSim grid protocol - FIXME check actual status
   soup_message_set_status(msg,200);
-  soup_message_set_response(msg,"text/html",SOUP_MEMORY_STATIC,
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
 			    "OK",2);
 }
 

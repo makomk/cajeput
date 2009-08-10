@@ -114,6 +114,7 @@ struct sim_new_user {
   char *seed_cap;
   uuid_t user_id, session_id, secure_session_id;
   int circuit_code;
+  int is_child;
 };
 
 // Caller owns the struct and any strings pointed to by it

@@ -31,10 +31,11 @@
 #include <netinet/in.h>
 #include "sl_llsd.h"
 
-#define AGENT_FLAG_RHR 1 // got RegionHandshakeReply
-#define AGENT_FLAG_INCOMING 2 // expecting agent to enter region
-#define AGENT_FLAG_PURGE 4 // agent is being purged
-#define AGENT_FLAG_IN_LOGOUT 8 // agent is logging out
+#define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply
+#define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region - FIXME remove
+#define AGENT_FLAG_PURGE 0x4 // agent is being purged
+#define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
+#define AGENT_FLAG_CHILD 0x10 // is a child agent
 
 #define USER_CONNECTION_TIMEOUT 15
 
