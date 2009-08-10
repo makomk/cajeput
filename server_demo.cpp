@@ -814,6 +814,16 @@ void user_get_session_id(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->session_id);
 }
 
+static void debug_prepare_new_user(struct sim_new_user *uinfo) {
+  char user_id[40], session_id[40];
+  uuid_unparse(uinfo->user_id,user_id);
+  uuid_unparse(uinfo->session_id,session_id);
+  printf("Expecting new user %s %s, user_id=%s, session_id=%s, "
+	 "circuit_code=%lu (%s)\n", uinfo->first_name, uinfo->last_name,
+	 user_id, session_id, (unsigned long)uinfo->circuit_code,
+	 uinfo->is_child ? "child" : "main");
+}
+
 void sim_prepare_new_user(struct simulator_ctx *sim,
 			  struct sim_new_user *uinfo) {
   struct user_ctx* ctx;
@@ -821,6 +831,8 @@ void sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->sock = sim->sock; ctx->counter = 0;
   ctx->draw_dist = 0.0f;
   ctx->circuit_code = uinfo->circuit_code;
+
+  debug_prepare_new_user(uinfo);
 
   uuid_copy(ctx->user_id, uinfo->user_id);
   uuid_copy(ctx->session_id, uinfo->session_id);

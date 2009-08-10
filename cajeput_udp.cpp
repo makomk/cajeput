@@ -293,6 +293,7 @@ static gboolean got_packet(GIOChannel *source,
       }
       if(ctx == NULL) {
 	printf("DEBUG: got unexpected UseCircuitCode\n");
+	sl_dump_packet(&msg);
 	goto out;
       }
       if(ctx->addr.sin_port != 0) {
