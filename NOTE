@@ -1,0 +1,2 @@
+To valgrind the program:
+G_SLICE=always-malloc valgrind --leak-check=full ./server_demo
