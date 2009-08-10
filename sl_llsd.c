@@ -227,7 +227,6 @@ static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
 	printf("%i bad bool val: %s\n", depth, str);
 	xmlFree(str); return NULL;
       }
-      llsd->t.str = strdup(str); 
       xmlFree(str);      
     } else {
       printf("%i unhandled node name: %s\n", depth, a_node->name);
