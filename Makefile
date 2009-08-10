@@ -1,4 +1,4 @@
-CXXFLAGS=-Wall -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/include/libsoup-2.4 -I /usr/lib64/glib-2.0/include -I /usr/include/bullet -ggdb -DDEBUG
+CXXFLAGS=-Wall -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/include/libsoup-2.4 -I /usr/lib64/glib-2.0/include -I /usr/include/bullet -I /usr/include/json-glib-1.0 -ggdb -DDEBUG
 CFLAGS=-Wall -ggdb -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/lib64/glib-2.0/include
 
 all: cajeput_sim  sl_llsd_test
@@ -30,7 +30,7 @@ sl_udp_proto.o: sl_udp_proto.c sl_udp_proto.h sl_messages.h sl_types.h
 CAJEPUT_OBJS=opensim_grid_glue.o cajeput_udp.o server_demo.o sl_messages.o sl_udp_proto.o sl_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o
 
 cajeput_sim: $(CAJEPUT_OBJS)
-	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) -luuid -lglib-2.0 -lsoup-2.4 -lxml2 -lbulletdynamics -lbulletcollision -lbulletmath
+	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) -luuid -lglib-2.0 -lsoup-2.4 -lxml2 -lbulletdynamics -lbulletcollision -lbulletmath -ljson-glib-1.0
 
 sl_messages.c sl_messages.h: message_template.msg msgtmpl2c.py
 	python msgtmpl2c.py

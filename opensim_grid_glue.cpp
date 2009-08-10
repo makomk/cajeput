@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <libsoup/soup.h>
+#include <json-glib/json-glib.h>
 #include "opensim_grid_glue.h"
 #include <cassert>
 
@@ -514,15 +515,40 @@ static void user_logoff(struct simulator_ctx* sim,
   sim_shutdown_hold(sim);
 }
 
+void pretty_print_json(JsonNode *node) {
+  gchar* data; gsize length;
+  GValue val = { 0, };
+  JsonGenerator* gen = json_generator_new();
+  json_generator_set_root(gen, node);
+  g_value_init (&val, G_TYPE_BOOLEAN);
+  g_value_set_boolean(&val, 1);
+  g_object_set_property (G_OBJECT (gen), "pretty", &val);
+  g_value_unset (&val);
+  data = json_generator_to_data(gen, &length);
+  g_object_unref(gen);
+  printf("%s\n",data);
+  g_free(data);
+}
+
+static void agent_POST_handler(SoupServer *server,
+			       SoupMessage *msg,
+			       uuid_t agent_id,
+			       JsonParser *parser,
+			       struct simulator_ctx* sim) {
+  soup_message_set_status(msg,500);
+}
+
 static void agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
 			       const char *path,
 			       GHashTable *query,
 			       SoupClientContext *client,
 			       gpointer user_data) {
+  struct simulator_ctx* sim = (struct simulator_ctx*) user_data;
   const char *reqtype = "???";
   uuid_t agent_id; uint64_t region_handle = 0;
   char *s; char buf[40]; char* cmd = NULL;
+  JsonParser *parser;
   if(msg->method == SOUP_METHOD_POST)
     reqtype = "POST";
   else if(msg->method == SOUP_METHOD_GET)
@@ -532,7 +558,7 @@ static void agent_rest_handler(SoupServer *server,
   printf("DEBUG: agent_rest_handler %s %s\n",
 	 reqtype, path);
   if(msg->method != SOUP_METHOD_GET)
-    printf("DEBUG: agent_rest_handler data {{%s}}\n",
+    printf("DEBUG: agent_rest_handler data ~%s~\n",
 	   msg->request_body->data);
 
   assert(strncmp(path,"/agent/",7) == 0);
@@ -564,8 +590,32 @@ static void agent_rest_handler(SoupServer *server,
 
   // DEBUG
   uuid_unparse(agent_id,buf);
-  printf("DEBUG: agent_rest_handler request split as %s %ull %s\n",
-	 buf, region_handle, cmd != NULL ? cmd : "(none)");
+  printf("DEBUG: agent_rest_handler request split as %s %llu %s\n",
+	 buf, (long long unsigned int)region_handle, 
+	 cmd != NULL ? cmd : "(none)");
+
+  if(msg->method != SOUP_METHOD_POST &&
+     msg->method != SOUP_METHOD_PUT) goto out_fail;
+
+  parser = json_parser_new();
+  if(!json_parser_load_from_data(parser, msg->request_body->data,
+				 msg->request_body->length, NULL)) {
+    printf("Error in agent_rest_handler: json parse failed\n");
+    g_object_unref(parser); goto out_fail;
+  }
+
+  if(msg->method == SOUP_METHOD_POST && region_handle == 0
+     && cmd == NULL) {
+    agent_POST_handler(server, msg, agent_id, parser, sim);
+  } else {
+    printf("DEBUG: agent_rest_handler unhandled request");
+    goto out_fail;
+  }
+  // TODO
+
+  // other code can g_object_ref if it wants to keep it
+  g_object_unref(parser); 
+  return;
   
  out_fail:
   soup_message_set_status(msg,500);
