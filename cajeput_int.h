@@ -161,7 +161,7 @@ struct simulator_ctx {
   uint64_t region_handle;
   int sock, state_flags, hold_off_shutdown;
   uint16_t http_port, udp_port;
-  uuid_t region_id;
+  uuid_t region_id, owner;
   msg_handler_map msg_handlers;
   std::map<obj_uuid_t,world_obj*> uuid_map;
   std::map<uint32_t,world_obj*> localid_map;

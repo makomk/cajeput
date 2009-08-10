@@ -116,7 +116,8 @@ static void do_grid_login(struct simulator_ctx* sim) {
   soup_value_hash_insert(hash,"maturity",G_TYPE_STRING,"1");
   uuid_unparse(zero_uuid, buf);
   soup_value_hash_insert(hash,"map-image-id",G_TYPE_STRING,buf);
-  uuid_unparse(zero_uuid, buf);
+  sim_get_owner_uuid(sim,u);
+  uuid_unparse(u, buf);
   soup_value_hash_insert(hash,"master_avatar_uuid",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_http_port(sim));
   soup_value_hash_insert(hash,"http_port",G_TYPE_STRING,buf);
@@ -401,6 +402,12 @@ static void xmlrpc_handler (SoupServer *server,
   GValueArray *params;
 
   if(strcmp(path,"/") != 0) {
+    printf("DEBUG: request for unhandled path %s\n",
+	   path);
+    if (msg->method == SOUP_METHOD_POST) {
+      printf("DEBUG: POST data is {{%s}}\n",
+	     msg->request_body->data);
+    }
     soup_message_set_status(msg,404);
     return;
   }

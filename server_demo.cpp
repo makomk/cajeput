@@ -64,6 +64,9 @@ char* sim_get_name(struct simulator_ctx *sim) {
 void sim_get_region_uuid(struct simulator_ctx *sim, uuid_t u) {
   uuid_copy(u, sim->region_id);
 }
+void sim_get_owner_uuid(struct simulator_ctx *sim, uuid_t u) {
+  uuid_copy(u, sim->owner);
+}
 uint16_t sim_get_http_port(struct simulator_ctx *sim) {
   return sim->http_port;
 }
@@ -779,7 +782,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   
 }
 
-#define RELEASE_NOTES "Cajaput pre-release\n\nThis software is for testing purposes only and is not release-worthy."
+#define RELEASE_NOTES "Cajeput pre-release\n\nThis software is for testing purposes only and is not release-worthy."
 
 static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   // TODO
@@ -1007,7 +1010,7 @@ int main(void) {
   g_thread_init(NULL);
   g_type_init();
 
-  char* sim_uuid;
+  char* sim_uuid, *sim_owner;
   struct simulator_ctx* sim = new simulator_ctx();
 
   main_loop = g_main_loop_new(NULL, false);
@@ -1027,13 +1030,14 @@ int main(void) {
   }
 
   // FIXME - better error handling needed
-  sim->name = g_strdup("Test region - FIXME");
+  sim->name = g_key_file_get_value(sim->config,"sim","name",NULL);
   sim->http_port = g_key_file_get_integer(sim->config,"sim","http_port",NULL);
   sim->udp_port = g_key_file_get_integer(sim->config,"sim","udp_port",NULL);
   sim->region_x = g_key_file_get_integer(sim->config,"sim","region_x",NULL);
   sim->region_y = g_key_file_get_integer(sim->config,"sim","region_y",NULL);
   sim->region_handle = (uint64_t)(sim->region_x*256)<<32 | (sim->region_y*256);
   sim_uuid = g_key_file_get_value(sim->config,"sim","uuid",NULL);
+  sim_owner = g_key_file_get_value(sim->config,"sim","owner",NULL);
 
 #if 0
   // FIXME - do we need this somewhere else?
@@ -1043,9 +1047,17 @@ int main(void) {
 
   if(sim->http_port == 0 || sim->udp_port == 0 || 
      sim->region_x == 0 || sim->region_y == 0 ||
-      sim_uuid == NULL ||
+      sim->name == NULL || sim_uuid == NULL ||
      uuid_parse(sim_uuid,sim->region_id)) {
     printf("Error: bad config\n"); return 1;
+  }
+
+  if(sim_owner == NULL) {
+    uuid_clear(sim->owner);
+  } else {
+    if(uuid_parse(sim_owner,sim->owner)) {
+      printf("Error: bad owner UUID\n"); return 1;
+    }
   }
 
   sim->world_tree = world_octree_create();
