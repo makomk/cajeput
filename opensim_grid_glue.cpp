@@ -627,7 +627,7 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   sim_prepare_new_user(st->sim, &uinfo);
 
  out:
-  delete st;
+  g_object_unref(st->parser); delete st;
   soup_message_set_status(st->msg,200); // FIXME - application/json?
   soup_message_set_response(st->msg,"text/plain",SOUP_MEMORY_STATIC,
 			    is_ok?"true":"false", is_ok?4:5); 
@@ -675,8 +675,37 @@ static void agent_POST_handler(SoupServer *server,
   return;
 
  out_fail:
-  soup_message_set_status(msg,500);
+  soup_message_set_status(msg,400);
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    "false",5);  
 }
+
+static void agent_PUT_handler(SoupServer *server,
+			      SoupMessage *msg,
+			      uuid_t agent_id,
+			      JsonParser *parser,
+			      struct simulator_ctx* sim) {
+  JsonNode * node = json_parser_get_root(parser);
+  GRID_PRIV_DEF(sim);
+  int is_ok = 1;
+
+  if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
+    printf("Root JSON node not object?!\n");
+    goto out_fail;
+  }
+
+  // FIXME - need to actually update the agent
+
+  soup_message_set_status(msg,200); // FIXME - application/json?
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    is_ok?"true":"false", is_ok?4:5);  
+  return;
+ out_fail:
+  soup_message_set_status(msg,400);
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    "false",5);  
+}
+
 
 static void agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
@@ -749,6 +778,9 @@ static void agent_rest_handler(SoupServer *server,
   if(msg->method == SOUP_METHOD_POST && region_handle == 0
      && cmd == NULL) {
     agent_POST_handler(server, msg, agent_id, parser, sim);
+  } else if(msg->method == SOUP_METHOD_PUT && region_handle == 0
+     && cmd == NULL) {
+    agent_PUT_handler(server, msg, agent_id, parser, sim);
   } else {
     printf("DEBUG: agent_rest_handler unhandled request");
     goto out_fail;
