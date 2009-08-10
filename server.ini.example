@@ -1,6 +1,8 @@
 [grid]
 gridserver=http://127.0.0.1:8001/
 inventory_server=http://127.0.0.1:8003/
+grid_recvkey=null
+grid_sendkey=null
 
 [sim]
 udp_port=9000
@@ -9,3 +11,4 @@ region_x=1000
 region_y=1000
 uuid=01bd2887-e158-443d-ab1a-08ee45053440
 name=Cajeput Test Region - FIXME
+ip_address=127.0.0.1

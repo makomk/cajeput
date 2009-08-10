@@ -61,6 +61,9 @@ uint64_t sim_get_region_handle(struct simulator_ctx *sim) {
 char* sim_get_name(struct simulator_ctx *sim) {
   return sim->name;
 }
+char* sim_get_ip_addr(struct simulator_ctx *sim) {
+  return sim->ip_addr;
+}
 void sim_get_region_uuid(struct simulator_ctx *sim, uuid_t u) {
   uuid_copy(u, sim->region_id);
 }
@@ -627,7 +630,8 @@ char *caps_get_uri(struct cap_descrip* desc) {
   // FIXME - iffy memory handling
   char *uri = (char*)malloc(200);
   // FIXME - hardcoded port/IP
-  sprintf(uri,"http://127.0.0.1:%i" CAPS_PATH "/%s",(int)desc->sim->http_port,desc->cap);
+  sprintf(uri,"http://%s:%i" CAPS_PATH "/%s", desc->sim->ip_addr,
+	  (int)desc->sim->http_port,desc->cap);
   return uri;
 }
 
@@ -1038,6 +1042,7 @@ int main(void) {
   sim->region_handle = (uint64_t)(sim->region_x*256)<<32 | (sim->region_y*256);
   sim_uuid = g_key_file_get_value(sim->config,"sim","uuid",NULL);
   sim_owner = g_key_file_get_value(sim->config,"sim","owner",NULL);
+  sim->ip_addr = g_key_file_get_value(sim->config,"sim","ip_address",NULL);
 
 #if 0
   // FIXME - do we need this somewhere else?
@@ -1047,7 +1052,8 @@ int main(void) {
 
   if(sim->http_port == 0 || sim->udp_port == 0 || 
      sim->region_x == 0 || sim->region_y == 0 ||
-      sim->name == NULL || sim_uuid == NULL ||
+      sim->name == NULL || sim->ip_addr == NULL ||
+     sim_uuid == NULL ||
      uuid_parse(sim_uuid,sim->region_id)) {
     printf("Error: bad config\n"); return 1;
   }

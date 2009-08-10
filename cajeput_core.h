@@ -58,6 +58,7 @@ struct world_obj {
 uint32_t sim_get_region_x(struct simulator_ctx *sim);
 uint32_t sim_get_region_y(struct simulator_ctx *sim);
 uint64_t sim_get_region_handle(struct simulator_ctx *sim);
+char* sim_get_ip_addr(struct simulator_ctx *sim);
 char* sim_get_name(struct simulator_ctx *sim);
 void sim_get_region_uuid(struct simulator_ctx *sim, uuid_t u);
 void sim_get_owner_uuid(struct simulator_ctx *sim, uuid_t u);

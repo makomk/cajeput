@@ -104,6 +104,7 @@ static void do_grid_login(struct simulator_ctx* sim) {
   GHashTable *hash;
   GError *error = NULL;
   SoupMessage *msg;
+  char *ip_addr = sim_get_ip_addr(sim);
   GRID_PRIV_DEF(sim);
 
   printf("Logging into grid...\n");
@@ -127,13 +128,14 @@ static void do_grid_login(struct simulator_ctx* sim) {
   sim_get_region_uuid(sim, u);
   uuid_unparse(u, buf);
   soup_value_hash_insert(hash,"UUID",G_TYPE_STRING,buf);
-  sprintf(buf,"http://127.0.0.1:%i",(int)sim_get_http_port(sim)); // FIXME
+  sprintf(buf,"http://%s:%i",ip_addr,
+	  (int)sim_get_http_port(sim)); // FIXME
   soup_value_hash_insert(hash,"server_uri",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_region_x(sim));
   soup_value_hash_insert(hash,"region_locx",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_region_y(sim));
   soup_value_hash_insert(hash,"region_locy",G_TYPE_STRING,buf);
-  soup_value_hash_insert(hash,"sim_ip",G_TYPE_STRING,"127.0.0.1"); // FIXME
+  soup_value_hash_insert(hash,"sim_ip",G_TYPE_STRING,ip_addr); // FIXME
   soup_value_hash_insert(hash,"remoting_port",G_TYPE_STRING,"8895"); // ??? FIXME
   sprintf(buf,"%i",(int)sim_get_udp_port(sim));
   soup_value_hash_insert(hash,"sim_port",G_TYPE_STRING,buf);
@@ -548,6 +550,8 @@ static void cleanup(struct simulator_ctx* sim) {
   g_free(grid->userserver);
   g_free(grid->gridserver);
   g_free(grid->assetserver);
+  g_free(grid->grid_recvkey);
+  g_free(grid->grid_sendkey);
   delete grid;
 }
 
@@ -570,7 +574,8 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   grid->gridserver = sim_config_get_value(sim,"grid","gridserver");
   grid->inventoryserver = sim_config_get_value(sim,"grid","inventory_server");
   grid->userserver = grid->assetserver = NULL;
-  grid->grid_recvkey = grid->grid_sendkey = "null"; // FIXME
+  grid->grid_recvkey = sim_config_get_value(sim,"grid","grid_recvkey");
+  grid->grid_sendkey = sim_config_get_value(sim,"grid","grid_sendkey");
   grid->user_recvkey = grid->user_sendkey = NULL;
   grid->asset_recvkey = grid->asset_sendkey = NULL;
 
