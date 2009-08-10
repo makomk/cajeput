@@ -170,18 +170,16 @@ struct expect_user_state {
   struct simulator_ctx* sim;
 };
 
-static void xmlrpc_expect_user_2(SoupServer *server,
-				 SoupMessage *msg,
-				 GValueArray *params,
-				 GHashTable *args,
-				 struct simulator_ctx* sim, int is_ok) {
+static void xmlrpc_expect_user_2(void* priv, int is_ok) {
+  struct expect_user_state *state = (struct expect_user_state*)priv;
+  GHashTable *args = state->args;
   GHashTable *hash;
   struct sim_new_user uinfo;
   //char *first_name, *last_name;
   char *caps_path, *s;
   //uuid_t session_id, agent_id, secure_session_id;
-  char seed_cap[50];
-  soup_server_unpause_message(server,msg);
+  char seed_cap[50]; int success = 0;
+  soup_server_unpause_message(state->server,state->msg);
 
   if(!is_ok) goto return_fail;
 
@@ -209,36 +207,43 @@ static void xmlrpc_expect_user_2(SoupServer *server,
   // WTF? Why such an odd path?
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
-  sim_prepare_new_user(sim, &uinfo);
+  sim_prepare_new_user(state->sim, &uinfo);
 
  
-  hash = soup_value_hash_new();
-  soup_value_hash_insert(hash, "success", G_TYPE_STRING, "TRUE");
-  soup_xmlrpc_set_response(msg, G_TYPE_HASH_TABLE, hash);
-  g_hash_table_destroy(hash);
-  g_value_array_free(params);
-  //soup_message_set_status(msg,500);
-  return;
+  success = 1;
  return_fail:
   hash = soup_value_hash_new();
-  soup_value_hash_insert(hash, "success", G_TYPE_STRING, "FALSE");
-  soup_xmlrpc_set_response(msg, G_TYPE_HASH_TABLE, hash);
+  soup_value_hash_insert(hash, "success", G_TYPE_STRING, 
+			 success?"TRUE":"FALSE");
+  soup_xmlrpc_set_response(state->msg, G_TYPE_HASH_TABLE, hash);
   g_hash_table_destroy(hash);
-  g_value_array_free(params);
+  g_value_array_free(state->params);
+  delete state;
   return;
 
  bad_args:
-  g_value_array_free(params);
-  soup_xmlrpc_set_fault(msg, SOUP_XMLRPC_FAULT_SERVER_ERROR_INVALID_METHOD_PARAMETERS,
+  g_value_array_free(state->params);
+  soup_xmlrpc_set_fault(state->msg, 
+			SOUP_XMLRPC_FAULT_SERVER_ERROR_INVALID_METHOD_PARAMETERS,
 			"Bad arguments");  
+  delete state;
 }
 
-static void got_check_session_resp(SoupSession *session, SoupMessage *msg, 
+typedef void(*validate_session_cb)(void* state, int is_ok);
+
+struct validate_session_state {
+  validate_session_cb callback;
+  void *priv;
+  simulator_ctx *sim;
+};
+
+static void got_validate_session_resp(SoupSession *session, SoupMessage *msg, 
 				   gpointer user_data) {
   GHashTable *hash; char *s;
   int is_ok = 0;
-  struct expect_user_state* st = (struct expect_user_state*) user_data;
+  validate_session_state* vs = (validate_session_state*) user_data;
   printf("DEBUG: got check_auth_session response\n");
+  sim_shutdown_release(vs->sim);
   if(soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
@@ -251,9 +256,41 @@ static void got_check_session_resp(SoupSession *session, SoupMessage *msg,
     } else printf("DEBUG: couldn't extract value from check_auth_session response\n");
     g_hash_table_destroy(hash);
   } else printf("DEBUG: couldn't extract check_auth_session response\n");
-  xmlrpc_expect_user_2(st->server, st->msg, st->params, 
-		       st->args, st->sim, is_ok);
-  delete st;
+  vs->callback(vs->priv, is_ok);
+  delete vs;
+}
+
+void validate_session(struct simulator_ctx* sim, char* agent_id,
+		      char *session_id, grid_glue_ctx* grid,
+		      validate_session_cb callback, void *priv)  {
+  GHashTable *hash;
+  SoupMessage *val_msg;
+  
+  printf("Validating session for %s...\n", agent_id);
+  
+  hash = soup_value_hash_new();
+  soup_value_hash_insert(hash,"session_id",G_TYPE_STRING,session_id);
+  soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,agent_id);
+  
+  val_msg = soup_xmlrpc_request_new(grid->userserver, "check_auth_session",
+				    G_TYPE_HASH_TABLE, hash,
+				    G_TYPE_INVALID);
+  g_hash_table_destroy(hash);
+  if (!val_msg) {
+    fprintf(stderr, "Could not create check_auth_session request\n");
+    exit(1);
+  }
+
+  validate_session_state *vs_state = new validate_session_state();
+  vs_state->callback = callback;
+  vs_state->priv = priv;
+  vs_state->sim = sim;
+
+  sim_shutdown_hold(sim);
+  // FIXME - why SOUP_MESSAGE(foo)?
+  sim_queue_soup_message(sim, SOUP_MESSAGE(val_msg),
+			 got_validate_session_resp, vs_state);
+  				   
 }
 
 
@@ -265,9 +302,7 @@ static void xmlrpc_expect_user(SoupServer *server,
   GHashTable *args = NULL;
   char *agent_id, *session_id, *s;
   uint64_t region_handle;
-  SoupMessage *val_msg;
   GHashTable *hash;
-  GError *error = NULL;
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
@@ -286,6 +321,8 @@ static void xmlrpc_expect_user(SoupServer *server,
     goto return_fail;
   }
 
+  soup_server_pause_message(server,msg);
+
   {
     expect_user_state *state = new expect_user_state();
     state->server = server;
@@ -293,29 +330,10 @@ static void xmlrpc_expect_user(SoupServer *server,
     state->params = params;
     state->args = args;
     state->sim = sim;
-  
-    soup_server_pause_message(server,msg);
-
-    printf("Validating session for %s...\n", agent_id);
-  
-    hash = soup_value_hash_new();
-    soup_value_hash_insert(hash,"session_id",G_TYPE_STRING,session_id);
-    soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,agent_id);
-
-    val_msg = soup_xmlrpc_request_new(grid->userserver, "check_auth_session",
-				  G_TYPE_HASH_TABLE, hash,
-				  G_TYPE_INVALID);
-    g_hash_table_destroy(hash);
-    if (!val_msg) {
-      fprintf(stderr, "Could not create check_auth_session request\n");
-      exit(1);
-    }
-
-    // FIXME - why SOUP_MESSAGE(foo)?
-    sim_queue_soup_message(sim, SOUP_MESSAGE(val_msg),
-			   got_check_session_resp, state);
+    validate_session(sim, agent_id, session_id, grid,
+		     xmlrpc_expect_user_2, state);
   }
-  				   
+
   //soup_message_set_status(msg,500);  
   return;
  
@@ -446,9 +464,8 @@ static void xmlrpc_handler (SoupServer *server,
 
 static void got_user_logoff_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
-  GRID_PRIV_DEF(sim);
+  // GRID_PRIV_DEF(sim);
   GHashTable *hash = NULL;
-  char *s; uuid_t u;
   sim_shutdown_release(sim);
   if(msg->status_code != 200) {
     printf("User logoff failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -624,7 +641,7 @@ static void agent_rest_handler(SoupServer *server,
 static void user_created(struct simulator_ctx* sim,
 			 struct user_ctx* user,
 			 void **user_priv) {
-  GRID_PRIV_DEF(sim);
+  // GRID_PRIV_DEF(sim);
   user_grid_glue *user_glue = new user_grid_glue();
   user_glue->ctx = user;
   user_glue->refcnt = 1;
@@ -688,7 +705,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
 
   sim_http_add_handler(sim, "/", xmlrpc_handler, 
 		       sim, NULL);
-  sim_http_add_handler(sim, "/", agent_rest_handler, 
+  sim_http_add_handler(sim, "/agent/", agent_rest_handler, 
 		       sim, NULL);
 
   return true;
