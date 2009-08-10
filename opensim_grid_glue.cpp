@@ -597,7 +597,7 @@ static void agent_POST_stage2(void *priv, int is_ok) {
     printf("DEBUG agent POST: couldn't get session_id\n");
     is_ok = 0; goto out;
   }
-  if(helper_json_to_uuid(object, "secure_session_id", uinfo.session_id)) {
+  if(helper_json_to_uuid(object, "secure_session_id", uinfo.secure_session_id)) {
     printf("DEBUG agent POST: couldn't get secure_session_id\n");
     is_ok = 0; goto out;
   }
