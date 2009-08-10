@@ -626,8 +626,6 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   uinfo.is_child = 1;
   sim_prepare_new_user(st->sim, &uinfo);
 
-  is_ok = 0;
-  
  out:
   delete st;
   soup_message_set_status(st->msg,200); // FIXME - application/json?

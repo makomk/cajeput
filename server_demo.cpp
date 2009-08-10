@@ -879,8 +879,10 @@ static void user_remove_int(user_ctx **user) {
   simulator_ctx *sim = ctx->sim;
   if(ctx->av != NULL) {
     world_remove_obj(ctx->sim, &ctx->av->ob);
-    sim->gridh.user_logoff(sim, ctx->user_id,
-			   &ctx->av->ob.pos, &ctx->av->ob.pos);
+    if(!(ctx->flags & AGENT_FLAG_CHILD)) {
+      sim->gridh.user_logoff(sim, ctx->user_id,
+			     &ctx->av->ob.pos, &ctx->av->ob.pos);
+    }
     free(ctx->av); ctx->av = NULL;
   }
 
