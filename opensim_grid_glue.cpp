@@ -514,6 +514,63 @@ static void user_logoff(struct simulator_ctx* sim,
   sim_shutdown_hold(sim);
 }
 
+static void agent_rest_handler(SoupServer *server,
+			       SoupMessage *msg,
+			       const char *path,
+			       GHashTable *query,
+			       SoupClientContext *client,
+			       gpointer user_data) {
+  const char *reqtype = "???";
+  uuid_t agent_id; uint64_t region_handle = 0;
+  char *s; char buf[40]; char* cmd = NULL;
+  if(msg->method == SOUP_METHOD_POST)
+    reqtype = "POST";
+  else if(msg->method == SOUP_METHOD_GET)
+    reqtype = "GET";
+  else if(msg->method == SOUP_METHOD_PUT)
+    reqtype = "PUT";
+  printf("DEBUG: agent_rest_handler %s %s\n",
+	 reqtype, path);
+  if(msg->method != SOUP_METHOD_GET)
+    printf("DEBUG: agent_rest_handler data {{%s}}\n",
+	   msg->request_body->data);
+
+  assert(strncmp(path,"/agent/",7) == 0);
+  path += 7;
+
+  s = strchr(path, '/');
+  if(s == NULL) {
+    if(uuid_parse(path, agent_id)) {
+      printf("DEBUG: agent_rest_handler bad agent_id\n");
+      goto out_fail;
+    }
+  } else if(s - path != 36) {
+    printf("DEBUG: agent_rest_handler bad agent_id length %i\n",
+	   (int)(s - path));
+      goto out_fail;    
+  } else {
+    memcpy(buf,path, 36); buf[36] = 0;
+    if(uuid_parse(buf, agent_id)) {
+      printf("DEBUG: agent_rest_handler bad agent_id (2)\n");
+      goto out_fail;
+    }
+    path = s + 1;
+    s = strchr(path, '/');
+    if(path[0] != 0)
+      region_handle = atoll(path);
+    if(s != NULL && s[1] != 0) 
+      cmd = s + 1;
+  }
+
+  // DEBUG
+  uuid_unparse(agent_id,buf);
+  printf("DEBUG: agent_rest_handler request split as %s %ull %s\n",
+	 buf, region_handle, cmd != NULL ? cmd : "(none)");
+  
+ out_fail:
+  soup_message_set_status(msg,500);
+}
+
 static void user_created(struct simulator_ctx* sim,
 			 struct user_ctx* user,
 			 void **user_priv) {
@@ -580,6 +637,8 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   grid->asset_recvkey = grid->asset_sendkey = NULL;
 
   sim_http_add_handler(sim, "/", xmlrpc_handler, 
+		       sim, NULL);
+  sim_http_add_handler(sim, "/", agent_rest_handler, 
 		       sim, NULL);
 
   return true;
