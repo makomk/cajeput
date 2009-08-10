@@ -953,6 +953,7 @@ static gboolean shutdown_timer(gpointer data) {
   world_octree_destroy(sim->world_tree);
   g_timer_destroy(sim->timer);
   g_free(sim->name);
+  g_free(sim->ip_addr);
   delete sim;
   exit(0); // FIXME
   return FALSE;
@@ -1044,12 +1045,6 @@ int main(void) {
   sim_owner = g_key_file_get_value(sim->config,"sim","owner",NULL);
   sim->ip_addr = g_key_file_get_value(sim->config,"sim","ip_address",NULL);
 
-#if 0
-  // FIXME - do we need this somewhere else?
-  g_key_file_free(sim->config);
-  sim->config = NULL;
-#endif
-
   if(sim->http_port == 0 || sim->udp_port == 0 || 
      sim->region_x == 0 || sim->region_y == 0 ||
       sim->name == NULL || sim->ip_addr == NULL ||
@@ -1058,12 +1053,15 @@ int main(void) {
     printf("Error: bad config\n"); return 1;
   }
 
+  g_free(sim_uuid);
+
   if(sim_owner == NULL) {
     uuid_clear(sim->owner);
   } else {
     if(uuid_parse(sim_owner,sim->owner)) {
       printf("Error: bad owner UUID\n"); return 1;
     }
+    g_free(sim_owner);
   }
 
   sim->world_tree = world_octree_create();

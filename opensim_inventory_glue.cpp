@@ -51,13 +51,19 @@ static void got_user_inventory_resp(SoupSession *session, SoupMessage *msg, gpoi
   doc = xmlReadMemory(msg->response_body->data,
 		      msg->response_body->length,
 		      "inventory.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: inventory XML parse failed\n");
+    goto fail;    
+  }
   node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "InventoryCollection") == 0) {
+  if(strcmp((char*)node->name, "InventoryCollection") != 0) {
     printf("ERROR: unexpected root node %s\n",(char*)node->name);
     goto fail;
   }
 
-  fail:
+ free_fail:
+  xmlFreeDoc(doc);
+ fail:
     printf("ERROR: inventory response parse failure\n");
     return;
 }
