@@ -36,6 +36,7 @@
 #define AGENT_FLAG_PURGE 0x4 // agent is being purged
 #define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
 #define AGENT_FLAG_CHILD 0x10 // is a child agent
+#define AGENT_FLAG_ENTERED 0x20 // got CompleteAgentMovement
 
 #define USER_CONNECTION_TIMEOUT 15
 

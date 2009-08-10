@@ -94,10 +94,19 @@ struct cajeput_grid_hooks {
 		      void **user_priv);
   void(*fetch_user_inventory)(simulator_ctx *sim, user_ctx *user,
 			      void *user_priv);
+
+  /* user entered the region */
+  void(*user_entered)(simulator_ctx *sim, user_ctx *user,
+		      void *user_priv);
+
+  /* user is logging off */
   void(*user_logoff)(struct simulator_ctx* sim,
 		     const uuid_t user_id, const sl_vector3 *pos,
 		     const sl_vector3 *look_at);
+
   void(*cleanup)(struct simulator_ctx* sim);
+
+  /* user context is being deleted */
   void(*user_deleted)(struct simulator_ctx* sim,
 		      struct user_ctx* user,
 		      void *user_priv);
@@ -148,6 +157,9 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 void *user_get_grid_priv(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
+user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
+user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
+			    uuid_t session_id);
 
 void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);

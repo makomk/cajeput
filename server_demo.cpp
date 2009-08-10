@@ -803,6 +803,26 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
 
 // -- END of caps code --
 
+user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
+			    uuid_t session_id) {
+  for(user_ctx *ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+    if(uuid_compare(ctx->user_id, agent_id) == 0 &&
+       uuid_compare(ctx->session_id, session_id) == 0) {
+      return ctx;
+    }
+  }
+  return NULL;
+}
+
+user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id) {
+  for(user_ctx *ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+    if(uuid_compare(ctx->user_id, agent_id) == 0) {
+      return ctx;
+    }
+  }
+  return NULL;
+}
+
 void *user_get_grid_priv(struct user_ctx *user) {
   return user->grid_priv;
 }

@@ -686,6 +686,10 @@ static void agent_PUT_handler(SoupServer *server,
 			      JsonParser *parser,
 			      struct simulator_ctx* sim) {
   JsonNode * node = json_parser_get_root(parser);
+  JsonObject *object; user_ctx *user;
+  const char *msg_type, *callback_uri;
+  user_grid_glue *user_glue;
+  uuid_t user_id, session_id;
   GRID_PRIV_DEF(sim);
   int is_ok = 1;
 
@@ -693,9 +697,52 @@ static void agent_PUT_handler(SoupServer *server,
     printf("Root JSON node not object?!\n");
     goto out_fail;
   }
+  object = json_node_get_object(node);
 
   // FIXME - need to actually update the agent
+  struct sim_new_user uinfo;
+ 
+  if(helper_json_to_uuid(object, "agent_uuid", user_id)) {
+    printf("DEBUG agent PUT: couldn't get agent_id\n");
+    is_ok = 0; goto out_fail;
+  }
+#if 0 /* not meaningful - just get zero UUID */
+  if(helper_json_to_uuid(object, "session_uuid", session_id)) {
+    printf("DEBUG agent PUT: couldn't get session_id\n");
+    is_ok = 0; goto out_fail;
+  }
+#endif
+  msg_type = helper_json_to_string(object,"message_type");
+  if(msg_type == NULL) msg_type = "AgentData";
+ 
+  //user = user_find_session(sim, user_id, session_id);
+  user = user_find_ctx(sim, user_id);
+  if(user == NULL) {
+    char agent_str[40], session_str[40]; // DEBUG
+    uuid_unparse(user_id,agent_str);
+    uuid_unparse(session_id,session_str);    
+    printf("ERROR: PUT for unknown agent, user_id=%s session_id=%s\n",
+	   agent_str, session_str);
+    is_ok = 0; goto out;
+  }
 
+  user_glue = (user_grid_glue*)user_get_grid_priv(user);
+  assert(user_glue != NULL);
+
+  if(strcmp(msg_type,"AgentData") == 0) {
+    free(user_glue->enter_callback_uri);
+    callback_uri = helper_json_to_string(object,"callback_uri");
+    if(callback_uri != NULL && callback_uri[0] != 0) {
+      user_glue->enter_callback_uri = strdup(callback_uri);
+    } else {
+      user_glue->enter_callback_uri = NULL;
+    }
+  } else {
+    printf("DEBUG: agent PUT with unknown type %s\n",msg_type);
+    // but we return success anyway.
+  }  
+
+ out:
   soup_message_set_status(msg,200); // FIXME - application/json?
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
 			    is_ok?"true":"false", is_ok?4:5);  
@@ -706,6 +753,38 @@ static void agent_PUT_handler(SoupServer *server,
 			    "false",5);  
 }
 
+#if 0
+static void agent_DELETE_handler(SoupServer *server,
+			      SoupMessage *msg,
+			      uuid_t agent_id,
+			      JsonParser *parser,
+			      struct simulator_ctx* sim) {
+  JsonNode * node = json_parser_get_root(parser);
+  JsonObject *object; user_ctx *user;
+  user_grid_glue *user_glue;
+
+  user = user_find_ctx(sim, agent_id);
+  if(user == NULL) {
+    printf("ERROR: DELETE for unknown agent\n");
+    soup_message_set_status(msg, 404);
+    is_ok = 0; goto out;
+  }
+
+  user_glue = (user_grid_glue*)user_get_grid_priv(user);
+  assert(user_glue != NULL);
+
+ out:
+  soup_message_set_status(msg,200); // FIXME - application/json?
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    is_ok?"true":"false", is_ok?4:5);  
+  return;
+ out_fail:
+  soup_message_set_status(msg,400);
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    "false",5);  
+
+}
+#endif
 
 static void agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
@@ -717,13 +796,15 @@ static void agent_rest_handler(SoupServer *server,
   const char *reqtype = "???";
   uuid_t agent_id; uint64_t region_handle = 0;
   char *s; char buf[40]; char* cmd = NULL;
-  JsonParser *parser;
+  JsonParser *parser = NULL;
   if(msg->method == SOUP_METHOD_POST)
     reqtype = "POST";
   else if(msg->method == SOUP_METHOD_GET)
     reqtype = "GET";
   else if(msg->method == SOUP_METHOD_PUT)
     reqtype = "PUT";
+  else if(msg->method == SOUP_METHOD_DELETE)
+    reqtype = "DELETE";
   printf("DEBUG: agent_rest_handler %s %s\n",
 	 reqtype, path);
   if(msg->method != SOUP_METHOD_GET)
@@ -765,14 +846,15 @@ static void agent_rest_handler(SoupServer *server,
 	 buf, (long long unsigned int)region_handle, 
 	 cmd != NULL ? cmd : "(none)");
 
-  if(msg->method != SOUP_METHOD_POST &&
-     msg->method != SOUP_METHOD_PUT) goto out_fail;
+  if(msg->method != SOUP_METHOD_POST ||
+     msg->method != SOUP_METHOD_PUT) {
 
-  parser = json_parser_new();
-  if(!json_parser_load_from_data(parser, msg->request_body->data,
-				 msg->request_body->length, NULL)) {
-    printf("Error in agent_rest_handler: json parse failed\n");
-    g_object_unref(parser); goto out_fail;
+    parser = json_parser_new();
+    if(!json_parser_load_from_data(parser, msg->request_body->data,
+				   msg->request_body->length, NULL)) {
+      printf("Error in agent_rest_handler: json parse failed\n");
+      g_object_unref(parser); goto out_fail;
+    }
   }
 
   if(msg->method == SOUP_METHOD_POST && region_handle == 0
@@ -781,14 +863,18 @@ static void agent_rest_handler(SoupServer *server,
   } else if(msg->method == SOUP_METHOD_PUT && region_handle == 0
      && cmd == NULL) {
     agent_PUT_handler(server, msg, agent_id, parser, sim);
-  } else {
-    printf("DEBUG: agent_rest_handler unhandled request");
+  } /* else if(msg->method == SOUP_METHOD_DELETE && region_handle == 0
+     && cmd == NULL) {
+    agent_DELETE_handler(server, msg, agent_id, sim);
+    } */ else {
+    printf("DEBUG: agent_rest_handler unhandled request\n");
     goto out_fail;
   }
   // TODO
 
   // other code can g_object_ref if it wants to keep it
-  g_object_unref(parser); 
+  if(parser != NULL)
+    g_object_unref(parser); 
   return;
   
  out_fail:
@@ -802,7 +888,7 @@ static void user_created(struct simulator_ctx* sim,
   user_grid_glue *user_glue = new user_grid_glue();
   user_glue->ctx = user;
   user_glue->refcnt = 1;
-  
+  user_glue->enter_callback_uri = NULL;
   *user_priv = user_glue;
 }
 
@@ -811,7 +897,44 @@ static void user_deleted(struct simulator_ctx* sim,
 			 void *user_priv) {
   USER_PRIV_DEF(user_priv);
   user_glue->ctx = NULL;
+  free(user_glue->enter_callback_uri);
+  user_glue->enter_callback_uri = NULL;  
   user_grid_glue_deref(user_glue);
+}
+
+static void user_entered_callback_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  simulator_ctx *sim = (simulator_ctx*) user_data;
+  sim_shutdown_release(sim);
+  // FIXME - should probably pay *some* attention to the response
+  if(msg->status_code != 200) {
+    printf("User entry callback failed: got %i %s\n",
+	   (int)msg->status_code,msg->reason_phrase);
+  }
+
+}
+
+void user_entered(simulator_ctx *sim, user_ctx *user,
+		  void *user_priv) {
+  USER_PRIV_DEF(user_priv);
+
+  if(user_glue->enter_callback_uri != NULL) {
+    printf("DEBUG: calling back to %s on avatar entry\n",
+	   user_glue->enter_callback_uri);
+
+    // FIXME - shouldn't we have to, y'know, identify ourselves somehow?
+
+    SoupMessage *msg = 
+      soup_message_new ("DELETE", user_glue->enter_callback_uri);
+    // FIXME - should we send a body at all?
+    soup_message_set_request (msg, "text/plain",
+			      SOUP_MEMORY_STATIC, "", 0);
+    sim_shutdown_hold(sim);
+    sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			   user_entered_callback_resp, sim);
+    free(user_glue->enter_callback_uri);
+    user_glue->enter_callback_uri = NULL;  
+    
+  }
 }
 
 void user_grid_glue_ref(user_grid_glue *user_glue) {
@@ -822,6 +945,7 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
   user_glue->refcnt--;
   if(user_glue->refcnt == 0) {
     assert(user_glue->ctx == NULL);
+    free(user_glue->enter_callback_uri);
     delete user_glue;
   }
 }
@@ -849,6 +973,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_created = user_created;
   hooks->user_logoff = user_logoff;
   hooks->user_deleted = user_deleted;
+  hooks->user_entered = user_entered;
   hooks->fetch_user_inventory = fetch_user_inventory;
   hooks->cleanup = cleanup;
 

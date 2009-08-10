@@ -34,6 +34,7 @@ struct grid_glue_ctx {
 struct user_grid_glue {
   int refcnt;
   user_ctx *ctx;
+  char *enter_callback_uri; // callback for teleports
 };
 void user_grid_glue_ref(user_grid_glue *user_glue);
 void user_grid_glue_deref(user_grid_glue *user_glue);

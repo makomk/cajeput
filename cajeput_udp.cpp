@@ -164,8 +164,10 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
     if(ad->CircuitCode != ctx->circuit_code || VALIDATE_SESSION(ad)) 
       return;
     if(!(ctx->flags & AGENT_FLAG_INCOMING)) {
-      return; // FIXME - how to handle this?
+      // return; // FIXME - how to figure this out?
     }
+    ctx->flags &= ~AGENT_FLAG_CHILD;
+    ctx->flags |= AGENT_FLAG_ENTERED;
     if(ctx->av == NULL) {
       ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
       ctx->av->ob.type = OBJ_TYPE_AVATAR;
@@ -178,6 +180,8 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
       world_insert_obj(ctx->sim, &ctx->av->ob);
       world_obj_listen_chat(ctx->sim,&ctx->av->ob,av_chat_callback,ctx);
       world_obj_add_channel(ctx->sim,&ctx->av->ob,0);
+
+      ctx->sim->gridh.user_entered(ctx->sim, ctx, ctx->grid_priv);
     }
     printf("Got CompleteAgentMovement; sending AgentMovementComplete\n");
     SL_DECLMSG(AgentMovementComplete, amc);
