@@ -697,10 +697,10 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   sim_prepare_new_user(st->sim, &uinfo);
 
  out:
-  g_object_unref(st->parser); delete st;
   soup_message_set_status(st->msg,200); // FIXME - application/json?
   soup_message_set_response(st->msg,"text/plain",SOUP_MEMORY_STATIC,
 			    is_ok?"true":"false", is_ok?4:5); 
+  g_object_unref(st->parser); delete st;
 }
 
 static void agent_POST_handler(SoupServer *server,

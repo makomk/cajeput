@@ -250,7 +250,7 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	  {
 	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
 	    if(len < 2) { printf("Unexpected end of packet\n"); return 1;}
-	    int tmp = data[0] | (data[1] >> 8);
+	    int tmp = data[0] | (data[1] << 8);
 	    if(len < tmp+2) { 
 	      printf("Unexpected end of packet %s in VARIABLE2 of len %i; only %i remaining\n",
 		     msgout->tmpl->name,tmp,len); 
