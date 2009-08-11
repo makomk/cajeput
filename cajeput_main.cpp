@@ -142,7 +142,7 @@ struct world_octree {
   struct world_octree* parent;
   std::set<int32_t> chat_mask;
 
-  world_octree(world_octree* pparent) : parent(pparent), magic(OCTREE_MAGIC) {
+  world_octree(world_octree* pparent) : magic(OCTREE_MAGIC), parent(pparent) {
     for(int i = 0; i < 8; i++) nodes[i] = NULL;
     //memset(&nodes,0,sizeof(nodes));
   }
@@ -156,7 +156,7 @@ struct world_ot_leaf {
   struct world_octree* parent;
   std::set<world_obj*> objects;
   octree_chat_map chat_map;
-  world_ot_leaf(world_octree* pparent) : parent(pparent), magic(OCTREE_LEAF_MAGIC) {
+  world_ot_leaf(world_octree* pparent) : magic(OCTREE_LEAF_MAGIC), parent(pparent) {
   }
 };
 
@@ -833,6 +833,17 @@ void user_get_uuid(struct user_ctx *user, uuid_t u) {
 void user_get_session_id(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->session_id);
 }
+
+uint32_t user_get_flags(struct user_ctx *user) {
+  return user->flags;
+}
+void user_set_flag(struct user_ctx *user, uint32_t flag) {
+  user->flags |= flag;
+}
+void user_clear_flag(struct user_ctx *user, uint32_t flag) {
+  user->flags &= ~flag;
+}
+
 
 static void debug_prepare_new_user(struct sim_new_user *uinfo) {
   char user_id[40], session_id[40];

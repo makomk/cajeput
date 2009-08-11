@@ -67,6 +67,24 @@ static void send_pending_acks(struct simulator_ctx *sim) {
   }
 }
 
+void user_set_throttles(struct user_ctx *ctx, float rates[]) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    ctx->throttles[i].time = time_now;
+    ctx->throttles[i].level = 0.0f;
+    ctx->throttles[i].rate = rates[i];
+    
+  }
+}
+
+void user_reset_throttles(struct user_ctx *ctx) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    ctx->throttles[i].time = time_now;
+    ctx->throttles[i].level = 0.0f;
+  }
+}
+
 #define VALIDATE_SESSION(ad) (uuid_compare(ctx->user_id, ad->AgentID) != 0 || uuid_compare(ctx->session_id, ad->SessionID) != 0)
 
 #define AGENT_CONTROL_AT_POS (1<<0)
@@ -164,7 +182,9 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
     if(ad->CircuitCode != ctx->circuit_code || VALIDATE_SESSION(ad)) 
       return;
     if(!(ctx->flags & AGENT_FLAG_INCOMING)) {
-      // return; // FIXME - how to figure this out?
+      printf("ERROR: unexpected CompleteAgentMovement for %s %s\n",
+	     ctx->first_name, ctx->last_name);
+      return;
     }
     ctx->flags &= ~AGENT_FLAG_CHILD;
     ctx->flags |= AGENT_FLAG_ENTERED;
@@ -221,6 +241,23 @@ static float sl_unpack_float(unsigned char *buf) {
   return f;
 }
 
+void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len) {
+  float throttles[SL_NUM_THROTTLES];
+
+  if(len < SL_NUM_THROTTLES*4) {
+    printf("Error: AgentThrottle with not enough data\n");
+    return;
+  }
+
+  printf("DEBUG: got new throttles:\n");
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    throttles[i] =  sl_unpack_float(data + 4*i);
+    printf("  throttle %s: %f\n", sl_throttle_names[i], throttles[i]);
+    user_set_throttles(ctx, throttles);
+  }
+}
+
 static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* msg) {
   struct sl_blk_AgentThrottle_AgentData *ad;
   struct sl_blk_AgentThrottle_Throttle *throt;
@@ -233,17 +270,9 @@ static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* ms
 
   // FIXME - need to check generation counter
 
-  if(throt->Throttles.len < SL_NUM_THROTTLES*4) {
-    printf("Error: AgentThrottle with not enough data\n");
-  }
-
-  printf("DEBUG: got new throttles:\n");
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    ctx->throttles[i] =  sl_unpack_float(throt->Throttles.data + 4*i);
-    printf("  throttle %s: %f\n", sl_throttle_names[i], ctx->throttles[i]);
-  }
+  user_set_throttles_block(ctx, throt->Throttles.data,
+			   throt->Throttles.len);
 }
-
 
 void register_msg_handler(struct simulator_ctx *sim, sl_message_tmpl* tmpl, 
 			  sl_msg_handler handler){
@@ -374,6 +403,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   register_msg_handler(sim, &sl_msgt_CompleteAgentMovement, handle_CompleteAgentMovement_msg);
   register_msg_handler(sim, &sl_msgt_LogoutRequest, handle_LogoutRequest_msg);
   register_msg_handler(sim, &sl_msgt_ChatFromViewer, handle_ChatFromViewer_msg);
+  register_msg_handler(sim, &sl_msgt_AgentThrottle, handle_AgentThrottle_msg);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

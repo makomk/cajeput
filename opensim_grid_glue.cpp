@@ -574,6 +574,25 @@ static const char* helper_json_to_string(JsonObject *obj, const char* key) {
   return json_node_get_string(node);
 }
 
+static unsigned char* helper_json_to_bin(JsonNode *node, int *len_out) {
+  JsonArray *arr; unsigned char* buf; int len;
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
+    return NULL;
+  arr = json_node_get_array(node);
+  len = json_array_get_length(arr);
+  if(len < 0) return NULL;
+  buf = (unsigned char*)malloc(len);
+  for(int i = 0; i < len; i++) {
+    JsonNode* item = json_array_get_element(arr,i);
+    if(item == NULL || JSON_NODE_TYPE(item) != JSON_NODE_VALUE) {
+      free(buf); return NULL;
+    }
+    buf[i] = (unsigned char)json_node_get_int(item);
+  }
+  *len_out = len;
+  return buf;
+}
+
 struct agent_POST_state {
   SoupServer *server;
   SoupMessage *msg;
@@ -685,7 +704,7 @@ static void agent_PUT_handler(SoupServer *server,
 			      uuid_t agent_id,
 			      JsonParser *parser,
 			      struct simulator_ctx* sim) {
-  JsonNode * node = json_parser_get_root(parser);
+  JsonNode * node = json_parser_get_root(parser); // reused later
   JsonObject *object; user_ctx *user;
   const char *msg_type, *callback_uri;
   user_grid_glue *user_glue;
@@ -728,20 +747,40 @@ static void agent_PUT_handler(SoupServer *server,
 
   user_glue = (user_grid_glue*)user_get_grid_priv(user);
   assert(user_glue != NULL);
+  
+  if(!(user_get_flags(user) & AGENT_FLAG_CHILD)) {
+    printf("ERROR: PUT for non-child agent\n");
+    goto out_fail;
+  }
 
   if(strcmp(msg_type,"AgentData") == 0) {
     free(user_glue->enter_callback_uri);
+    user_set_flag(user, AGENT_FLAG_INCOMING);
     callback_uri = helper_json_to_string(object,"callback_uri");
     if(callback_uri != NULL && callback_uri[0] != 0) {
       user_glue->enter_callback_uri = strdup(callback_uri);
     } else {
       user_glue->enter_callback_uri = NULL;
     }
+
+    node = json_object_get_member(object,"throttles");
+    if(node != NULL) {
+      int len; unsigned char* buf;
+      buf = helper_json_to_bin(node, &len);
+      if(buf == NULL) {
+	printf("DEBUG: agent PUT had bad throttle data");
+	goto out_fail;
+      }
+      user_set_throttles_block(user, buf, len);
+      free(buf);
+    }
+    
   } else {
     printf("DEBUG: agent PUT with unknown type %s\n",msg_type);
     // but we return success anyway.
   }  
 
+  // FIXME - are we actually returning the right thing?
  out:
   soup_message_set_status(msg,200); // FIXME - application/json?
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,

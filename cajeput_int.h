@@ -31,39 +31,28 @@
 #include <netinet/in.h>
 #include "sl_llsd.h"
 
-#define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply
-#define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region - FIXME remove
-#define AGENT_FLAG_PURGE 0x4 // agent is being purged
-#define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
-#define AGENT_FLAG_CHILD 0x10 // is a child agent
-#define AGENT_FLAG_ENTERED 0x20 // got CompleteAgentMovement
-
 #define USER_CONNECTION_TIMEOUT 15
 
-#define SL_NUM_THROTTLES 7
-#define SL_THROTTLE_NONE -1
-#define SL_THROTTLE_RESEND 0
-#define SL_THROTTLE_LAND 1
-#define SL_THROTTLE_WIND 2
-#define SL_THROTTLE_CLOUD 3
-#define SL_THROTTLE_TASK 4 // object updates
-#define SL_THROTTLE_TEXTURE 5
-#define SL_THROTTLE_ASSET 6
-static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
 
 struct cap_descrip;
 
 typedef std::map<std::string,cap_descrip*> named_caps_map;
 typedef std::map<std::string,cap_descrip*>::iterator named_caps_iter;
 
+struct sl_throttle {
+  double time; // time last refilled
+  float level, rate; // current reservoir level and flow rate
+};
 
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
   uint32_t circuit_code;
   uint32_t counter;
+
   // float main_throttle; // FIXME - is this needed?
-  float throttles[SL_NUM_THROTTLES];
+  struct sl_throttle throttles[SL_NUM_THROTTLES];
+
   uuid_t session_id;
   uuid_t secure_session_id;
   uuid_t user_id;

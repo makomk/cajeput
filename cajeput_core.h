@@ -152,17 +152,47 @@ struct cajeput_physics_hooks {
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 
 			 void **priv, struct cajeput_physics_hooks *hooks);
 
-// ----- MISC STUFF ---------
+// ----- USER-RELATED STUFF ---------
+
+#define SL_NUM_THROTTLES 7
+
+#define SL_THROTTLE_NONE -1
+#define SL_THROTTLE_RESEND 0
+#define SL_THROTTLE_LAND 1
+#define SL_THROTTLE_WIND 2
+#define SL_THROTTLE_CLOUD 3
+#define SL_THROTTLE_TASK 4 // object updates
+#define SL_THROTTLE_TEXTURE 5
+#define SL_THROTTLE_ASSET 6
+static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
+
+
+#define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply
+#define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region - FIXME remove
+#define AGENT_FLAG_PURGE 0x4 // agent is being purged
+#define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
+#define AGENT_FLAG_CHILD 0x10 // is a child agent
+#define AGENT_FLAG_ENTERED 0x20 // got CompleteAgentMovement
 
 void *user_get_grid_priv(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
+
+uint32_t user_get_flags(struct user_ctx *user);
+void user_set_flag(struct user_ctx *user, uint32_t flag);
+void user_clear_flag(struct user_ctx *user, uint32_t flag);
+void user_set_throttles(struct user_ctx *sim, float rates[]);
+void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len);
+
 user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id);
 
 void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);
+
+// ----- MISC STUFF ---------
 
 void sim_shutdown_hold(struct simulator_ctx *sim);
 void sim_shutdown_release(struct simulator_ctx *sim);
