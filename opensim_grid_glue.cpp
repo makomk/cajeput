@@ -170,10 +170,54 @@ struct expect_user_state {
   struct simulator_ctx* sim;
 };
 
+static int helper_soup_hash_get_uuid(GHashTable *hash, const char* name,
+				     uuid_t u) {
+  const char *s;
+  if(!soup_value_hash_lookup(hash, name, G_TYPE_STRING, &s)) 
+    return -1;
+  return uuid_parse(s, u);
+}
+
+/* actually passed the "appearance" member of the request */
+static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
+  GByteArray *data;
+  if(soup_value_hash_lookup(hash,"visual_params",SOUP_TYPE_BYTE_ARRAY,
+			    &data)) {
+    sl_string str;
+    sl_string_set_bin(&str,data->data,data->len);
+    user_set_visual_params(user, &str);
+  } else {
+    printf("WARNING: expect_user is missing visual_params\n");
+  }  
+
+  if(soup_value_hash_lookup(hash,"texture_data",SOUP_TYPE_BYTE_ARRAY,
+			    &data)) {
+    sl_string str;
+    sl_string_set_bin(&str,data->data,data->len);
+    user_set_texture_entry(user, &str);
+  } else {
+    printf("WARNING: expect_user is missing texture_data\n");
+  }  
+
+  for(int i = 0; i < SL_NUM_WEARABLES; i++) {
+    char asset_str[24], item_str[24];
+    uuid_t item_id, asset_id;
+    sprintf(asset_str,"%s_asset",sl_wearable_names[i]);
+    sprintf(item_str,"%s_item",sl_wearable_names[i]);
+    if(helper_soup_hash_get_uuid(hash, asset_str, asset_id) || 
+       helper_soup_hash_get_uuid(hash, item_str, item_id)) {
+      printf("Error: couldn't find wearable %s in expect_user\n",
+	     sl_wearable_names[i]);
+    } else {
+      user_set_wearable(user, i, item_id, asset_id);
+    }
+  }
+}
+
 static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   struct expect_user_state *state = (struct expect_user_state*)priv;
   GHashTable *args = state->args;
-  GHashTable *hash;
+  GHashTable *hash; user_ctx *user;
   struct sim_new_user uinfo;
   //char *first_name, *last_name;
   char *caps_path, *s;
@@ -208,7 +252,14 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
   uinfo.is_child = 0;
-  sim_prepare_new_user(state->sim, &uinfo);
+  user = sim_prepare_new_user(state->sim, &uinfo);
+  if(soup_value_hash_lookup(args,"appearance",G_TYPE_HASH_TABLE,
+			    &hash)) {
+    expect_user_set_appearance(user, hash);
+  } else {
+    printf("WARNING: expect_user is missing appearance data\n");
+  }
+  
 
  
   success = 1;
@@ -419,7 +470,6 @@ static void xmlrpc_handler (SoupServer *server,
 				SoupClientContext *client,
 				gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*) user_data;
-  const char *dat = msg->request_body->data;
   char *method_name;
   GValueArray *params;
 
@@ -443,7 +493,7 @@ static void xmlrpc_handler (SoupServer *server,
 				    msg->request_body->length,
 				    &method_name, &params)) {
     printf("Couldn't parse XMLRPC method call\n");
-    printf("DEBUG: ~%s~\n", dat);
+    printf("DEBUG: ~%s~\n", msg->request_body->data);
     soup_message_set_status(msg,500);
     return;
   }
@@ -453,6 +503,7 @@ static void xmlrpc_handler (SoupServer *server,
     xmlrpc_logoff_user(server, msg, params, sim);
     
   } else if(strcmp(method_name, "expect_user") == 0) {
+    printf("DEBUG: expect_user ~%s~\n", msg->request_body->data);
     xmlrpc_expect_user(server, msg, params, sim);
   } else {
     printf("DEBUG: unknown xmlrpc method %s called\n", method_name);
@@ -754,8 +805,9 @@ static void agent_PUT_handler(SoupServer *server,
   }
 
   if(strcmp(msg_type,"AgentData") == 0) {
-    free(user_glue->enter_callback_uri);
     user_set_flag(user, AGENT_FLAG_INCOMING);
+
+    free(user_glue->enter_callback_uri);
     callback_uri = helper_json_to_string(object,"callback_uri");
     if(callback_uri != NULL && callback_uri[0] != 0) {
       user_glue->enter_callback_uri = strdup(callback_uri);
@@ -773,6 +825,30 @@ static void agent_PUT_handler(SoupServer *server,
       }
       user_set_throttles_block(user, buf, len);
       free(buf);
+    }
+
+    node = json_object_get_member(object,"texture_entry");
+    if(node != NULL) {
+      struct sl_string buf;
+      buf.data = helper_json_to_bin(node, &buf.len);
+      if(buf.data == NULL) {
+	printf("DEBUG: agent PUT had bad texture_entry data\n");
+	goto out_fail;
+      }
+      // semantics of this are funny
+      user_set_texture_entry(user, &buf);
+    }
+
+    node = json_object_get_member(object,"visual_params");
+    if(node != NULL) {
+      struct sl_string buf;
+      buf.data = helper_json_to_bin(node, &buf.len);
+      if(buf.data == NULL) {
+	printf("DEBUG: agent PUT had bad visual_params data\n");
+	goto out_fail;
+      }
+      // semantics of this are funny
+      user_set_texture_entry(user, &buf);
     }
     
   } else {

@@ -31,16 +31,28 @@ typedef struct sl_string {
   int len;
 } sl_string;
 
-static inline void sl_string_set(struct sl_string* str, char* val) {
+static inline void sl_string_set(struct sl_string* str, const char* val) {
   str->len = strlen(val)+1;
   str->data = (unsigned char*)malloc(str->len);
   memcpy(str->data, val, str->len);
 }
 
-static inline void sl_string_set_bin(struct sl_string* str, unsigned char* val, int len) {
+static inline void sl_string_set_bin(struct sl_string* str, 
+				     const unsigned char* val, int len) {
   str->len = len;
   str->data = (unsigned char*)malloc(len);
   memcpy(str->data, val, len);
+}
+
+static inline void sl_string_copy(struct sl_string *dest, 
+				  const struct sl_string *src) {
+  if(src->data == NULL) {
+    dest->data = NULL; dest->len = 0;
+  } else {
+    dest->data = (unsigned char*)malloc(src->len);
+    dest->len = src->len;
+    memcpy(dest->data, src->data, dest->len);
+  }
 }
 
 static inline void sl_string_free(struct sl_string* str) {

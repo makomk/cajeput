@@ -132,6 +132,16 @@ static void handle_StartPingCheck_msg(struct user_ctx* ctx, struct sl_message* m
   sl_send_udp(ctx,&pong);
 }
 
+void user_send_message(struct user_ctx *user, char* msg) {
+  struct chat_message chat;
+  chat.source_type = CHAT_SOURCE_SYSTEM;
+  chat.chat_type = CHAT_TYPE_NORMAL;
+  uuid_clear(chat.source); // FIXME - set this?
+  uuid_clear(chat.owner);
+  chat.name = "Cajeput";
+  chat.msg = msg;
+}
+
 void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 		       const struct chat_message *msg, void *user_data) {
   struct user_ctx* ctx = (user_ctx*)user_data;
@@ -172,6 +182,46 @@ static void handle_ChatFromViewer_msg(struct user_ctx* ctx, struct sl_message* m
       chat.msg = (char*)cdata->Message.data;
       world_send_chat(ctx->sim, &chat);
     }
+}
+
+static void send_agent_wearables(struct user_ctx* ctx) {
+  SL_DECLMSG(AgentWearablesUpdate, upd);
+  SL_DECLBLK(AgentWearablesUpdate, AgentData, ad, &upd);
+  uuid_copy(ad->AgentID, ctx->user_id);
+  uuid_copy(ad->SessionID, ctx->session_id);
+  ad->SerialNum = ctx->appearance_serial++;
+  
+  for(int i = 0; i < SL_NUM_WEARABLES; i++) {
+    // FIXME - avoid sending empty wearables?
+
+     SL_DECLBLK(AgentWearablesUpdate, WearableData, wd, &upd);
+     uuid_copy(wd->ItemID, ctx->wearables[i].item_id);
+     uuid_copy(wd->AssetID, ctx->wearables[i].asset_id);
+     wd->WearableType = i;
+  }
+
+  upd.flags |= MSG_RELIABLE;
+  sl_send_udp(ctx, &upd);
+}
+
+static void handle_AgentWearablesRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+    struct sl_blk_AgentWearablesRequest_AgentData *ad;
+    if(SL_GETBLK(AgentWearablesRequest,AgentData,msg).count != 1) return;
+    ad = SL_GETBLKI(AgentWearablesRequest,AgentData,msg,0);
+    if(VALIDATE_SESSION(ad)) 
+      return;
+    send_agent_wearables(ctx);
+}
+
+
+static void handle_RegionHandshakeReply_msg(struct user_ctx* ctx, struct sl_message* msg) {
+    struct sl_blk_RegionHandshakeReply_AgentData *ad;
+    if(SL_GETBLK(RegionHandshakeReply,AgentData,msg).count != 1) return;
+    ad = SL_GETBLKI(RegionHandshakeReply,AgentData,msg,0);
+    if(VALIDATE_SESSION(ad)) 
+      return;
+    ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_APPEARANCE;
+    // FIXME - should we do something with RegionInfo.Flags?
 }
 
 static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -274,6 +324,11 @@ static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* ms
 			   throt->Throttles.len);
 }
 
+static void handle_AssetUploadRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  printf("FIXME: can't handle AssetUploadRequest yet\n");
+  sl_dump_packet(msg);
+}
+
 void register_msg_handler(struct simulator_ctx *sim, sl_message_tmpl* tmpl, 
 			  sl_msg_handler handler){
   sim->msg_handlers.insert(std::pair<sl_message_tmpl*,sl_msg_handler>(tmpl,handler));
@@ -286,6 +341,10 @@ static void dispatch_msg(struct user_ctx* ctx, struct sl_message* msg) {
   for(msg_handler_map_iter iter = iters.first; iter != iters.second; iter++) {
     assert(iter->first == msg->tmpl);
     iter->second(ctx, msg);
+  }
+  if(iters.first == iters.second) {
+    printf("DEBUG: no handler for message %s\n",
+	   msg->tmpl->name);
   }
   user_reset_timeout(ctx);
 }
@@ -395,16 +454,34 @@ static gboolean got_packet(GIOChannel *source,
     // FIXME - what should I return?
 }
 
+#define ADD_HANDLER(name) register_msg_handler(sim, &sl_msgt_##name, handle_##name##_msg)
+
 void sim_int_init_udp(struct simulator_ctx *sim)  {
   int sock; struct sockaddr_in addr;
 
+#if 0
   register_msg_handler(sim, &sl_msgt_AgentUpdate, handle_AgentUpdate_msg);
   register_msg_handler(sim, &sl_msgt_StartPingCheck, handle_StartPingCheck_msg);
-  register_msg_handler(sim, &sl_msgt_CompleteAgentMovement, handle_CompleteAgentMovement_msg);
+  register_msg_handler(sim, &sl_msgt_CompleteAgentMovement, 
+		       handle_CompleteAgentMovement_msg);
   register_msg_handler(sim, &sl_msgt_LogoutRequest, handle_LogoutRequest_msg);
   register_msg_handler(sim, &sl_msgt_ChatFromViewer, handle_ChatFromViewer_msg);
   register_msg_handler(sim, &sl_msgt_AgentThrottle, handle_AgentThrottle_msg);
-
+  register_msg_handler(sim, &sl_msgt_RegionHandshakeReply,
+		       handle_RegionHandshakeReply_msg);
+  register_msg_handler(sim, &sl_msgt_AgentWearablesRequest,
+		       handle_AgentWearablesRequest_msg);
+#else
+  ADD_HANDLER(AgentUpdate);
+  ADD_HANDLER(StartPingCheck);
+  ADD_HANDLER(CompleteAgentMovement);
+  ADD_HANDLER(LogoutRequest);
+  ADD_HANDLER(ChatFromViewer);
+  ADD_HANDLER(AgentThrottle);
+  ADD_HANDLER(RegionHandshakeReply);
+  ADD_HANDLER(AgentWearablesRequest);
+  ADD_HANDLER(AssetUploadRequest);
+#endif
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;
   addr.sin_port = htons(sim->udp_port);

@@ -36,7 +36,7 @@
 #include <libsoup/soup.h>
 #include <errno.h>
 #include <signal.h>
-
+#include <fcntl.h>
 #include <cassert>
 
 struct simulator_ctx;
@@ -458,7 +458,8 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->ParentID = 0;
   objd->UpdateFlags = 0; // TODO
 
-  objd->TextureEntry.len = 0;
+  sl_string_copy(&objd->TextureEntry, &ctx->texture_entry);
+  //objd->TextureEntry.len = 0;
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
   objd->Text.len = 0;
@@ -537,6 +538,27 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   sl_send_udp(ctx, &terse);
 }
 
+static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
+  avatar_obj* av = av_user->av;
+  char name[0x100]; unsigned char obj_data[60];
+  SL_DECLMSG(AvatarAppearance,aa);
+  SL_DECLBLK(AvatarAppearance,Sender,sender,&aa);
+  uuid_copy(sender->ID, av_user->user_id);
+  sender->IsTrial = 0;
+  SL_DECLBLK(AvatarAppearance,ObjectData,objd,&aa);
+  sl_string_copy(&objd->TextureEntry, &av_user->texture_entry);
+
+  // FIXME - this is horribly, horribly inefficient
+  if(av_user->visual_params.data != NULL) {
+      for(int i = 0; i < av_user->visual_params.len; i++) {
+	SL_DECLBLK(AvatarAppearance,VisualParam,param,&aa);
+	param->ParamValue = av_user->visual_params.data[i];
+      }
+  }
+  
+  sl_send_udp(ctx, &aa);
+}
+
 static gboolean av_update_timer(gpointer data) {
   struct simulator_ctx* sim = (simulator_ctx*)data;
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
@@ -552,12 +574,24 @@ static gboolean av_update_timer(gpointer data) {
     }
   }
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
-    // FIXME - check for region handshake?
+    // don't send anything prior to RegionHandshakeReply
+    if(user->flags & AGENT_FLAG_RHR == 0) continue;
+
     for(user_ctx* user2 = sim->ctxts; user2 != NULL; user2 = user2->next) {
       struct avatar_obj *av = user2->av;
       if(av == NULL) continue;
       send_av_full_update(user, user2);
+      if(user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
+	 user->flags & AGENT_FLAG_NEED_APPEARANCE) {
+	// FIXME - shouldn't send AvatarAppearance to self?
+	send_av_appearance(user, user2);
+      }
     }
+    user_clear_flag(user, AGENT_FLAG_NEED_APPEARANCE);
+  }
+  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
+    if(user->av != NULL)
+      user_clear_flag(user,  AGENT_FLAG_APPEARANCE_UPD);
   }
   return TRUE;
 }
@@ -786,7 +820,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   
 }
 
-#define RELEASE_NOTES "Cajeput pre-release\n\nThis software is for testing purposes only and is not release-worthy."
+#define NO_RELEASE_NOTES "Sorry, no release notes available."
 
 static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   // TODO
@@ -796,8 +830,14 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
   }
 
   soup_message_set_status(msg,200);
-  soup_message_set_response(msg,"text/plain", SOUP_MEMORY_COPY,
-			    RELEASE_NOTES,strlen(RELEASE_NOTES));
+  if(ctx->sim->release_notes) {
+    soup_message_set_response(msg,"text/plain", SOUP_MEMORY_COPY,
+			      ctx->sim->release_notes, 
+			      ctx->sim->release_notes_len);
+  } else {
+    soup_message_set_response(msg,"text/plain", SOUP_MEMORY_STATIC,
+			      NO_RELEASE_NOTES, strlen(NO_RELEASE_NOTES));
+  }
 }
 
 
@@ -845,6 +885,30 @@ void user_clear_flag(struct user_ctx *user, uint32_t flag) {
 }
 
 
+void user_set_texture_entry(struct user_ctx *user, struct sl_string* data) {
+  sl_string_free(&user->texture_entry);
+  user->texture_entry = *data;
+  data->data = NULL;
+  user->flags |= AGENT_FLAG_APPEARANCE_UPD; // FIXME - send full update instead?
+}
+
+void user_set_visual_params(struct user_ctx *user, struct sl_string* data) {
+  sl_string_free(&user->visual_params);
+  user->visual_params = *data;
+  data->data = NULL;
+  user->flags |= AGENT_FLAG_APPEARANCE_UPD;
+}
+
+void user_set_wearable(struct user_ctx *ctx, int id,
+		       uuid_t item_id, uuid_t asset_id) {
+  if(id >= SL_NUM_WEARABLES) {
+    printf("ERROR: user_set_wearable bad id %i\n",id);
+    return;
+  }
+  uuid_copy(ctx->wearables[id].item_id, item_id);
+  uuid_copy(ctx->wearables[id].asset_id, asset_id);
+}
+
 static void debug_prepare_new_user(struct sim_new_user *uinfo) {
   char user_id[40], session_id[40];
   uuid_unparse(uinfo->user_id,user_id);
@@ -855,13 +919,18 @@ static void debug_prepare_new_user(struct sim_new_user *uinfo) {
 	 uinfo->is_child ? "child" : "main");
 }
 
-void sim_prepare_new_user(struct simulator_ctx *sim,
-			  struct sim_new_user *uinfo) {
+struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
+				      struct sim_new_user *uinfo) {
   struct user_ctx* ctx;
   ctx = new user_ctx(sim); 
   ctx->sock = sim->sock; ctx->counter = 0;
   ctx->draw_dist = 0.0f;
   ctx->circuit_code = uinfo->circuit_code;
+
+  ctx->texture_entry.data = NULL;
+  ctx->visual_params.data = NULL;
+  ctx->appearance_serial = 0;
+  memset(ctx->wearables, 0, sizeof(ctx->wearables));
 
   debug_prepare_new_user(uinfo);
 
@@ -899,6 +968,8 @@ void sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->event_queue_msg = NULL;
   user_add_named_cap(sim,"EventQueueGet",event_queue_get,ctx,NULL);
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
+
+  return ctx;
 }
 
 
@@ -1060,6 +1131,25 @@ static void set_sigint_handler() {
   }
 }
 
+static char *read_text_file(const char *name, int *lenout) {
+  int len = 0, maxlen = 512, ret;
+  char *data = (char*)malloc(maxlen);
+  //FILE *f = fopen(name,"r");
+  int fd = open(name,O_RDONLY);
+  if(fd < 0) return NULL;
+  for(;;) {
+    //ret = fread(data+len, maxlen-len, 1, f);
+    ret = read(fd, data+len, maxlen-len);
+    if(ret <= 0) break;
+    len += ret;
+    if(maxlen-len < 256) {
+      maxlen += 512;
+      data = (char*)realloc(data, maxlen);
+    }
+  }
+  close(fd); *lenout = len; return data;
+}
+
 int main(void) {
   g_thread_init(NULL);
   g_type_init();
@@ -1081,6 +1171,12 @@ int main(void) {
     printf("Config file load failed\n"); 
     g_key_file_free(sim->config); sim->config = NULL;
     return 1;
+  }
+
+  sim->release_notes = read_text_file("release-notes.txt", 
+				      &sim->release_notes_len);
+  if(sim->release_notes == NULL) {
+    printf("WARNING: Release notes load failed\n"); 
   }
 
   // FIXME - better error handling needed

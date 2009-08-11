@@ -52,6 +52,16 @@ void sl_dump_packet(struct sl_message* msg) {
 	  printf("    %s = %u\n", bt->vals[k].name, 
 		 (unsigned int)*(uint32_t*)(blk+bt->vals[k].offset));
 	  break;
+	case SL_MSG_S8:
+	  printf("    %s = %i\n", bt->vals[k].name, (int)*(int8_t*)(blk+bt->vals[k].offset));
+	  break;
+	case SL_MSG_S16:
+	  printf("    %s = %i\n", bt->vals[k].name, (int)*(int16_t*)(blk+bt->vals[k].offset));
+	  break;
+	case SL_MSG_S32:
+	  printf("    %s = %i\n", bt->vals[k].name, 
+		 (int)*(int32_t*)(blk+bt->vals[k].offset));
+	  break;
 	case SL_MSG_F32:
 	  printf("    %s = %f\n", bt->vals[k].name, 
 		 (double)*(float*)(blk+bt->vals[k].offset));
@@ -76,6 +86,18 @@ void sl_dump_packet(struct sl_message* msg) {
 	    unsigned char* u = blk+bt->vals[k].offset;
 	    printf("    %s = %02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n",
 		   bt->vals[k].name, (int)u[0], (int)u[1], (int)u[2], (int)u[3], (int)u[4], (int)u[5], (int)u[6], (int)u[7], (int)u[8], (int)u[9], (int)u[10], (int)u[11], (int)u[12], (int)u[13], (int)u[14], (int)u[15]);
+	    break;
+	  }
+	case SL_MSG_BOOL:
+	  printf("    %s = %s\n", bt->vals[k].name, 
+		 (*(int*)(blk+bt->vals[k].offset))?"true":"false");
+	  break;
+	case SL_MSG_VARIABLE1:
+	case SL_MSG_VARIABLE2:
+	  {
+	    sl_string *str = (sl_string*)(blk+bt->vals[k].offset);
+	    printf("    %s = (variable, length %i)\n",
+		   bt->vals[k].name, str->data != NULL ? str->len : -1);
 	    break;
 	  }
 	default:

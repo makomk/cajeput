@@ -44,6 +44,10 @@ struct sl_throttle {
   float level, rate; // current reservoir level and flow rate
 };
 
+struct wearable_desc {
+  uuid_t asset_id, item_id;
+};
+
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
@@ -67,6 +71,12 @@ struct user_ctx {
   named_caps_map named_caps;
   std::vector<uint32_t> pending_acks;
   std::set<uint32_t> seen_packets; // FIXME - clean this up
+
+  uint32_t appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
+  struct sl_string texture_entry, visual_params;
+
+  // FIXME - move this out of struct to save l KB of space per child agent
+  struct wearable_desc wearables[SL_NUM_WEARABLES];
 
   void *grid_priv;
 
@@ -162,6 +172,9 @@ struct simulator_ctx {
   SoupSession *soup_session;
   GTimer *timer;
   GKeyFile *config;
+
+  char *release_notes;
+  int release_notes_len;
 
   void *grid_priv;
   struct cajeput_grid_hooks gridh;

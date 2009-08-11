@@ -127,8 +127,8 @@ struct sim_new_user {
 };
 
 // Caller owns the struct and any strings pointed to by it
-void sim_prepare_new_user(struct simulator_ctx *sim,
-			  struct sim_new_user *uinfo);
+struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
+				      struct sim_new_user *uinfo);
 
 // ICK. For use by OpenSim glue code only.
 void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id, 
@@ -166,13 +166,38 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 #define SL_THROTTLE_ASSET 6
 static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
 
+// Note - it's important this stays in sync with OpenSim
+#define SL_WEARABLE_BODY 0
+#define SL_WEARABLE_SKIN 1
+#define SL_WEARABLE_HAIR 2
+#define SL_WEARABLE_EYES 3
+#define SL_WEARABLE_SHIRT 4
+#define SL_WEARABLE_PANTS 5
+#define SL_WEARABLE_SHOES 6
+#define SL_WEARABLE_SOCKS 7
+#define SL_WEARABLE_JACKET 8
+#define SL_WEARABLE_GLOVES 9
+#define SL_WEARABLE_UNDERSHIRT 10
+#define SL_WEARABLE_UNDERPANTS 11
+#define SL_WEARABLE_SKIRT 12
 
+#define SL_NUM_WEARABLES 13
+static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
+					  "pants","shoes","socks","jacket",
+					  "gloves","undershirt","underpants",
+					  "skirt"};
+
+// various internal flags
 #define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply
 #define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region - FIXME remove
 #define AGENT_FLAG_PURGE 0x4 // agent is being purged
 #define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
 #define AGENT_FLAG_CHILD 0x10 // is a child agent
 #define AGENT_FLAG_ENTERED 0x20 // got CompleteAgentMovement
+
+// FIXME - these are hacks
+#define AGENT_FLAG_APPEARANCE_UPD 0x40 // need to send AvatarAppearance to other avs
+#define AGENT_FLAG_NEED_APPEARANCE 0x80 // need to send AvatarAppearance for other avs - FIXME set this
 
 void *user_get_grid_priv(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
@@ -181,14 +206,24 @@ void user_get_session_id(struct user_ctx *user, uuid_t u);
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
 void user_clear_flag(struct user_ctx *user, uint32_t flag);
-void user_set_throttles(struct user_ctx *sim, float rates[]);
+void user_set_throttles(struct user_ctx *ctx, float rates[]);
 void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
+
+// Shouldn't really be used by most stuff
+void user_set_wearable(struct user_ctx *ctx, int id,
+		       uuid_t item_id, uuid_t asset_id);
+
+// Semantics of these two are funny. They take ownership of the buffer pointed 
+// to by data->data and then set data->data to NULL. 
+void user_set_texture_entry(struct user_ctx *user, struct sl_string* data);
+void user_set_visual_params(struct user_ctx *user, struct sl_string* data);
 
 user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id);
 
+void user_send_message(struct user_ctx *user, char* msg);
 void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);
 
