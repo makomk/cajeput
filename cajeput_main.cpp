@@ -575,7 +575,7 @@ static gboolean av_update_timer(gpointer data) {
   }
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     // don't send anything prior to RegionHandshakeReply
-    if(user->flags & AGENT_FLAG_RHR == 0) continue;
+    if((user->flags & AGENT_FLAG_RHR) == 0) continue;
 
     for(user_ctx* user2 = sim->ctxts; user2 != NULL; user2 = user2->next) {
       struct avatar_obj *av = user2->av;
