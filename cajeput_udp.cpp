@@ -132,16 +132,6 @@ static void handle_StartPingCheck_msg(struct user_ctx* ctx, struct sl_message* m
   sl_send_udp(ctx,&pong);
 }
 
-void user_send_message(struct user_ctx *user, char* msg) {
-  struct chat_message chat;
-  chat.source_type = CHAT_SOURCE_SYSTEM;
-  chat.chat_type = CHAT_TYPE_NORMAL;
-  uuid_clear(chat.source); // FIXME - set this?
-  uuid_clear(chat.owner);
-  chat.name = "Cajeput";
-  chat.msg = msg;
-}
-
 void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 		       const struct chat_message *msg, void *user_data) {
   struct user_ctx* ctx = (user_ctx*)user_data;
@@ -155,6 +145,19 @@ void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
   cdata->Audible = CHAT_AUDIBLE_FULLY;
   sl_string_set(&cdata->Message,msg->msg);
   sl_send_udp(ctx, &chat);
+}
+
+void user_send_message(struct user_ctx *ctx, char* msg) {
+  struct chat_message chat;
+  chat.source_type = CHAT_SOURCE_SYSTEM;
+  chat.chat_type = CHAT_TYPE_NORMAL;
+  uuid_clear(chat.source); // FIXME - set this?
+  uuid_clear(chat.owner);
+  chat.name = "Cajeput";
+  chat.msg = msg;
+
+  // FIXME - evil hack
+  av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
 static void handle_ChatFromViewer_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -267,6 +270,10 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
     dat->Timestamp = time(NULL);
     sl_string_set(&simdat->ChannelVersion, "OtherSim 0.001");
     sl_send_udp(ctx, &amc);
+
+    // FIXME - move this somewhere saner?
+    if(ctx->sim->welcome_message != NULL)
+      user_send_message(ctx, ctx->sim->welcome_message);
 }
 
 static void handle_LogoutRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {

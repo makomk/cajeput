@@ -175,6 +175,7 @@ struct simulator_ctx {
 
   char *release_notes;
   int release_notes_len;
+  gchar *welcome_message;
 
   void *grid_priv;
   struct cajeput_grid_hooks gridh;

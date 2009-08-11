@@ -831,7 +831,7 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
 
   soup_message_set_status(msg,200);
   if(ctx->sim->release_notes) {
-    soup_message_set_response(msg,"text/plain", SOUP_MEMORY_COPY,
+    soup_message_set_response(msg,"text/html", SOUP_MEMORY_COPY,
 			      ctx->sim->release_notes, 
 			      ctx->sim->release_notes_len);
   } else {
@@ -1069,11 +1069,14 @@ static gboolean shutdown_timer(gpointer data) {
   sim->phys_priv = NULL;
   sim->gridh.cleanup(sim);
   sim->grid_priv = NULL;
+
+  free(sim->release_notes);
   
   world_octree_destroy(sim->world_tree);
   g_timer_destroy(sim->timer);
   g_free(sim->name);
   g_free(sim->ip_addr);
+  g_free(sim->welcome_message);
   delete sim;
   exit(0); // FIXME
   return FALSE;
@@ -1173,7 +1176,7 @@ int main(void) {
     return 1;
   }
 
-  sim->release_notes = read_text_file("release-notes.txt", 
+  sim->release_notes = read_text_file("sim-release-notes.html", 
 				      &sim->release_notes_len);
   if(sim->release_notes == NULL) {
     printf("WARNING: Release notes load failed\n"); 
@@ -1189,6 +1192,10 @@ int main(void) {
   sim_uuid = g_key_file_get_value(sim->config,"sim","uuid",NULL);
   sim_owner = g_key_file_get_value(sim->config,"sim","owner",NULL);
   sim->ip_addr = g_key_file_get_value(sim->config,"sim","ip_address",NULL);
+  
+  // welcome message is optional
+  sim->welcome_message = g_key_file_get_value(sim->config,"sim",
+					      "welcome_message",NULL);
 
   if(sim->http_port == 0 || sim->udp_port == 0 || 
      sim->region_x == 0 || sim->region_y == 0 ||
