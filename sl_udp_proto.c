@@ -330,7 +330,8 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
     struct sl_block_tmpl* bt = msg->tmpl->blocks+i;
     int blkcnt = msg->blocks[i].count;
     if(bt->num_inst == 0) {
-      if(len >= buflen) { printf("Packet overran buffer\n"); return 0;}
+      if(len >= buflen) { printf("Packet %s overran buffer at start of %s\n",
+				 msg->tmpl->name, bt->name); return 0;}
       rawmsg[len++] = blkcnt;
     } else {
       if(bt->num_inst != blkcnt) {
@@ -341,7 +342,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
     for(j = 0; j < blkcnt; j++) {
       unsigned char *blk = msg->blocks[i].data[j];
       for(k = 0; k < bt->num_vals; k++) {
-#define OUT_NUM_FIELD(t,cmd) { if(len+sizeof(t) > buflen) { printf("Packet overran buffer\n"); return 0;}; \
+#define OUT_NUM_FIELD(t,cmd) { if(len+sizeof(t) > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}; \
 	  t val = *(t*)(blk+bt->vals[k].offset); cmd; /*len += sizeof(t); - oops */ }
 	switch(bt->vals[k].type) {
 	case SL_MSG_U8:
@@ -356,7 +357,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	case SL_MSG_U64:
 	  OUT_NUM_FIELD(uint64_t, ((rawmsg[len++] = val&0xff), (rawmsg[len++] = val >> 8), (rawmsg[len++] = val >> 16), (rawmsg[len++] = val >> 24), (rawmsg[len++] = val >> 32), (rawmsg[len++] = val >> 40), (rawmsg[len++] = val >> 48), (rawmsg[len++] = val >> 56))); break;
 	case SL_MSG_LLUUID:
-	  if(len+16 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	  if(len+16 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
 	  memcpy(rawmsg+len,blk+bt->vals[k].offset, 16);
 	  len += 16;
 	  break;
@@ -365,7 +366,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
 	    tmp = str->len;
 	    if(tmp > 0xff) tmp = 0xff;
-	    if(len+tmp+1 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	    if(len+tmp+1 > buflen) { printf("Packet %s overran buffer packing %s.%s of len %i\n", msg->tmpl->name, bt->name, bt->vals[k].name, tmp); return 0;}
 	    rawmsg[len++] = tmp;
 	    memcpy(rawmsg+len,str->data,tmp);
 	    len += tmp;
@@ -376,19 +377,19 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
 	    tmp = str->len;
 	    if(tmp > 0xffff) tmp = 0xffff;
-	    if(len+tmp+2 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	    if(len+tmp+2 > buflen) { printf("Packet %s overran buffer packing %s.%s of len %i\n", msg->tmpl->name, bt->name, bt->vals[k].name, tmp); return 0;}
 	    rawmsg[len++] = tmp&0xff; rawmsg[len++] = tmp >> 8;
 	    memcpy(rawmsg+len,str->data,tmp);
 	    len += tmp;
 	    break;
 	  }
 	case SL_MSG_BOOL:
-	  if(len+4 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	  if(len+4 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
 	  rawmsg[len++] =  (*(int*)(blk+bt->vals[k].offset) ? 1 : 0);
 	  break;
 	case SL_MSG_F32:
 	  // FIXME - proper byte swapping!
-	  if(len+4 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	  if(len+4 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
 	  memcpy(rawmsg+len, blk+bt->vals[k].offset, 4); len += 4;
 	  break;
 	case SL_MSG_F64: // TODO
@@ -397,13 +398,13 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  return 0;	  
 	case SL_MSG_FIXED:
 	  tmp = bt->vals[k].size;
-	  if(len+tmp > buflen) { printf("Packet overran buffer\n"); return 0;}
+	  if(len+tmp > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
 	  memcpy(rawmsg+len, (char*)(blk+bt->vals[k].offset),tmp);
 	  len += tmp;
 	  break;
 	case SL_MSG_LLVECTOR3:
 	  // FIXME - proper byte swapping!
-	  if(len+12 > buflen) { printf("Packet overran buffer\n"); return 0;}
+	  if(len+12 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
 	  memcpy(rawmsg+len, blk+bt->vals[k].offset, 12); len += 12;
 	  break;
 	case SL_MSG_LLQUATERNION: // TODO

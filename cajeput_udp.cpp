@@ -63,7 +63,7 @@ static void send_pending_acks(struct simulator_ctx *sim) {
       ack->ID = *iter;
     }
     sl_send_udp(ctx,&acks);
-    ctx->pending_acks.empty();
+    ctx->pending_acks.clear();
   }
 }
 
