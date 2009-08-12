@@ -120,13 +120,15 @@ struct sl_message {
 
 #define SL_GETBLK(msgid,blk,msg) ((msg)->blocks[SL_BLKIDX_##msgid##_##blk])
 #define SL_GETBLKI(msgid,blk,msg,idx) ((struct sl_blk_##msgid##_##blk *)(msg)->blocks[SL_BLKIDX_##msgid##_##blk].data[idx])
+#define SL_GETBLK1(msgid,blk,msg) SL_GETBLKI(msgid,blk,msg,0)
+#define SL_DECLBLK_GET1(msgid, blk, name, msg) struct sl_blk_##msgid##_##blk *name = SL_GETBLK1(msgid,blk,msg)
 #define SL_MKBLK(msg, blk) ((struct sl_blk_##msg##_##blk *)calloc(sizeof(struct sl_blk_##msg##_##blk), 1))
 
 #define SL_ADDBLK(msgid, blk, msg) ((struct sl_blk_##msgid##_##blk*) sl_bind_block(SL_MKBLK(msgid,blk),&SL_GETBLK(msgid,blk,msg)));
 #define SL_INITMSG(msgid,msg) sl_new_message(&sl_msgt_##msgid,msg);
 #define SL_DECLMSG(msgid,name) struct sl_message name; sl_new_message(&sl_msgt_##msgid,&name)
+#define SL_DECLBLK_ONLY(msgid, blk, name) struct sl_blk_##msgid##_##blk *name
 #define SL_DECLBLK(msgid, blk, name, msg) struct sl_blk_##msgid##_##blk *name = SL_ADDBLK(msgid, blk, msg)
-//#define SL_DECLBLK_ONLY(msgid, blk, name) struct sl_blk_##msgid##_##blk *name;
 
 
 extern void sl_new_message(struct sl_message_tmpl* tmpl, struct sl_message* msgout);

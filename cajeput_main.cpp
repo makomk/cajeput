@@ -418,6 +418,53 @@ static GMainLoop *main_loop;
 
 // ------ END message handling code -------
 
+// Texture-related stuff
+void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
+			   unsigned char *data, int len, int is_local) {
+  texture_desc *desc = new texture_desc();
+  uuid_copy(desc->asset_id, asset_id);
+  desc->is_local = is_local;
+  desc->data = data; desc->len = len;
+  desc->refcnt = 0;
+  sim->textures[asset_id] = desc;
+
+  if(is_local) {
+    char asset_str[40], fname[80]; int fd;
+    uuid_unparse(asset_id, asset_str);
+    sprintf(fname, "temp_assets/%s.jpc", asset_str);
+    fd = open(fname, O_WRONLY|O_CREAT|O_EXCL, 0644);
+    if(fd < 0) {
+      printf("Warning: couldn't open %s for temp texture save\n",
+	     fname);
+    } else {
+      int ret = write(fd, data, len);
+      if(ret != len) {
+	if(ret < 0) perror("save local texture");
+	printf("Warning: couldn't write full texure to %s: %i/%i\n",
+	       fname, ret, len);
+      }
+      close(fd);
+    }
+  }
+}
+
+texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id) {
+  texture_desc *desc;
+  std::map<obj_uuid_t,texture_desc*>::iterator iter =
+    sim->textures.find(asset_id);
+  if(iter != sim->textures.end()) {
+    desc = iter->second;
+  } else {
+    texture_desc *desc = new texture_desc();
+    uuid_copy(desc->asset_id, asset_id);
+    desc->is_local = 0;
+    desc->data = NULL; desc->len = 0;
+    desc->refcnt = 0;
+    sim->textures[asset_id] = desc;
+  }
+  desc->refcnt++; return desc;
+}
+
 static void sl_float_to_int16(unsigned char* out, float val, float range) {
   uint16_t ival = (uint16_t)((val+range)*32768/range);
   out[0] = ival & 0xff;
@@ -658,6 +705,7 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 				       user_ctx* user, void *user_data) {
   cap_descrip* cap =  caps_new_capability(ctx, callback, user, user_data);
   user->named_caps[name] = cap;
+  return cap;
 }
 
 char *caps_get_uri(struct cap_descrip* desc) {
@@ -951,7 +999,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->last_name = strdup(uinfo->last_name);
   ctx->name = (char*)malloc(2+strlen(ctx->first_name)+strlen(ctx->last_name));
   sprintf(ctx->name, "%s %s", ctx->first_name, ctx->last_name);
-  ctx->group_title = strdup("Very Foolish Tester");
+  ctx->group_title = strdup(""); // strdup("Very Foolish Tester");
   user_reset_timeout(ctx);
 
   sim->gridh.user_created(sim,ctx,&ctx->grid_priv);
@@ -1167,6 +1215,7 @@ int main(void) {
   sim->config = g_key_file_new();
   sim->hold_off_shutdown = 0;
   sim->state_flags = 0;
+  sim->xfer_id_ctr = 1;
   // FIXME - make sure to add G_KEY_FILE_KEEP_COMMENTS/TRANSLATIONS 
   // if I ever want to modify the config
   if(!g_key_file_load_from_file(sim->config,  "server.ini", 

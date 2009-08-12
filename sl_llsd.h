@@ -85,7 +85,7 @@ sl_llsd* llsd_new_string(char *str);
 sl_llsd* llsd_new_string_take(char *str);
   sl_llsd* llsd_new_int( int i);
 void llsd_array_append(sl_llsd *arr, sl_llsd *it);
-void llsd_map_append(sl_llsd *arr, char* key, sl_llsd *it);
+void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it);
 
 
 #define LLSD_IS(llsd, typ) ((llsd) != NULL && (llsd)->type_id == typ)

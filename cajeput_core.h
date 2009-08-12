@@ -241,4 +241,8 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			const sl_vector3 &new_pos);
 
+// Note: (a) you assign the UUID, (b) the sim owns and free()s the buffer
+void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
+			   unsigned char *data, int len, int is_local);
+
 #endif

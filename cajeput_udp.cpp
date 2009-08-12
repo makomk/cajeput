@@ -216,6 +216,26 @@ static void handle_AgentWearablesRequest_msg(struct user_ctx* ctx, struct sl_mes
     send_agent_wearables(ctx);
 }
 
+static void send_agent_data_update(struct user_ctx* ctx) {
+  SL_DECLMSG(AgentDataUpdate,upd);
+  SL_DECLBLK(AgentDataUpdate, AgentData, ad, &upd);
+  uuid_copy(ad->AgentID, ctx->user_id);
+  sl_string_set(&ad->FirstName, ctx->first_name);
+  sl_string_set(&ad->LastName, ctx->last_name);
+  sl_string_set(&ad->GroupTitle, ctx->group_title);
+  uuid_clear(ad->ActiveGroupID); // TODO
+  ad->GroupPowers = 0;
+  sl_string_set(&ad->GroupName, ""); // TODO
+  upd.flags |= MSG_RELIABLE;
+  sl_send_udp(ctx, &upd);
+}
+
+static void handle_AgentDataUpdateRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AgentDataUpdateRequest, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
+    return;
+  send_agent_data_update(ctx);
+}
 
 static void handle_RegionHandshakeReply_msg(struct user_ctx* ctx, struct sl_message* msg) {
     struct sl_blk_RegionHandshakeReply_AgentData *ad;
@@ -331,9 +351,188 @@ static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* ms
 			   throt->Throttles.len);
 }
 
+struct asset_xfer {
+  uint64_t id;
+  uint32_t ctr;
+  uint8_t local;
+  int8_t asset_type;
+  int len, total_len;
+  unsigned char* data;
+  uuid_t transaction, asset_id;
+};
+
+static void helper_combine_uuids(uuid_t out, const uuid_t u1, const uuid_t u2) {
+  gsize len = 16;
+  GChecksum * csum = g_checksum_new(G_CHECKSUM_MD5);
+  g_checksum_update(csum, u1, 16);
+  g_checksum_update(csum, u2, 16);
+  g_checksum_get_digest(csum, out, &len);
+  g_checksum_free(csum);
+}
+
+// FIXME - need to free old transfers properly
+
+static asset_xfer* init_asset_upload(struct user_ctx* ctx, int is_local,
+				     int asset_type, uuid_t transaction) {
+  asset_xfer *xfer = new asset_xfer();
+  xfer->local = is_local;
+  xfer->asset_type = asset_type;
+  uuid_copy(xfer->transaction, transaction);
+  helper_combine_uuids(xfer->asset_id, transaction,
+		       ctx->secure_session_id);
+  xfer->id = ++(ctx->sim->xfer_id_ctr);
+  xfer->ctr = 0;
+  xfer->len = xfer->total_len = 0;
+  xfer->data = NULL;
+  ctx->xfers[xfer->id] = xfer;
+  return xfer;
+}
+
+static void complete_asset_upload(user_ctx* ctx, asset_xfer *xfer,
+				  int success) {
+  ctx->xfers.erase(xfer->id);
+  SL_DECLMSG(AssetUploadComplete, complete);
+  SL_DECLBLK(AssetUploadComplete, AssetBlock, blk, &complete);
+  blk->Type = xfer->asset_type;
+  blk->Success = !!success;
+  uuid_copy(blk->UUID, xfer->asset_id);
+  complete.flags |= MSG_RELIABLE;
+  sl_send_udp(ctx, &complete);
+
+  if(success) {
+    sim_add_local_texture(ctx->sim, xfer->asset_id, xfer->data,
+			  xfer->len, true);
+    printf("FIXME: handle completed xfer\n");
+  }
+
+  free(xfer->data); delete xfer;
+}
+
+static void handle_SendXferPacket_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  asset_xfer *xfer;
+  SL_DECLBLK_GET1(SendXferPacket,XferID,xferid,msg);
+  SL_DECLBLK_GET1(SendXferPacket,DataPacket,data,msg);
+
+  std::map<uint64_t,asset_xfer*>::iterator iter =
+    ctx->xfers.find(xferid->ID);
+  if(iter == ctx->xfers.end()) {
+    printf("ERROR: SendXfer for unknown ID\n");
+    return;
+  }
+  xfer = iter->second;
+
+  printf("DEBUG SendXfer packet=%i len=%i\n", xferid->Packet,
+	 data->Data.len);
+
+  if(xfer->data == NULL) {
+    if(data->Data.len < 4 || (xferid->Packet & 0x7fffffff) != 0) {
+      printf("ERROR: bad first SendXfer len=%i packet=%u\n",
+	     data->Data.len, xferid->Packet);
+      return;
+    }
+    xfer->total_len = data->Data.data[0] | (data->Data.data[1] << 8) |
+      (data->Data.data[2] << 16) | (data->Data.data[3] << 24);
+    if(xfer->total_len > 1000000 || 
+       (data->Data.len - 4) > xfer->total_len) {
+      printf("ERROR: bad first SendXfer length %u\n", xfer->total_len);
+      return;      
+    }
+    xfer->data = (unsigned char*)malloc(xfer->total_len);
+    xfer->len = data->Data.len - 4;
+    memcpy(xfer->data, data->Data.data+4, xfer->len);
+    printf("DEBUG: initial xfer %i long\n", xfer->len);
+  } else if((xferid->Packet & 0x7fffffff) != xfer->ctr) {
+    printf("ERROR: bad xfer packet ctr: expected %i, got %i\n",
+	   xfer->ctr, xferid->Packet);
+    return;
+  } else {
+    if(xfer->len + data->Data.len > xfer->total_len) {
+      printf("ERROR: xfer too long\n");
+      return;
+    }
+    memcpy(xfer->data + xfer->len, data->Data.data, data->Data.len);
+    xfer->len += data->Data.len;
+    printf("DEBUG: xfer %i long, got %i bytes so far\n",
+	   data->Data.len, xfer->len);
+  }
+
+  xfer->ctr++;
+  
+  {
+    SL_DECLMSG(ConfirmXferPacket,confirm);
+    SL_DECLBLK(ConfirmXferPacket, XferID, xferid2, &confirm);
+    xferid2->ID = xfer->id; xferid2->Packet = xferid->Packet;
+    confirm.flags |= MSG_RELIABLE;
+    sl_send_udp(ctx, &confirm);
+  }
+
+  if(xferid->Packet & 0x80000000) {
+    if(xfer->len != xfer->total_len) {
+      printf("Bad xfer length at end of data: got %i, want %i\n",
+	     xfer->len, xfer->total_len);
+      return;
+    }
+    complete_asset_upload(ctx, xfer, 1);
+  }
+}
+
 static void handle_AssetUploadRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
-  printf("FIXME: can't handle AssetUploadRequest yet\n");
+  asset_xfer *xfer;
+  SL_DECLBLK_GET1(AssetUploadRequest,AssetBlock,asset,msg);
+  if(asset == NULL) return;
   sl_dump_packet(msg);
+  switch(asset->Type) {
+  case 0: // texture
+    if(!asset->StoreLocal) {
+      user_send_message(ctx, "Sorry, AssetUploadRequest is now only for local texture uploads.\n");
+      return;
+    }
+    printf("DEBUG: got local AssetUploadRequest for texture\n");
+    break;
+  default:
+    user_send_message(ctx, "ERROR: AssetUploadRequest for unsupported type\n");
+    return;
+  }
+
+  // FIXME - handle "all data in initial packet" case
+
+  xfer = init_asset_upload(ctx, asset->StoreLocal,
+			   asset->Type, asset->TransactionID);
+
+  {
+    SL_DECLMSG(RequestXfer, xferreq);
+    SL_DECLBLK(RequestXfer, XferID, xferid, &xferreq);
+    xferid->ID = xfer->id;
+    xferid->Filename.len = 0; // apparently long dead
+    xferid->Filename.data = NULL;
+    xferid->FilePath = 0; // not used?
+    xferid->DeleteOnCompletion = 0; // ? think so
+    xferid->UseBigPackets = 0; // no way
+    xferid->VFileType = asset->Type;
+    uuid_copy(xferid->VFileID, xfer->asset_id);
+    xferreq.flags |= MSG_RELIABLE;
+    sl_send_udp(ctx, &xferreq);
+  }
+  
+  printf("FIXME: can't handle AssetUploadRequest yet\n");
+  
+}
+
+static void handle_RequestImage_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RequestImage, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad))
+    return;
+  int cnt = SL_GETBLK(RequestImage, RequestImage, msg).count;
+  for(int i = 0; i < cnt; i++) {
+    SL_DECLBLK_ONLY(RequestImage, RequestImage, ri) =
+      SL_GETBLKI(RequestImage, RequestImage, msg, i);
+
+    // DEBUG
+    char buf[40]; uuid_unparse(ri->Image, buf);
+    printf("RequestImage %s discard %i prio %f pkt %i type %i\n",
+	   buf, (int)ri->DiscardLevel, (double)ri->DownloadPriority,
+	   (int)ri->Packet, (int)ri->Type);
+  }
 }
 
 void register_msg_handler(struct simulator_ctx *sim, sl_message_tmpl* tmpl, 
@@ -488,6 +687,10 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(RegionHandshakeReply);
   ADD_HANDLER(AgentWearablesRequest);
   ADD_HANDLER(AssetUploadRequest);
+  ADD_HANDLER(SendXferPacket);
+  // FIXME - handle AbortXfer
+  ADD_HANDLER(RequestImage);
+  ADD_HANDLER(AgentDataUpdateRequest);
 #endif
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

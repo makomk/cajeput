@@ -48,6 +48,8 @@ struct wearable_desc {
   uuid_t asset_id, item_id;
 };
 
+struct asset_xfer;
+
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
@@ -79,6 +81,9 @@ struct user_ctx {
   struct wearable_desc wearables[SL_NUM_WEARABLES];
 
   void *grid_priv;
+
+  // icky Linden stuff
+  std::map<uint64_t,asset_xfer*> xfers;
 
   // Event queue stuff. FIXME - seperate this out
   sl_llsd *queued_events;
@@ -155,6 +160,14 @@ static bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
 
+struct texture_desc {
+  uuid_t asset_id;
+  int is_local;
+  unsigned char *data;
+  int len;
+  int refcnt;
+};
+
 struct simulator_ctx {
   struct user_ctx* ctxts;
   char *name;
@@ -172,6 +185,10 @@ struct simulator_ctx {
   SoupSession *soup_session;
   GTimer *timer;
   GKeyFile *config;
+
+  uint64_t xfer_id_ctr; // FIXME - should prob. init this, but meh.
+
+  std::map<obj_uuid_t,texture_desc*> textures;
 
   char *release_notes;
   int release_notes_len;

@@ -110,7 +110,7 @@ void llsd_array_append(sl_llsd *arr, sl_llsd *it) {
   arr->t.arr.data[arr->t.arr.count++] = it;
 }
 
-void llsd_map_append(sl_llsd *arr, char* key, sl_llsd *it) {
+void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it) {
   assert(arr->type_id == LLSD_MAP);
   if(arr->t.map.count >= arr->t.map.max) {
     arr->t.map.max *= 2;
