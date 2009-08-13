@@ -114,7 +114,7 @@ struct user_ctx {
   std::vector<uint32_t> pending_acks;
   std::set<uint32_t> seen_packets; // FIXME - clean this up
 
-  uint32_t appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
+  uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
   struct sl_string texture_entry, visual_params;
 
   // FIXME - move this out of struct to save l KB of space per child agent

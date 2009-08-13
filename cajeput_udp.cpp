@@ -215,7 +215,7 @@ static void send_agent_wearables(struct user_ctx* ctx) {
   SL_DECLBLK(AgentWearablesUpdate, AgentData, ad, &upd);
   uuid_copy(ad->AgentID, ctx->user_id);
   uuid_copy(ad->SessionID, ctx->session_id);
-  ad->SerialNum = ctx->appearance_serial++;
+  ad->SerialNum = ctx->wearable_serial++;
   
   for(int i = 0; i < SL_NUM_WEARABLES; i++) {
     // FIXME - avoid sending empty wearables?
@@ -237,6 +237,36 @@ static void handle_AgentWearablesRequest_msg(struct user_ctx* ctx, struct sl_mes
     if(VALIDATE_SESSION(ad)) 
       return;
     send_agent_wearables(ctx);
+}
+
+static void handle_AgentSetAppearance_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  sl_string str;
+  SL_DECLBLK_GET1(AgentSetAppearance, AgentData, ad, msg);
+  SL_DECLBLK_GET1(AgentSetAppearance, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL ||  VALIDATE_SESSION(ad)) 
+    return;
+  if(ad->SerialNum < ctx->appearance_serial) {
+    printf("WARNING: Got outdated AgentSetAppearance\n");
+    return;
+  }
+
+  ctx->appearance_serial = ad->SerialNum;
+  // FIXME - do something with size
+
+  // FIXME - what to do with WearableData blocks?
+
+  // we could steal the message's buffer, but that would be evil
+  sl_string_copy(&str, &objd->TextureEntry);
+  user_set_texture_entry(ctx, &str);
+
+  str.len = SL_GETBLK(AgentSetAppearance, VisualParam, msg).count;
+  str.data = (unsigned char*)malloc(str.len);
+  for(int i = 0; i < str.len; i++) {
+    str.data[i] = SL_GETBLKI(AgentSetAppearance, VisualParam, msg, i)->ParamValue;
+  }
+  user_set_visual_params(ctx, &str);
+
+  printf("DEBUG: Completed AgentSetAppearance\n");
 }
 
 static void send_agent_data_update(struct user_ctx* ctx) {
@@ -425,7 +455,6 @@ static void complete_asset_upload(user_ctx* ctx, asset_xfer *xfer,
   if(success) {
     sim_add_local_texture(ctx->sim, xfer->asset_id, xfer->data,
 			  xfer->len, true);
-    printf("FIXME: handle completed xfer\n");
   } else {
     free(xfer->data); // note: sim_add_local_texture take ownership of buffer
   }
@@ -538,9 +567,6 @@ static void handle_AssetUploadRequest_msg(struct user_ctx* ctx, struct sl_messag
     xferreq.flags |= MSG_RELIABLE;
     sl_send_udp(ctx, &xferreq);
   }
-  
-  printf("FIXME: can't handle AssetUploadRequest yet\n");
-  
 }
 
 // called as part of the user removal process
@@ -573,9 +599,15 @@ static gboolean texture_send_timer(gpointer data) {
 	  (TEXTURE_FIRST_LEN + (req->packet_no-1)*TEXTURE_PACKET_LEN) :
 	  (TEXTURE_FIRST_LEN * req->packet_no);
 	int tex_len = req->texture->len;
-	if(sent >= tex_len || sent <= 0) {
+	if(sent >= tex_len || sent < 0) {
 	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
-	  printf("Image %s send complete, skipping\n", uuid_buf);
+	  if(sent < 0) {
+	    printf("INTERNAL ERROR: Bad sent value %i for packet_no %i\n",
+		   sent, req->packet_no);
+	  } else {
+	    printf("Image %s send complete (%i bytes, %i packets), removing\n", 
+		   uuid_buf, sent, req->packet_no);
+	  }
 
 	  std::map<obj_uuid_t,image_request*>::iterator next = req_iter;
 	  next++;
@@ -667,6 +699,10 @@ static void handle_RequestImage_msg(struct user_ctx* ctx, struct sl_message* msg
 	image_request* ireq = iter->second;
 	ireq->priority = ri->DownloadPriority;
 	ireq->discard = ri->DiscardLevel;
+	if(ireq->packet_no != ri->Packet) {
+	  printf("DEBUG: mismatching packet no for %s: us %i, them %i\n",
+		 buf, ireq->packet_no, ri->Packet);
+	}
 	// FIXME - don't think we want to update packet_no, but...
       }
     } else if(iter != ctx->image_reqs.end()) {
@@ -809,19 +845,6 @@ static gboolean got_packet(GIOChannel *source,
 void sim_int_init_udp(struct simulator_ctx *sim)  {
   int sock; struct sockaddr_in addr;
 
-#if 0
-  register_msg_handler(sim, &sl_msgt_AgentUpdate, handle_AgentUpdate_msg);
-  register_msg_handler(sim, &sl_msgt_StartPingCheck, handle_StartPingCheck_msg);
-  register_msg_handler(sim, &sl_msgt_CompleteAgentMovement, 
-		       handle_CompleteAgentMovement_msg);
-  register_msg_handler(sim, &sl_msgt_LogoutRequest, handle_LogoutRequest_msg);
-  register_msg_handler(sim, &sl_msgt_ChatFromViewer, handle_ChatFromViewer_msg);
-  register_msg_handler(sim, &sl_msgt_AgentThrottle, handle_AgentThrottle_msg);
-  register_msg_handler(sim, &sl_msgt_RegionHandshakeReply,
-		       handle_RegionHandshakeReply_msg);
-  register_msg_handler(sim, &sl_msgt_AgentWearablesRequest,
-		       handle_AgentWearablesRequest_msg);
-#else
   ADD_HANDLER(AgentUpdate);
   ADD_HANDLER(StartPingCheck);
   ADD_HANDLER(CompleteAgentMovement);
@@ -835,7 +858,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   // FIXME - handle AbortXfer
   ADD_HANDLER(RequestImage);
   ADD_HANDLER(AgentDataUpdateRequest);
-#endif
+  ADD_HANDLER(AgentSetAppearance);
+
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;
   addr.sin_port = htons(sim->udp_port);

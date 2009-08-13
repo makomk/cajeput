@@ -988,7 +988,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   ctx->texture_entry.data = NULL;
   ctx->visual_params.data = NULL;
-  ctx->appearance_serial = 0;
+  ctx->appearance_serial = ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
 
   debug_prepare_new_user(uinfo);
