@@ -137,36 +137,28 @@ struct obj_uuid_t {
   }
 };
 
-static bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) < 0;
 };
 
-static bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) <= 0;
 };
 
-static bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) == 0;
 };
 
-static bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) > 0;
 };
 
-static bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) >= 0;
 };
 
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
-
-struct texture_desc {
-  uuid_t asset_id;
-  int is_local;
-  unsigned char *data;
-  int len;
-  int refcnt;
-};
 
 struct simulator_ctx {
   struct user_ctx* ctxts;

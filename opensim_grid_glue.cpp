@@ -1065,6 +1065,54 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
   }
 }
 
+struct asset_req_desc {
+  struct simulator_ctx *sim;
+  texture_desc *texture;
+};
+
+static void get_texture_resp(SoupSession *session, SoupMessage *msg, 
+			     gpointer user_data) {
+  asset_req_desc* req = (asset_req_desc*)user_data;
+  texture_desc *texture = req->texture;
+  sim_shutdown_release(req->sim);
+  
+  printf("Get texture resp: got %i %s (len %i)\n",
+	 (int)msg->status_code, msg->reason_phrase, 
+	 msg->response_body->length);
+
+  if(msg->status_code >= 400 || msg->status_code < 500) {
+    // not transitory, don't bother retrying
+    texture->flags |= CJP_TEXTURE_MISSING;
+  } else if(msg->status_code == 200) {
+    texture->len = msg->response_body->length;
+    texture->data = (unsigned char*)malloc(texture->len);
+    memcpy(texture->data, msg->response_body->data, texture->len);
+  }
+  texture->flags &= ~CJP_TEXTURE_PENDING;
+
+  delete req;
+}
+
+// FIXME - move texture stuff elsewhere
+static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture) {
+  GRID_PRIV_DEF(sim);
+  // FIXME - should allocate proper buffer
+  char url[255], asset_id[40];
+  assert(grid->assetserver != NULL);
+
+  uuid_unparse(texture->asset_id, asset_id);
+  snprintf(url, 255, "%sassets/%s/data", grid->assetserver, asset_id);
+  printf("DEBUG: requesting asset %s\n", url);
+
+  SoupMessage *msg = soup_message_new ("GET", url);
+  asset_req_desc *req = new asset_req_desc;
+  req->texture = texture; req->sim = sim;
+  sim_shutdown_hold(sim);
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 get_texture_resp, req);
+
+}
+
 static void cleanup(struct simulator_ctx* sim) {
   GRID_PRIV_DEF(sim);
   g_free(grid->userserver);
@@ -1090,6 +1138,8 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
   hooks->fetch_user_inventory = fetch_user_inventory;
+
+  hooks->get_texture = get_texture;
   hooks->cleanup = cleanup;
 
   grid->gridserver = sim_config_get_value(sim,"grid","gridserver");

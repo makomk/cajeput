@@ -419,11 +419,13 @@ static GMainLoop *main_loop;
 // ------ END message handling code -------
 
 // Texture-related stuff
+
+// FIXME - actually clean up the textures we allocate
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local) {
   texture_desc *desc = new texture_desc();
   uuid_copy(desc->asset_id, asset_id);
-  desc->is_local = is_local;
+  desc->flags = is_local ?  CJP_TEXTURE_LOCAL : 0;
   desc->data = data; desc->len = len;
   desc->refcnt = 0;
   sim->textures[asset_id] = desc;
@@ -448,21 +450,30 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
   }
 }
 
-texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id) {
+struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id) {
   texture_desc *desc;
   std::map<obj_uuid_t,texture_desc*>::iterator iter =
     sim->textures.find(asset_id);
   if(iter != sim->textures.end()) {
     desc = iter->second;
   } else {
-    texture_desc *desc = new texture_desc();
+    desc = new texture_desc();
     uuid_copy(desc->asset_id, asset_id);
-    desc->is_local = 0;
+    desc->flags = 0;
     desc->data = NULL; desc->len = 0;
     desc->refcnt = 0;
     sim->textures[asset_id] = desc;
   }
   desc->refcnt++; return desc;
+}
+
+void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
+  // FIXME - use disk-based cache
+  if(desc->data == NULL && (desc->flags & 
+		     (CJP_TEXTURE_PENDING | CJP_TEXTURE_MISSING)) == 0) {
+    desc->flags |= CJP_TEXTURE_PENDING;
+    sim->gridh.get_texture(sim, desc);
+  }
 }
 
 static void sl_float_to_int16(unsigned char* out, float val, float range) {
@@ -701,7 +712,7 @@ void caps_remove(struct cap_descrip* desc) {
 }
 
 struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx, 
-				       char* name, caps_callback callback,
+				       const char* name, caps_callback callback,
 				       user_ctx* user, void *user_data) {
   cap_descrip* cap =  caps_new_capability(ctx, callback, user, user_data);
   user->named_caps[name] = cap;
@@ -1119,6 +1130,12 @@ static gboolean shutdown_timer(gpointer data) {
   sim->grid_priv = NULL;
 
   free(sim->release_notes);
+
+  for(std::map<obj_uuid_t,texture_desc*>::iterator iter = sim->textures.begin();
+      iter != sim->textures.end(); iter++) {
+    struct texture_desc *desc = iter->second;
+    free(desc->data); delete desc;
+  }
   
   world_octree_destroy(sim->world_tree);
   g_timer_destroy(sim->timer);

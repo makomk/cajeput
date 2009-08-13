@@ -147,14 +147,14 @@ void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
   sl_send_udp(ctx, &chat);
 }
 
-void user_send_message(struct user_ctx *ctx, char* msg) {
+void user_send_message(struct user_ctx *ctx, const char* msg) {
   struct chat_message chat;
   chat.source_type = CHAT_SOURCE_SYSTEM;
   chat.chat_type = CHAT_TYPE_NORMAL;
   uuid_clear(chat.source); // FIXME - set this?
   uuid_clear(chat.owner);
   chat.name = "Cajeput";
-  chat.msg = msg;
+  chat.msg = (char*)msg;
 
   // FIXME - evil hack
   av_chat_callback(ctx->sim, NULL, &chat, ctx);
@@ -403,9 +403,11 @@ static void complete_asset_upload(user_ctx* ctx, asset_xfer *xfer,
     sim_add_local_texture(ctx->sim, xfer->asset_id, xfer->data,
 			  xfer->len, true);
     printf("FIXME: handle completed xfer\n");
+  } else {
+    free(xfer->data); // note: sim_add_local_texture take ownership of buffer
   }
 
-  free(xfer->data); delete xfer;
+  delete xfer;
 }
 
 static void handle_SendXferPacket_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -532,6 +534,11 @@ static void handle_RequestImage_msg(struct user_ctx* ctx, struct sl_message* msg
     printf("RequestImage %s discard %i prio %f pkt %i type %i\n",
 	   buf, (int)ri->DiscardLevel, (double)ri->DownloadPriority,
 	   (int)ri->Packet, (int)ri->Type);
+    
+    if(ri->DiscardLevel >= 0) {
+      texture_desc *texture = sim_get_texture(ctx->sim, ri->Image);
+      sim_request_texture(ctx->sim, texture);
+    }
   }
 }
 

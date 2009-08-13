@@ -110,6 +110,8 @@ struct cajeput_grid_hooks {
   void(*user_deleted)(struct simulator_ctx* sim,
 		      struct user_ctx* user,
 		      void *user_priv);
+
+  void(*get_texture)(struct simulator_ctx *sim, struct texture_desc *texture);
 };
 
 // void do_grid_login(struct simulator_ctx* sim);
@@ -223,7 +225,7 @@ user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id);
 
-void user_send_message(struct user_ctx *user, char* msg);
+void user_send_message(struct user_ctx *user, const char* msg);
 void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);
 
@@ -241,8 +243,21 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			const sl_vector3 &new_pos);
 
+#define CJP_TEXTURE_LOCAL 0x1
+#define CJP_TEXTURE_PENDING 0x2
+#define CJP_TEXTURE_MISSING 0x4
+struct texture_desc {
+  uuid_t asset_id;
+  int flags;
+  unsigned char *data;
+  int len;
+  int refcnt;
+};
+
 // Note: (a) you assign the UUID, (b) the sim owns and free()s the buffer
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local);
+struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
+void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 
 #endif
