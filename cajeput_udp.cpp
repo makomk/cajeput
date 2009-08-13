@@ -32,7 +32,8 @@
 #define BUF_SIZE 2048
 
 // FIXME - resend lost packets
-void sl_send_udp(struct user_ctx* ctx, struct sl_message* msg) {
+void sl_send_udp_throt(struct user_ctx* ctx, struct sl_message* msg, int throt_id) {
+  // sends packet and updates throttle, but doesn't queue
   unsigned char buf[BUF_SIZE]; int len, ret;
   msg->seqno = ctx->counter++;
   len = sl_pack_message(msg,buf,BUF_SIZE);
@@ -44,10 +45,15 @@ void sl_send_udp(struct user_ctx* ctx, struct sl_message* msg) {
       //printf("DEBUG: couldn't send message\n");
       perror("sending UDP message");
     }
+    if(throt_id >= 0) ctx->throttles[throt_id].level -= len;
   } else {
     printf("DEBUG: couldn't pack message, not sending\n");
   }
   sl_free_msg(msg);
+}
+
+void sl_send_udp(struct user_ctx* ctx, struct sl_message* msg) {
+  sl_send_udp_throt(ctx, msg, -1);
 }
 
 // FIXME - split acks across multiple packets if necessary
@@ -84,6 +90,23 @@ void user_reset_throttles(struct user_ctx *ctx) {
     ctx->throttles[i].level = 0.0f;
   }
 }
+
+void user_update_throttles(struct user_ctx *ctx) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    assert(time_now >=  ctx->throttles[i].time); // need monotonic time
+    ctx->throttles[i].level += ctx->throttles[i].rate * 
+      (time_now - ctx->throttles[i].time);
+
+    if(ctx->throttles[i].level > ctx->throttles[i].rate * 0.3f) {
+      // limit maximum reservoir level to 0.3 sec of data
+      ctx->throttles[i].level = ctx->throttles[i].rate * 0.3f;
+    }
+    ctx->throttles[i].time = time_now;
+  }
+  
+}
+
 
 #define VALIDATE_SESSION(ad) (uuid_compare(ctx->user_id, ad->AgentID) != 0 || uuid_compare(ctx->session_id, ad->SessionID) != 0)
 
@@ -520,6 +543,98 @@ static void handle_AssetUploadRequest_msg(struct user_ctx* ctx, struct sl_messag
   
 }
 
+// called as part of the user removal process
+void user_int_free_texture_sends(struct user_ctx *ctx) {
+  for(std::map<obj_uuid_t,image_request*>::iterator iter = 
+	ctx->image_reqs.begin();  iter != ctx->image_reqs.end(); iter++) {
+    image_request *req = iter->second;
+    req->texture->refcnt--; delete req;
+  }
+}
+
+#define TEXTURE_FIRST_LEN 600
+#define TEXTURE_PACKET_LEN 1000
+
+static gboolean texture_send_timer(gpointer data) {
+  struct simulator_ctx* sim = (simulator_ctx*)data;
+  for(user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+    std::map<obj_uuid_t,image_request*>::iterator req_iter =
+      ctx->image_reqs.begin(); // FIXME - do by priority
+    user_update_throttles(ctx);
+    while(ctx->throttles[SL_THROTTLE_TEXTURE].level > 0.0f) {
+      if(req_iter == ctx->image_reqs.end()) break;
+      image_request *req = req_iter->second;
+      if(req->texture->data == NULL) {
+	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
+	  printf("Image %s still pending, skipping\n", uuid_buf);
+	req_iter++;
+      } else {
+	int sent = (req->packet_no > 1) ? 
+	  (TEXTURE_FIRST_LEN + (req->packet_no-1)*TEXTURE_PACKET_LEN) :
+	  (TEXTURE_FIRST_LEN * req->packet_no);
+	int tex_len = req->texture->len;
+	if(sent >= tex_len || sent <= 0) {
+	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
+	  printf("Image %s send complete, skipping\n", uuid_buf);
+
+	  std::map<obj_uuid_t,image_request*>::iterator next = req_iter;
+	  next++;
+	  req->texture->refcnt--; delete req;
+	  ctx->image_reqs.erase(req_iter);
+	  req_iter = next;
+	} else if(sent == 0) {
+	  // DEBUG
+	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
+	  printf("Sending first packet for %s image\n", uuid_buf);
+
+	  SL_DECLMSG(ImageData, imgdat);
+	  SL_DECLBLK(ImageData, ImageID, iid, &imgdat);
+	  uuid_copy(iid->ID, req->texture->asset_id);
+	  iid->Codec = 2; // FIXME - magic numbers are bad
+	  iid->Size = tex_len;
+	  // this next line is right, since TEXTURE_FIRST_LEN < TEXTURE_PACKET_LEN
+	  iid->Packets = 1 + ( tex_len - TEXTURE_FIRST_LEN + (TEXTURE_PACKET_LEN-1))/TEXTURE_PACKET_LEN;
+
+	  SL_DECLBLK(ImageData, ImageData, idat, &imgdat);
+	  idat->Data.len = tex_len > TEXTURE_FIRST_LEN ? 
+	                        TEXTURE_FIRST_LEN : tex_len;
+	  idat->Data.data = (unsigned char*)malloc(idat->Data.len);
+	  memcpy(idat->Data.data, req->texture->data, idat->Data.len);
+
+	  imgdat.flags |= MSG_RELIABLE;
+	  sl_send_udp_throt(ctx, &imgdat, SL_THROTTLE_TEXTURE);
+	  req->packet_no++;
+	} else {
+	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
+	  printf("Sending packet %i for %s image\n", req->packet_no, uuid_buf);
+
+	  int send_len = tex_len - sent;
+	  if(send_len > TEXTURE_PACKET_LEN) send_len = TEXTURE_PACKET_LEN;
+	  
+	  SL_DECLMSG(ImagePacket, imgpkt);
+	  SL_DECLBLK(ImagePacket, ImageID, iid, &imgpkt);
+	  uuid_copy(iid->ID, req->texture->asset_id);
+	  iid->Packet = req->packet_no;
+
+	  SL_DECLBLK(ImagePacket, ImageData, idat, &imgpkt);
+	  idat->Data.len = send_len;
+	  idat->Data.data = (unsigned char*)malloc(send_len);
+	  memcpy(idat->Data.data, req->texture->data + sent, send_len);
+
+	  imgpkt.flags |= MSG_RELIABLE;
+	  sl_send_udp_throt(ctx, &imgpkt, SL_THROTTLE_TEXTURE);
+	  req->packet_no++;
+	}
+      }
+    }
+
+    //printf("DEBUG: texture throttle at %f\n", (double)ctx->throttles[SL_THROTTLE_TEXTURE].level);
+  }
+  
+  return TRUE;
+}
+
+
 static void handle_RequestImage_msg(struct user_ctx* ctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RequestImage, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad))
@@ -534,10 +649,32 @@ static void handle_RequestImage_msg(struct user_ctx* ctx, struct sl_message* msg
     printf("RequestImage %s discard %i prio %f pkt %i type %i\n",
 	   buf, (int)ri->DiscardLevel, (double)ri->DownloadPriority,
 	   (int)ri->Packet, (int)ri->Type);
+
+    std::map<obj_uuid_t,image_request*>::iterator iter =
+      ctx->image_reqs.find(ri->Image);
     
     if(ri->DiscardLevel >= 0) {
-      texture_desc *texture = sim_get_texture(ctx->sim, ri->Image);
-      sim_request_texture(ctx->sim, texture);
+      if(iter == ctx->image_reqs.end()) {
+	texture_desc *texture = sim_get_texture(ctx->sim, ri->Image);
+	image_request* ireq = new image_request;
+	ireq->texture = texture;
+	ireq->priority = ri->DownloadPriority;
+	ireq->discard = ri->DiscardLevel;
+	ireq->packet_no = ri->Packet;
+	sim_request_texture(ctx->sim, texture);
+	ctx->image_reqs[ri->Image] = ireq;
+      } else {
+	image_request* ireq = iter->second;
+	ireq->priority = ri->DownloadPriority;
+	ireq->discard = ri->DiscardLevel;
+	// FIXME - don't think we want to update packet_no, but...
+      }
+    } else if(iter != ctx->image_reqs.end()) {
+      printf("Deleting RequestImage for %s\n", buf);
+      image_request* ireq = iter->second;
+      ireq->texture->refcnt--;
+      delete ireq;
+      ctx->image_reqs.erase(iter);
     }
   }
 }
@@ -707,4 +844,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   GIOChannel* gio_sock = g_io_channel_unix_new(sock);
   g_io_add_watch(gio_sock, G_IO_IN, got_packet, sim);
   sim->sock = sock;  
+
+  g_timeout_add(100, texture_send_timer, sim); // FIXME - check the timing on this
+  
 }

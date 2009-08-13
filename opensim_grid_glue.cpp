@@ -1080,10 +1080,12 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
 	 (int)msg->status_code, msg->reason_phrase, 
 	 msg->response_body->length);
 
-  if(msg->status_code >= 400 || msg->status_code < 500) {
+  if(msg->status_code >= 400 && msg->status_code < 500) {
     // not transitory, don't bother retrying
     texture->flags |= CJP_TEXTURE_MISSING;
   } else if(msg->status_code == 200) {
+    char buf[40]; uuid_unparse(texture->asset_id, buf);
+    printf("DEBUG: filling in texture entry %p for %s\n", texture, buf);
     texture->len = msg->response_body->length;
     texture->data = (unsigned char*)malloc(texture->len);
     memcpy(texture->data, msg->response_body->data, texture->len);

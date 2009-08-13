@@ -39,6 +39,39 @@ struct cap_descrip;
 typedef std::map<std::string,cap_descrip*> named_caps_map;
 typedef std::map<std::string,cap_descrip*>::iterator named_caps_iter;
 
+struct obj_uuid_t {
+  uuid_t u;
+  obj_uuid_t() {
+    uuid_clear(u);
+  }
+  obj_uuid_t(const obj_uuid_t &u2) {
+    *this = u2;
+  }
+  obj_uuid_t(const uuid_t u2) {
+    uuid_copy(u, u2);
+  }
+};
+
+static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) < 0;
+};
+
+static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) <= 0;
+};
+
+static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) == 0;
+};
+
+static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) > 0;
+};
+
+static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) >= 0;
+};
+
 struct sl_throttle {
   double time; // time last refilled
   float level, rate; // current reservoir level and flow rate
@@ -49,6 +82,13 @@ struct wearable_desc {
 };
 
 struct asset_xfer;
+
+struct image_request {
+  texture_desc *texture;
+  float priority;
+  int discard;
+  int packet_no;
+};
 
 struct user_ctx {
   struct user_ctx* next;
@@ -84,6 +124,9 @@ struct user_ctx {
 
   // icky Linden stuff
   std::map<uint64_t,asset_xfer*> xfers;
+
+  // Image transfers
+  std::map<obj_uuid_t,image_request*> image_reqs;
 
   // Event queue stuff. FIXME - seperate this out
   sl_llsd *queued_events;
@@ -123,39 +166,6 @@ struct obj_chat_listener {
   std::set<int32_t> channels;
 };
 
-
-struct obj_uuid_t {
-  uuid_t u;
-  obj_uuid_t() {
-    uuid_clear(u);
-  }
-  obj_uuid_t(const obj_uuid_t &u2) {
-    *this = u2;
-  }
-  obj_uuid_t(const uuid_t u2) {
-    uuid_copy(u, u2);
-  }
-};
-
-static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) < 0;
-};
-
-static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) <= 0;
-};
-
-static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) == 0;
-};
-
-static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) > 0;
-};
-
-static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) >= 0;
-};
 
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
@@ -219,6 +229,8 @@ void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,
 			   obj_chat_callback callback, void *user_data);
 void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 			   int32_t channel);
+
+void user_int_free_texture_sends(struct user_ctx *ctx);
 
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1

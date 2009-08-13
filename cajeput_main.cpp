@@ -1079,6 +1079,8 @@ static void user_remove_int(user_ctx **user) {
     llsd_free(ctx->last_eventqueue);
   llsd_free(ctx->queued_events);
 
+  user_int_free_texture_sends(ctx);
+
   free(ctx->first_name);
   free(ctx->last_name);
   free(ctx->name);
