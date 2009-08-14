@@ -180,7 +180,7 @@ static int helper_soup_hash_get_uuid(GHashTable *hash, const char* name,
 
 /* actually passed the "appearance" member of the request */
 static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
-  GByteArray *data;
+  GByteArray *data; char *s;
   if(soup_value_hash_lookup(hash,"visual_params",SOUP_TYPE_BYTE_ARRAY,
 			    &data)) {
     sl_string str;
@@ -190,14 +190,21 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
     printf("WARNING: expect_user is missing visual_params\n");
   }  
 
-  if(soup_value_hash_lookup(hash,"texture_data",SOUP_TYPE_BYTE_ARRAY,
+  if(soup_value_hash_lookup(hash,"texture",SOUP_TYPE_BYTE_ARRAY,
 			    &data)) {
     sl_string str;
     sl_string_set_bin(&str,data->data,data->len);
     user_set_texture_entry(user, &str);
   } else {
-    printf("WARNING: expect_user is missing texture_data\n");
+    printf("WARNING: expect_user is missing texture data\n");
   }  
+
+  if(soup_value_hash_lookup(hash, "serial", G_TYPE_STRING, &s)) {
+    user_set_wearable_serial(user, atoi(s)); // FIXME - type correctness
+  } else {
+    printf("WARNING: expect_user is missing serial\n");    
+  }
+
 
   for(int i = 0; i < SL_NUM_WEARABLES; i++) {
     char asset_str[24], item_str[24];
@@ -850,6 +857,8 @@ static void agent_PUT_handler(SoupServer *server,
       // semantics of this are funny
       user_set_texture_entry(user, &buf);
     }
+
+    // FIXME - need to handle serial
     
   } else {
     printf("DEBUG: agent PUT with unknown type %s\n",msg_type);

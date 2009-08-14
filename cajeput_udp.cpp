@@ -215,7 +215,7 @@ static void send_agent_wearables(struct user_ctx* ctx) {
   SL_DECLBLK(AgentWearablesUpdate, AgentData, ad, &upd);
   uuid_copy(ad->AgentID, ctx->user_id);
   uuid_copy(ad->SessionID, ctx->session_id);
-  ad->SerialNum = ctx->wearable_serial++;
+  ad->SerialNum = ctx->wearable_serial; // FIXME: don't think we increment here
   
   for(int i = 0; i < SL_NUM_WEARABLES; i++) {
     // FIXME - avoid sending empty wearables?
@@ -475,8 +475,8 @@ static void handle_SendXferPacket_msg(struct user_ctx* ctx, struct sl_message* m
   }
   xfer = iter->second;
 
-  printf("DEBUG SendXfer packet=%i len=%i\n", xferid->Packet,
-	 data->Data.len);
+  /* printf("DEBUG SendXfer packet=%i len=%i\n", xferid->Packet,
+     data->Data.len); */
 
   if(xfer->data == NULL) {
     if(data->Data.len < 4 || (xferid->Packet & 0x7fffffff) != 0) {
@@ -506,8 +506,8 @@ static void handle_SendXferPacket_msg(struct user_ctx* ctx, struct sl_message* m
     }
     memcpy(xfer->data + xfer->len, data->Data.data, data->Data.len);
     xfer->len += data->Data.len;
-    printf("DEBUG: xfer %i long, got %i bytes so far\n",
-	   data->Data.len, xfer->len);
+    /* printf("DEBUG: xfer %i long, got %i bytes so far\n",
+       data->Data.len, xfer->len); */
   }
 
   xfer->ctr++;
@@ -638,7 +638,7 @@ static gboolean texture_send_timer(gpointer data) {
 	  req->packet_no++;
 	} else {
 	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
-	  printf("Sending packet %i for %s image\n", req->packet_no, uuid_buf);
+	  //printf("Sending packet %i for %s image\n", req->packet_no, uuid_buf);
 
 	  int send_len = tex_len - sent;
 	  if(send_len > TEXTURE_PACKET_LEN) send_len = TEXTURE_PACKET_LEN;

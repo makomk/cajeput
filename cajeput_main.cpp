@@ -536,6 +536,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->PathScaleX = 100;
   objd->PathScaleY = 100;
   objd->ParentID = 0;
+  objd->Material = 4;
   // END FIXME
   
   name[0] = 0;
@@ -639,8 +640,8 @@ static gboolean av_update_timer(gpointer data) {
       struct avatar_obj *av = user2->av;
       if(av == NULL) continue;
       send_av_full_update(user, user2);
-      if(user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
-	 user->flags & AGENT_FLAG_NEED_APPEARANCE) {
+      if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
+	 user->flags & AGENT_FLAG_NEED_APPEARANCE) && user != user2) {
 	// FIXME - shouldn't send AvatarAppearance to self?
 	send_av_appearance(user, user2);
       }
@@ -958,6 +959,10 @@ void user_set_visual_params(struct user_ctx *user, struct sl_string* data) {
   user->flags |= AGENT_FLAG_APPEARANCE_UPD;
 }
 
+void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial) {
+  ctx->wearable_serial = serial;
+}
+
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       uuid_t item_id, uuid_t asset_id) {
   if(id >= SL_NUM_WEARABLES) {
@@ -977,6 +982,11 @@ static void debug_prepare_new_user(struct sim_new_user *uinfo) {
 	 user_id, session_id, (unsigned long)uinfo->circuit_code,
 	 uinfo->is_child ? "child" : "main");
 }
+
+static float throttle_init[SL_NUM_THROTTLES] = {
+  64000.0, 64000.0, 64000.0, 64000.0, 64000.0, 
+  64000.0, 64000.0,
+};
 
 struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 				      struct sim_new_user *uinfo) {
@@ -1012,6 +1022,8 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   sprintf(ctx->name, "%s %s", ctx->first_name, ctx->last_name);
   ctx->group_title = strdup(""); // strdup("Very Foolish Tester");
   user_reset_timeout(ctx);
+
+  user_set_throttles(ctx,throttle_init);
 
   sim->gridh.user_created(sim,ctx,&ctx->grid_priv);
 

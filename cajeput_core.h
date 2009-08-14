@@ -215,6 +215,7 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       uuid_t item_id, uuid_t asset_id);
+void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
 
 // Semantics of these two are funny. They take ownership of the buffer pointed 
 // to by data->data and then set data->data to NULL. 
