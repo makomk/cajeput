@@ -3,7 +3,7 @@
 #include "cajeput_j2k.h"
 #include "libopenjpeg/openjpeg.h"
 
-int cajeput_j2k_parse(unsigned char* data, int len, struct cajeput_j2k *info) {
+int cajeput_j2k_info(unsigned char* data, int len, struct cajeput_j2k *info) {
   opj_dparameters_t params;
   opj_codestream_info_t imginfo;
   opj_dinfo_t* dinfo = opj_create_decompress(CODEC_J2K);
@@ -25,11 +25,17 @@ int cajeput_j2k_parse(unsigned char* data, int len, struct cajeput_j2k *info) {
 	 image->x1, image->y1, imginfo.numcomps, imginfo.numlayers, imginfo.tw*imginfo.th);
   for(i = 0; i < imginfo.numcomps; i++) {
     // number of resolutions = numdecompos+1
-    
+
     // FIXME - we're assuming one precinct per (layer,res,component) triplet
     numprec += imginfo.numdecompos[i]+1;
     //for(j = 0; j < imginfo.numdecompos[i]+1; j++) {
     //}
+  }
+
+  // FIXME - just set a single discard level in this case
+  if(imginfo.prog != LRCP) {
+    printf("J2K ERROR: image progression not LRCP\n");
+    goto out_fail;
   }
 
   if(numprec * imginfo.numlayers != imginfo.packno) {
@@ -38,13 +44,31 @@ int cajeput_j2k_parse(unsigned char* data, int len, struct cajeput_j2k *info) {
     goto out_fail;
   }
 
+  if(imginfo.numlayers > MAX_DISCARD_LEVELS || imginfo.numlayers <= 0) {
+    printf("J2K ERROR: bad number of layers\n");
+    goto out_fail;
+  }
+
+  info->width = image->x1;
+  info->height = image->y1;
+  info->num_comps = imginfo.numcomps;
+  info->num_discard = imginfo.numlayers;
+
   for(i = 0; i < imginfo.numlayers; i++) {
     int layer_start = imginfo.tile[0].packet[i*numprec].start_pos;
     int layer_end = imginfo.tile[0].packet[i*numprec+numprec-1].end_pos;
     printf("Layer %i: start %i, end %i\n", i, layer_start, layer_end);
+
+    info->discard_levels[imginfo.numlayers - 1 - i] = layer_end;
   }
 
-  
+  info->discard_levels[0] = len;
+
+  opj_destroy_cstr_info(&imginfo);
+  opj_image_destroy(image);
+  opj_destroy_decompress(dinfo);
+  opj_cio_close(cio);
+  return 1;  
 
  out_fail:
   opj_destroy_cstr_info(&imginfo);

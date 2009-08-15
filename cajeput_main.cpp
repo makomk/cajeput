@@ -25,6 +25,7 @@
 #include "cajeput_core.h"
 #include "cajeput_udp.h"
 #include "cajeput_int.h"
+#include "cajeput_j2k.h"
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -420,14 +421,30 @@ static GMainLoop *main_loop;
 
 // Texture-related stuff
 
+
+// may want to move this to a thread, but it's reasonably fast since it 
+// doesn't have to do a full decode
+void sim_texture_read_metadata(struct texture_desc *desc) {
+  struct cajeput_j2k info;
+  if(cajeput_j2k_info(desc->data, desc->len, &info)) {
+    desc->width = info.width; desc->height = info.height;
+    desc->num_discard = info.num_discard;
+    desc->discard_levels = new int[info.num_discard];
+    memcpy(desc->discard_levels, info.discard_levels, 
+	   info.num_discard*sizeof(int));
+  }
+}
+
 // FIXME - actually clean up the textures we allocate
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local) {
   texture_desc *desc = new texture_desc();
   uuid_copy(desc->asset_id, asset_id);
-  desc->flags = is_local ?  CJP_TEXTURE_LOCAL : 0;
+  desc->flags = is_local ?  CJP_TEXTURE_LOCAL : 0; // FIXME - code duplication
   desc->data = data; desc->len = len;
-  desc->refcnt = 0;
+  desc->refcnt = 0; 
+  desc->width = desc->height = desc->num_discard = 0;
+  desc->discard_levels = NULL;
   sim->textures[asset_id] = desc;
 
   if(is_local) {
@@ -462,6 +479,8 @@ struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id)
     desc->flags = 0;
     desc->data = NULL; desc->len = 0;
     desc->refcnt = 0;
+    desc->width = desc->height = desc->num_discard = 0;
+    desc->discard_levels = NULL;
     sim->textures[asset_id] = desc;
   }
   desc->refcnt++; return desc;
@@ -1148,7 +1167,7 @@ static gboolean shutdown_timer(gpointer data) {
   for(std::map<obj_uuid_t,texture_desc*>::iterator iter = sim->textures.begin();
       iter != sim->textures.end(); iter++) {
     struct texture_desc *desc = iter->second;
-    free(desc->data); delete desc;
+    free(desc->data); delete desc->discard_levels; delete desc;
   }
   
   world_octree_destroy(sim->world_tree);

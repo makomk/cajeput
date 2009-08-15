@@ -27,12 +27,15 @@
 extern "C" {
 #endif
 
+#define MAX_DISCARD_LEVELS 8
+
 struct cajeput_j2k {
   int width, height;
-  int num_comps, num_layers;
+  int num_comps, num_discard;
+  int discard_levels[MAX_DISCARD_LEVELS];
 };
 
-int cajeput_j2k_parse(unsigned char* data, int len, struct cajeput_j2k *info);
+int cajeput_j2k_info(unsigned char* data, int len, struct cajeput_j2k *info);
 
 #ifdef __cplusplus
 }

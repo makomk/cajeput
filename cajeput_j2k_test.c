@@ -26,7 +26,7 @@ static char *read_full_file(const char *name, int *lenout) {
 }
 
 int main( int argc, const char** argv ) {
-  unsigned char* data; int len;
+  unsigned char* data; int len, i;
   struct cajeput_j2k info;
   if(argc != 2) {
     printf("Usage: %s <filename>\n", argv[0]);
@@ -38,7 +38,15 @@ int main( int argc, const char** argv ) {
     printf("ERROR: couldn't read file\n"); return 1;
   }
 
-  cajeput_j2k_parse(data, len, &info);
+  if(cajeput_j2k_info(data, len, &info)) {
+    printf("Success: image %ix%i, %i components, %i layers:\n",
+	   info.width, info.height, info.num_comps, info.num_discard);
+    for(i = 0; i < info.num_discard; i++) {
+      printf("   Discard level %i: %i\n", i, info.discard_levels[i]);
+    }
+  } else {
+    printf("ERROR: decode failed\n");
+  }
   
   free(data);
   return 0;

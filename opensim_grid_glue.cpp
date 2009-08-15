@@ -1098,6 +1098,10 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
     texture->len = msg->response_body->length;
     texture->data = (unsigned char*)malloc(texture->len);
     memcpy(texture->data, msg->response_body->data, texture->len);
+    sim_texture_read_metadata(texture);
+  } else {
+    // HACK!
+    texture->flags |= CJP_TEXTURE_MISSING;
   }
   texture->flags &= ~CJP_TEXTURE_PENDING;
 

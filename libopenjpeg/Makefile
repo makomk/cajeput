@@ -1,4 +1,4 @@
-CFLAGS=-ggdb
+CFLAGS=-ggdb -O2
 
 openjpeg.a: bio.o cio.o dwt.o event.o image.o j2k.o j2k_lib.o jp2.o jpt.o \
    mct.o mqc.o openjpeg.o pi.o raw.o t1.o t1_generate_luts.o t2.o tcd.o tgt.o

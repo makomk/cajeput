@@ -581,8 +581,11 @@ void user_int_free_texture_sends(struct user_ctx *ctx) {
 #define TEXTURE_FIRST_LEN 600
 #define TEXTURE_PACKET_LEN 1000
 
+int send_err_throt = 0; // HACK
+
 static gboolean texture_send_timer(gpointer data) {
   struct simulator_ctx* sim = (simulator_ctx*)data;
+  send_err_throt++;
   for(user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
     std::map<obj_uuid_t,image_request*>::iterator req_iter =
       ctx->image_reqs.begin(); // FIXME - do by priority
@@ -592,14 +595,19 @@ static gboolean texture_send_timer(gpointer data) {
       image_request *req = req_iter->second;
       if(req->texture->data == NULL) {
 	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
-	  printf("Image %s still pending, skipping\n", uuid_buf);
+	  if((send_err_throt % 10) == 0) 
+	    printf("Image %s still pending, skipping\n", uuid_buf);
 	req_iter++;
       } else {
 	int sent = (req->packet_no > 1) ? 
 	  (TEXTURE_FIRST_LEN + (req->packet_no-1)*TEXTURE_PACKET_LEN) :
 	  (TEXTURE_FIRST_LEN * req->packet_no);
 	int tex_len = req->texture->len;
-	if(sent >= tex_len || sent < 0) {
+	if(req->discard >= req->texture->num_discard)
+	  req->discard = req->texture->num_discard - 1;
+	
+	int wanna_send = req->texture->discard_levels[req->discard];
+	if(sent >= wanna_send || sent < 0) {
 	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
 	  if(sent < 0) {
 	    printf("INTERNAL ERROR: Bad sent value %i for packet_no %i\n",
