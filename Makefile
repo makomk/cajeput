@@ -6,11 +6,16 @@ all: cajeput_sim  sl_llsd_test cajeput_j2k_test
 clean:
 	rm -f cajeput_main cajeput_sim sl_llsd_test *.o sl_messages.[ch]
 
+
+.DUMMY:
+
+libopenjpeg/openjpeg.a: .DUMMY
+	cd libopenjpeg && make
+
 cajeput_j2k.o: cajeput_j2k.c cajeput_j2k.h
 
-cajeput_j2k_test: cajeput_j2k_test.c cajeput_j2k.h cajeput_j2k.o
-	$(CC) $(CFLAGS) -o cajeput_j2k_test cajeput_j2k_test.c cajeput_j2k.o
-
+cajeput_j2k_test: cajeput_j2k_test.c cajeput_j2k.h cajeput_j2k.o libopenjpeg/openjpeg.a
+	$(CC) $(CFLAGS) -o cajeput_j2k_test cajeput_j2k_test.c cajeput_j2k.o libopenjpeg/openjpeg.a -lm
 
 sl_llsd_test: sl_llsd.c sl_llsd.h sl_llsd_test.c 
 	$(CC) $(CFLAGS) -o sl_llsd_test sl_llsd.c  sl_llsd_test.c -lxml2 -luuid -lglib-2.0

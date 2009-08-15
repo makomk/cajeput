@@ -1,0 +1,7 @@
+Note that this libopenjpeg is modified from libopenjpeg 1.3.
+
+It has a new decoder option, LIMIT_TO_TIER2, that allows us to figure out the
+layer boundaries without doing an unnecessary and expensive decode of the full
+image. This is quite handy.
+
+It also fixes a minor memory leak in decode_with_info
