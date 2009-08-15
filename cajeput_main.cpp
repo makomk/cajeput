@@ -427,11 +427,18 @@ static GMainLoop *main_loop;
 void sim_texture_read_metadata(struct texture_desc *desc) {
   struct cajeput_j2k info;
   if(cajeput_j2k_info(desc->data, desc->len, &info)) {
+    assert(info.num_discard > 0);
     desc->width = info.width; desc->height = info.height;
     desc->num_discard = info.num_discard;
     desc->discard_levels = new int[info.num_discard];
     memcpy(desc->discard_levels, info.discard_levels, 
 	   info.num_discard*sizeof(int));
+  } else {
+    char buf[40]; uuid_unparse(desc->asset_id, buf);
+    printf("WARNING: texture metadata read failed for %s\n");
+    desc->num_discard = 1;
+    desc->discard_levels = new int[1];
+    desc->discard_levels[0] = desc->len;
   }
 }
 
@@ -445,6 +452,7 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
   desc->refcnt = 0; 
   desc->width = desc->height = desc->num_discard = 0;
   desc->discard_levels = NULL;
+  sim_texture_read_metadata(desc);
   sim->textures[asset_id] = desc;
 
   if(is_local) {

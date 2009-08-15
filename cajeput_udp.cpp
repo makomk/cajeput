@@ -593,7 +593,22 @@ static gboolean texture_send_timer(gpointer data) {
     while(ctx->throttles[SL_THROTTLE_TEXTURE].level > 0.0f) {
       if(req_iter == ctx->image_reqs.end()) break;
       image_request *req = req_iter->second;
-      if(req->texture->data == NULL) {
+      if(req->texture->flags & CJP_TEXTURE_MISSING) {
+	char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
+	printf("Image %s not found!\n", uuid_buf);
+	  
+	SL_DECLMSG(ImageNotInDatabase, noimg);
+	SL_DECLBLK(ImageNotInDatabase, ImageID, iid, &noimg);
+	uuid_copy(iid->ID, req->texture->asset_id);
+	noimg.flags |= MSG_RELIABLE;
+	sl_send_udp_throt(ctx, &noimg, SL_THROTTLE_TEXTURE);
+
+	std::map<obj_uuid_t,image_request*>::iterator next = req_iter;
+	next++;
+	req->texture->refcnt--; delete req;
+	ctx->image_reqs.erase(req_iter);
+	req_iter = next;
+      } else if(req->texture->data == NULL) {
 	  char uuid_buf[40]; uuid_unparse(req->texture->asset_id, uuid_buf);
 	  if((send_err_throt % 10) == 0) 
 	    printf("Image %s still pending, skipping\n", uuid_buf);
@@ -603,6 +618,7 @@ static gboolean texture_send_timer(gpointer data) {
 	  (TEXTURE_FIRST_LEN + (req->packet_no-1)*TEXTURE_PACKET_LEN) :
 	  (TEXTURE_FIRST_LEN * req->packet_no);
 	int tex_len = req->texture->len;
+	assert(req->texture->num_discard > 0);
 	if(req->discard >= req->texture->num_discard)
 	  req->discard = req->texture->num_discard - 1;
 	
