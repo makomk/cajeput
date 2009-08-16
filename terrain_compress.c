@@ -1,4 +1,5 @@
-/*  Copyright (c) 2007-2009, openmetaverse.org
+/*
+  Copyright (c) 2007-2009, openmetaverse.org
   All rights reserved.
 
   - Redistribution and use in source and binary forms, with or without
@@ -20,7 +21,9 @@
   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-  POSSIBILITY OF SUCH DAMAGE. */
+  POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +62,7 @@ struct patch_header {
 static struct bit_packer *new_bit_packer(char* buf, int len) {
   struct bit_packer *bitpack = malloc(sizeof(struct bit_packer));
   bitpack->buf = buf; bitpack->buflen = len;
+  memset(buf, 0, len);
   bitpack->bytePos = bitpack->bitPos = 0;
   return bitpack;
 }

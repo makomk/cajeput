@@ -792,8 +792,13 @@ static gboolean obj_update_timer(gpointer data) {
     while(ctx->throttles[SL_THROTTLE_LAND].level > 0.0f && 
 	  i < 16) {
       if(ctx->dirty_terrain[i] == 0) { i++; continue; }
-      int patch_cnt = 0; int patches[16]; uint16_t dirty = ctx->dirty_terrain[i];
-      for(int j = 0; j < 16 && patch_cnt < 4; j++) {
+      int patch_cnt = 0; int patches[4]; uint16_t dirty = ctx->dirty_terrain[i];
+
+      // in the worst case, we could only fit 2 texture patches per packet
+      // (this is probably unlikely, but best to be safe anyway, especially as
+      // getting it wrong can crash the viewer!)
+      // should really do this dynamically - normally we'll fit at least 4
+      for(int j = 0; j < 16 && patch_cnt < 2; j++) {
 	if(dirty & (1<<j)) {
 	  patches[patch_cnt++] = i * 16 + j;
 	  dirty &= ~(1<<j);
@@ -804,6 +809,7 @@ static gboolean obj_update_timer(gpointer data) {
       lid->Type = LAYER_TYPE_LAND;
       SL_DECLBLK(LayerData, LayerData, ldat, &layer);
       terrain_create_patches(sim->terrain, patches, patch_cnt, &ldat->Data);
+      layer.flags |= MSG_RELIABLE;
       sl_send_udp_throt(ctx, &layer, SL_THROTTLE_LAND);
       ctx->dirty_terrain[i] = dirty;
     }
@@ -1324,7 +1330,7 @@ static gboolean shutdown_timer(gpointer data) {
   for(std::map<obj_uuid_t,texture_desc*>::iterator iter = sim->textures.begin();
       iter != sim->textures.end(); iter++) {
     struct texture_desc *desc = iter->second;
-    free(desc->data); delete desc->discard_levels; delete desc;
+    free(desc->data); delete[] desc->discard_levels; delete desc;
   }
   
   world_octree_destroy(sim->world_tree);
