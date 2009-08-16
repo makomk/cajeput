@@ -31,6 +31,8 @@
 #include <json-glib/json-glib.h>
 #include "opensim_grid_glue.h"
 #include <cassert>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
 static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
@@ -1083,8 +1085,10 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
 			     gpointer user_data) {
   asset_req_desc* req = (asset_req_desc*)user_data;
   texture_desc *texture = req->texture;
+  const char* content_type = 
+    soup_message_headers_get_content_type(msg->response_headers, NULL);
   sim_shutdown_release(req->sim);
-  
+
   printf("Get texture resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
 	 msg->response_body->length);
@@ -1093,18 +1097,64 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
     // not transitory, don't bother retrying
     texture->flags |= CJP_TEXTURE_MISSING;
   } else if(msg->status_code == 200) {
+    int is_xml_crap = 0;
     char buf[40]; uuid_unparse(texture->asset_id, buf);
     printf("DEBUG: filling in texture entry %p for %s\n", texture, buf);
-    texture->len = msg->response_body->length;
-    texture->data = (unsigned char*)malloc(texture->len);
-    memcpy(texture->data, msg->response_body->data, texture->len);
+    if(content_type != NULL && strcmp(content_type, "application/xml") == 0) {
+      printf("WARNING: server fobbed us off with XML for %s\n", buf);
+      is_xml_crap = 1;
+    } else if(msg->response_body->length >= 3 &&
+	      (strncmp(msg->response_body->data, "\xef\xbb\xbf",3) == 0 ||
+	       strncmp(msg->response_body->data, "<?x",3) == 0)) {
+      // real J2K images don't have a UTF-8 BOM, or an XML marker
+      printf("WARNING: server fobbed us off with XML for %s and LIED!\n", buf);
+      is_xml_crap = 1;      
+    }
+    if(is_xml_crap) {
+      xmlDocPtr doc = xmlReadMemory(msg->response_body->data,
+				    msg->response_body->length,"asset.xml",
+				    NULL,0);
+      if(doc == NULL) {
+	printf("ERROR: XML parse failed for texture asset\n");
+	goto out_fail;
+      }
+
+      xmlNodePtr node = xmlDocGetRootElement(doc)->children;
+      while(node != NULL && (node->type == XML_TEXT_NODE || 
+			     node->type == XML_COMMENT_NODE))
+	node = node->next;
+      if(node == NULL || node->type != XML_ELEMENT_NODE || 
+	 strcmp((const char*)node->name, "Data") != 0) {
+	printf("ERROR: didn't get expected <Data> node parsing texture asset\n");
+	xmlFreeDoc(doc);
+	goto out_fail;
+      }
+
+      char *texstr = (char*)xmlNodeListGetString(doc, node->children, 1);
+      gsize sz;
+      // HACK - we're overwriting data that's only loosely ours.
+      g_base64_decode_inplace(texstr, &sz);
+
+      
+      texture->len = sz;
+      texture->data = (unsigned char*)malloc(texture->len);
+      memcpy(texture->data, texstr, texture->len);     
+
+      xmlFree(texstr);
+      xmlFreeDoc(doc);
+    } else {
+      texture->len = msg->response_body->length;
+      texture->data = (unsigned char*)malloc(texture->len);
+      memcpy(texture->data, msg->response_body->data, texture->len);
+    }
     sim_texture_read_metadata(texture);
   } else {
     // HACK!
     texture->flags |= CJP_TEXTURE_MISSING;
   }
-  texture->flags &= ~CJP_TEXTURE_PENDING;
 
+  out_fail:
+  texture->flags &= ~CJP_TEXTURE_PENDING;
   delete req;
 }
 
