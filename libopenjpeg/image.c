@@ -28,6 +28,7 @@
 
 opj_image_t* opj_image_create0(void) {
 	opj_image_t *image = (opj_image_t*)opj_malloc(sizeof(opj_image_t));
+	image->comps = NULL; // makomk 16/8/2009 - fixes crash on bad image
 	return image;
 }
 

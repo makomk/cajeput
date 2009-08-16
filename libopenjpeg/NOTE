@@ -4,4 +4,6 @@ It has a new decoder option, LIMIT_TO_TIER2, that allows us to figure out the
 layer boundaries without doing an unnecessary and expensive decode of the full
 image. This is quite handy.
 
-It also fixes a minor memory leak in decode_with_info
+It also fixes a minor memory leak in decode_with_info, and an intermittent 
+crash due to possibly dereferencing an uninitialised pointer when decoding 
+fails.
