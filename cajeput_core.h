@@ -38,7 +38,7 @@ struct simulator_ctx;
 struct cap_descrip;
 struct obj_chat_listeners;
 
-// intended to be usable as a mask
+// internal intended to be usable as a mask
 #define OBJ_TYPE_PRIM 1
 #define OBJ_TYPE_AVATAR 2
 
@@ -165,6 +165,8 @@ struct cajeput_physics_hooks {
 		   struct world_obj *obj, sl_vector3 force); /* HACK HACK HACK */
   void(*set_target_velocity)(struct simulator_ctx *sim, void *priv,
 			     struct world_obj *obj, sl_vector3 velocity);
+  void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
+			   struct world_obj *obj, int is_flying);
   void(*step)(struct simulator_ctx *sim, void *priv);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
 };
@@ -216,8 +218,10 @@ static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 #define AGENT_FLAG_ENTERED 0x20 // got CompleteAgentMovement
 
 // FIXME - these are hacks
-#define AGENT_FLAG_APPEARANCE_UPD 0x40 // need to send AvatarAppearance to other avs
-#define AGENT_FLAG_NEED_APPEARANCE 0x80 // need to send AvatarAppearance for other avs - FIXME set this
+#define AGENT_FLAG_APPEARANCE_UPD 0x40 // need to send AvatarAppearance to other agents
+#define AGENT_FLAG_NEED_OTHER_AVS 0x80 // need to send AvatarAppearance etc for other avs - FIXME set this
+#define AGENT_FLAG_ANIM_UPDATE 0x100 // need to send AvatarAnimation to other agents
+#define AGENT_FLAG_AV_FULL_UPD 0x200 // need to send full ObjectUpdate for this avatar
 
 void *user_get_grid_priv(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
@@ -239,6 +243,12 @@ void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
 // to by data->data and then set data->data to NULL. 
 void user_set_texture_entry(struct user_ctx *user, struct sl_string* data);
 void user_set_visual_params(struct user_ctx *user, struct sl_string* data);
+
+struct animation_desc; // FIXME - move this to this header
+void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,
+			int replace);
+void user_clear_animation_by_type(struct user_ctx *ctx, int caj_type);
+void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim);
 
 user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,

@@ -26,6 +26,7 @@
 #include "cajeput_core.h"
 #include "cajeput_udp.h"
 #include "cajeput_int.h"
+#include "cajeput_anims.h"
 #include <stdlib.h>
 #include <cassert>
 
@@ -110,13 +111,24 @@ void user_update_throttles(struct user_ctx *ctx) {
 
 #define VALIDATE_SESSION(ad) (uuid_compare(ctx->user_id, ad->AgentID) != 0 || uuid_compare(ctx->session_id, ad->SessionID) != 0)
 
+// FIXME - move this somewhere saner!
+static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
+  if(uuid_compare(ctx->default_anim.anim, anim) != 0) {
+    uuid_copy(ctx->default_anim.anim, anim);
+    ctx->default_anim.sequence = ctx->anim_seq++; // FIXME
+    ctx->default_anim.caj_type = CAJ_ANIM_TYPE_DEFAULT;
+    uuid_copy(ctx->default_anim.obj, ctx->user_id);
+    ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+  }
+ }
+
 #define AGENT_CONTROL_AT_POS (1<<0)
 #define AGENT_CONTROL_AT_NEG (1<<1)
 #define AGENT_CONTROL_LEFT_POS (1<<2)
 #define AGENT_CONTROL_LEFT_NEG (1<<3)
 #define AGENT_CONTROL_UP_POS (1<<4)
 #define AGENT_CONTROL_UP_NEG (1<<5)
-
+#define AGENT_CONTROL_FLY (1<<13)
 
 static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg) {
   struct sl_blk_AgentUpdate_AgentData *ad;
@@ -130,6 +142,7 @@ static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg)
     }
     // FIXME - this is a horrid hack
     uint32_t control_flags = ad->ControlFlags;
+    int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
     sl_vector3 force; 
     force.x = 0.0f; force.y = 0.0f; force.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
@@ -140,9 +153,61 @@ static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg)
       force.y = -4.0;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
       force.y = 4.0;
+    if(control_flags & AGENT_CONTROL_UP_POS)
+      force.z = 4.0;
+    if(control_flags & AGENT_CONTROL_UP_NEG)
+      force.z = -4.0;
     sl_mult_vect3_quat(&force,&ctx->av->ob.rot,&force);
+    ctx->sim->physh.set_avatar_flying(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob, is_flying);
     ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,force);
+
+    // FIXME - iffy
+    if(is_flying) {
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
+	// FIXME - send proper animations for flying backwards & turns
+	set_default_anim(ctx, fly_anim);
+      } else if(control_flags & AGENT_CONTROL_UP_POS) {
+	set_default_anim(ctx, hover_up_anim);
+      } else if(control_flags & AGENT_CONTROL_UP_NEG) {
+	set_default_anim(ctx, hover_down_anim);
+      } else {
+	set_default_anim(ctx, hover_anim);
+      }
+    } else {
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
+	// FIXME - should walking backwards be different?
+	set_default_anim(ctx, walk_anim);
+      } else {
+	set_default_anim(ctx, stand_anim);
+      }
+    }
   }
+}
+
+static void handle_AgentAnimation_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AgentAnimation, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  sl_dump_packet(msg); // FIXME - TODO
+
+  int count = SL_GETBLK(AgentAnimation, AnimationList, msg).count;
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(AgentAnimation, AnimationList, aitem) =
+      SL_GETBLKI(AgentAnimation, AnimationList, msg, i);
+    if(aitem->StartAnim) {
+      animation_desc anim;
+      uuid_copy(anim.anim, aitem->AnimID);
+      anim.sequence = ctx->anim_seq++; // FIXME
+      anim.caj_type = CAJ_ANIM_TYPE_NORMAL;
+      uuid_copy(anim.obj, ctx->user_id);
+      user_add_animation(ctx, &anim, false);
+      // TODO - (FIXME implement this!)
+    } else {
+      // FIXME - handle clearing default animation
+      user_clear_animation_by_id(ctx, aitem->AnimID);
+    }
+  }
+
+  ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
 }
 
 static void handle_StartPingCheck_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -298,7 +363,7 @@ static void handle_RegionHandshakeReply_msg(struct user_ctx* ctx, struct sl_mess
     ad = SL_GETBLKI(RegionHandshakeReply,AgentData,msg,0);
     if(VALIDATE_SESSION(ad)) 
       return;
-    ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_APPEARANCE;
+    ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_OTHER_AVS;
     // FIXME - should we do something with RegionInfo.Flags?
 }
 
@@ -319,7 +384,8 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
       return;
     }
     ctx->flags &= ~AGENT_FLAG_CHILD;
-    ctx->flags |= AGENT_FLAG_ENTERED;
+    ctx->flags |= AGENT_FLAG_ENTERED | AGENT_FLAG_APPEARANCE_UPD |  
+      AGENT_FLAG_ANIM_UPDATE | AGENT_FLAG_AV_FULL_UPD;
     if(ctx->av == NULL) {
       ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
       ctx->av->ob.type = OBJ_TYPE_AVATAR;
@@ -889,6 +955,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(RequestImage);
   ADD_HANDLER(AgentDataUpdateRequest);
   ADD_HANDLER(AgentSetAppearance);
+  ADD_HANDLER(AgentAnimation);
   ADD_HANDLER(PacketAck);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);

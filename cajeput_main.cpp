@@ -28,6 +28,7 @@
 #include "cajeput_j2k.h"
 #include "cajeput_prim.h"
 #include "terrain_compress.h"
+#include "cajeput_anims.h"
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -663,6 +664,28 @@ static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
   sl_send_udp(ctx, &aa);
 }
 
+static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
+  avatar_obj* av = av_user->av;
+  char name[0x100]; unsigned char obj_data[60];
+  SL_DECLMSG(AvatarAnimation,aa);
+  SL_DECLBLK(AvatarAnimation,Sender,sender,&aa);
+  uuid_copy(sender->ID, av_user->user_id);
+  
+  {
+    SL_DECLBLK(AvatarAnimation,AnimationList,anim,&aa);
+    uuid_copy(anim->AnimID, av_user->default_anim.anim);
+    anim->AnimSequenceID = av_user->default_anim.sequence; // FIXME - ???
+    SL_DECLBLK(AvatarAnimation,AnimationSourceList,source,&aa);
+    uuid_copy(source->ObjectID,av_user->default_anim.obj); // FIXME!!!
+  }
+  
+  // FIXME - copy non-default animations too
+  
+  // aa.flags |= MSG_RELIABLE; // FIXME - not reliable?
+  sl_send_udp(ctx, &aa);
+}
+
+
 static gboolean av_update_timer(gpointer data) {
   struct simulator_ctx* sim = (simulator_ctx*)data;
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
@@ -684,18 +707,28 @@ static gboolean av_update_timer(gpointer data) {
     for(user_ctx* user2 = sim->ctxts; user2 != NULL; user2 = user2->next) {
       struct avatar_obj *av = user2->av;
       if(av == NULL) continue;
-      send_av_full_update(user, user2);
+      if(user2->flags & AGENT_FLAG_AV_FULL_UPD ||
+	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) {
+	send_av_full_update(user, user2);
+      } else {
+	send_av_terse_update(user, user2->av);
+      }
       if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
-	 user->flags & AGENT_FLAG_NEED_APPEARANCE) && user != user2) {
+	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) && user != user2) {
 	// FIXME - shouldn't send AvatarAppearance to self?
 	send_av_appearance(user, user2);
       }
+      if(user2->flags & AGENT_FLAG_ANIM_UPDATE ||
+	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) {
+	send_av_animations(user, user2);
+      }
     }
-    user_clear_flag(user, AGENT_FLAG_NEED_APPEARANCE);
+    user_clear_flag(user, AGENT_FLAG_NEED_OTHER_AVS);
   }
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     if(user->av != NULL)
-      user_clear_flag(user,  AGENT_FLAG_APPEARANCE_UPD);
+      user_clear_flag(user,  AGENT_FLAG_APPEARANCE_UPD|AGENT_FLAG_ANIM_UPDATE|
+		     AGENT_FLAG_AV_FULL_UPD);
   }
   return TRUE;
 }
@@ -1149,6 +1182,67 @@ void user_set_wearable(struct user_ctx *ctx, int id,
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
 }
 
+// FIXME - optimise this
+void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,
+			int replace) {
+  if(replace) {
+    // FIXME - is the replace functionality actually useful?
+    int found = 0;
+    for(std::vector<animation_desc>::iterator iter = ctx->anims.begin();
+	iter != ctx->anims.end(); /* nothing */) {
+      if(uuid_compare(iter->anim, anim->anim) == 0 || 
+	 iter->caj_type == anim->caj_type) {
+	if(found) {
+	  ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+	  iter = ctx->anims.erase(iter);
+	  continue;
+	} else if(uuid_compare(iter->anim, anim->anim) == 0 && 
+	 iter->caj_type == anim->caj_type) {
+	  found = 1; /* do nothing - FIXME update other stuff */
+	} else {
+	  ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+	  *iter = *anim; found = 1;
+	}
+      }
+      iter++;
+    }    
+  } else {
+    for(std::vector<animation_desc>::iterator iter = ctx->anims.begin();
+	iter != ctx->anims.end(); iter++) {
+      if(uuid_compare(iter->anim, anim->anim) == 0) {
+	iter->caj_type = anim->caj_type;
+	return; // FIXME - update other stuff
+      }
+    }
+    ctx->anims.push_back(*anim);
+    ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+  }
+}
+
+void user_clear_animation_by_type(struct user_ctx *ctx, int caj_type) {
+  for(std::vector<animation_desc>::iterator iter = ctx->anims.begin();
+      iter != ctx->anims.end(); /* nothing */) {
+    if(iter->caj_type == caj_type) {
+      ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+      iter = ctx->anims.erase(iter);
+    } else {
+      iter++;
+    }
+  }
+}
+
+void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim) {
+  for(std::vector<animation_desc>::iterator iter = ctx->anims.begin();
+      iter != ctx->anims.end(); /* nothing */) {
+    if(uuid_compare(iter->anim, anim) == 0) {
+      ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+      iter = ctx->anims.erase(iter);
+    } else {
+      iter++;
+    }
+  } 
+}
+
 static void debug_prepare_new_user(struct sim_new_user *uinfo) {
   char user_id[40], session_id[40];
   uuid_unparse(uinfo->user_id,user_id);
@@ -1176,6 +1270,12 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->visual_params.data = NULL;
   ctx->appearance_serial = ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
+
+  uuid_copy(ctx->default_anim.anim, stand_anim);
+  ctx->default_anim.sequence = 1;
+  uuid_clear(ctx->default_anim.obj); // FIXME - is this right?
+  ctx->default_anim.caj_type = CAJ_ANIM_TYPE_DEFAULT;
+  ctx->anim_seq = 2;
 
   debug_prepare_new_user(uinfo);
 

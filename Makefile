@@ -28,11 +28,13 @@ opensim_inventory_glue.o: opensim_inventory_glue.cpp cajeput_core.h sl_types.h o
 
 physics_bullet.o: physics_bullet.cpp cajeput_core.h sl_types.h
 
-cajeput_udp.o: cajeput_udp.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h sl_udp_proto.h
+cajeput_udp.o: cajeput_udp.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h sl_udp_proto.h cajeput_anims.h 
 
 cajeput_inventory.o: cajeput_inventory.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h
 
-cajeput_main.o: cajeput_main.cpp cajeput_core.h cajeput_udp.h cajeput_int.h cajeput_j2k.h cajeput_prim.h sl_messages.h sl_types.h sl_llsd.h terrain_compress.h
+cajeput_main.o: cajeput_main.cpp cajeput_core.h cajeput_udp.h cajeput_int.h cajeput_j2k.h cajeput_prim.h sl_messages.h sl_types.h sl_llsd.h terrain_compress.h cajeput_anims.h
+
+cajeput_anims.o: cajeput_anims.c cajeput_anims.h
 
 sl_messages.o: sl_messages.c sl_messages.h sl_types.h
 
@@ -40,7 +42,7 @@ sl_udp_proto.o: sl_udp_proto.c sl_udp_proto.h sl_messages.h sl_types.h
 
 terrain_compress.o: terrain_compress.c terrain_compress.h sl_types.h
 
-CAJEPUT_OBJS=opensim_grid_glue.o cajeput_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o sl_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o cajeput_j2k.o terrain_compress.o libopenjpeg/openjpeg.a
+CAJEPUT_OBJS=opensim_grid_glue.o cajeput_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o sl_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o cajeput_j2k.o terrain_compress.o cajeput_anims.o libopenjpeg/openjpeg.a
 
 cajeput_sim: $(CAJEPUT_OBJS)
 	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) -luuid -lglib-2.0 -lsoup-2.4 -lxml2 -lbulletdynamics -lbulletcollision -lbulletmath -ljson-glib-1.0

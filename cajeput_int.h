@@ -90,6 +90,16 @@ struct image_request {
   int packet_no;
 };
 
+#define CAJ_ANIM_TYPE_NORMAL 0 // normal
+#define CAJ_ANIM_TYPE_DEFAULT 1 // default anim
+// #define CAJ_ANIM_TYPE_MOVEMENT 2 // walking
+
+struct animation_desc {
+  uuid_t anim, obj;
+  int32_t sequence;
+  uint32_t caj_type; // internal animation type info - FIXME remove?
+};
+
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
@@ -118,6 +128,9 @@ struct user_ctx {
 
   uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
   struct sl_string texture_entry, visual_params;
+  struct animation_desc default_anim; // FIXME - merge into list of animations
+  std::vector<animation_desc> anims;
+  int32_t anim_seq; // FIXME - seems fishy
 
   // FIXME - move this out of struct to save l KB of space per child agent
   struct wearable_desc wearables[SL_NUM_WEARABLES];

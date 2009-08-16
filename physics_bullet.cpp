@@ -48,6 +48,7 @@ struct phys_obj {
   btCollisionShape* shape;
   btRigidBody* body;
   btVector3 target_velocity;
+  int is_flying; // for avatars only
 #if 0
   btPairCachingGhostObject* ghost;
   btKinematicCharacterController* control;
@@ -56,7 +57,7 @@ struct phys_obj {
 
 #define MAX_OBJECTS 15000
 
-#define AVATAR_Z_FUDGE 0.2f
+#define AVATAR_Z_FUDGE 0.1f
 
 static void add_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
@@ -70,6 +71,9 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     btTransform transform;
     transform.setIdentity();
     transform.setOrigin(btVector3(obj->pos.x,obj->pos.z+AVATAR_Z_FUDGE,obj->pos.y));
+
+    physobj->target_velocity = btVector3(0,0,0);
+    physobj->is_flying = 0;
   
 #if 1
     btDefaultMotionState* motion = new btDefaultMotionState(transform);
@@ -171,6 +175,16 @@ static void set_target_velocity(struct simulator_ctx *sim, void *priv,
     physobj->body->setActivationState(ACTIVE_TAG);  
 }
 
+static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
+			      struct world_obj *obj, int is_flying) {
+  if(obj->phys == NULL)
+    return;
+  struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+  physobj->is_flying = is_flying;
+
+  // FIXME - should make av buoyant
+}
+
 static void step_world(struct simulator_ctx *sim, void *priv) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
 
@@ -180,7 +194,7 @@ static void step_world(struct simulator_ctx *sim, void *priv) {
     btVector3 impulse = physobj->target_velocity;
     impulse -= physobj->body->getLinearVelocity();
     impulse *= 0.8f * 50.0f; // FIXME - don't hardcode mass
-    impulse.setY(0.0f);
+    if(!physobj->is_flying) impulse.setY(0.0f);
     physobj->body->applyCentralImpulse(impulse);
   }
 
@@ -244,6 +258,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   hooks->update_pos = update_pos;
   hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
+  hooks->set_avatar_flying = set_avatar_flying;
   hooks->step = step_world;
   hooks->destroy = destroy_physics;
 
