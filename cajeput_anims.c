@@ -7,6 +7,7 @@
 !! should be. Seriously, don't do it. I'm pretty sure the viewer code has   !!
 !! these hardcoded in. If you want to override these, apply additional      !!
 !! animations with higher priorities on top of them. (See also: AOs)        !! 
+!! Suggested hook point for this is set_default_anim in cajeput_udp.cpp     !!
 !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
 

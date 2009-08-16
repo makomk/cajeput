@@ -46,6 +46,7 @@ struct world_obj {
   int type;
   sl_vector3 pos;
   sl_vector3 scale; // FIXME - set correctly for avatars
+  sl_vector3 velocity;
   sl_quat rot;
   uuid_t id;
   uint32_t local_id;

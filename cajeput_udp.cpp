@@ -394,6 +394,7 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
       ctx->av->ob.pos.z = 60.0f;
       ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
       ctx->av->ob.rot.w = 1.0f;
+      ctx->av->ob.velocity.x = ctx->av->ob.velocity.y = ctx->av->ob.velocity.z = 0.0f;
       uuid_copy(ctx->av->ob.id, ctx->user_id);
       world_insert_obj(ctx->sim, &ctx->av->ob);
       world_obj_listen_chat(ctx->sim,&ctx->av->ob,av_chat_callback,ctx);

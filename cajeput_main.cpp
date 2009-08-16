@@ -550,7 +550,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
 
   // FIXME - endianness issues
   memcpy(obj_data, &av->ob.pos, 12); 
-  memset(obj_data+12, 0, 12); // velocity
+  memcpy(obj_data+12, &av->ob.velocity, 12); // velocity
   memset(obj_data+24, 0, 12); // accel
   memcpy(obj_data+36, &av->ob.rot, 12); 
   memset(obj_data+48, 0, 12);
@@ -616,9 +616,9 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   memcpy(dat+0x16, &av->ob.pos, 12); 
 
   // Velocity
-  sl_float_to_int16(dat+0x22, 0.0f, 128.0f);
-  sl_float_to_int16(dat+0x24, 0.0f, 128.0f);
-  sl_float_to_int16(dat+0x26, 0.0f, 128.0f);
+  sl_float_to_int16(dat+0x22, av->ob.velocity.x, 128.0f);
+  sl_float_to_int16(dat+0x24, av->ob.velocity.y, 128.0f);
+  sl_float_to_int16(dat+0x26, av->ob.velocity.z, 128.0f);
 
   // Acceleration
   sl_float_to_int16(dat+0x28, 0.0f, 64.0f);

@@ -140,6 +140,11 @@ static int update_pos(struct simulator_ctx *sim, void *priv,
     newpos.x = trans.getOrigin().getX();
     newpos.y = trans.getOrigin().getZ(); // swap Y and Z
     newpos.z = trans.getOrigin().getY() - AVATAR_Z_FUDGE;
+
+    btVector3 velocity = physobj->body->getLinearVelocity();
+    obj->velocity.x = velocity.getX();
+    obj->velocity.y = velocity.getZ();
+    obj->velocity.z = velocity.getY();
     
     if(fabs(newpos.x - obj->pos.x) < 0.01 &&
        fabs(newpos.y - obj->pos.y) < 0.01 &&
