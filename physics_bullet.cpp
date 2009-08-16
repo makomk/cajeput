@@ -49,6 +49,8 @@ struct phys_obj {
 
 #define MAX_OBJECTS 15000
 
+#define AVATAR_Z_FUDGE 0.2f
+
 static void add_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
@@ -56,11 +58,11 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     struct phys_obj *physobj = new phys_obj();
     btScalar mass(50.f);
     obj->phys = physobj;
-    physobj->shape = new btCapsuleShape(1.0f,2.0f); /* radius, height */
+    physobj->shape = new btCapsuleShape(0.75f,0.25f); /* radius, height */
   
     btTransform transform;
     transform.setIdentity();
-    transform.setOrigin(btVector3(obj->pos.x,obj->pos.z,obj->pos.y));
+    transform.setOrigin(btVector3(obj->pos.x,obj->pos.z+AVATAR_Z_FUDGE,obj->pos.y));
   
 #if 1
     btDefaultMotionState* motion = new btDefaultMotionState(transform);
@@ -124,7 +126,7 @@ static int update_pos(struct simulator_ctx *sim, void *priv,
     physobj->body->getMotionState()->getWorldTransform(trans);
     newpos.x = trans.getOrigin().getX();
     newpos.y = trans.getOrigin().getZ(); // swap Y and Z
-    newpos.z = trans.getOrigin().getY();
+    newpos.z = trans.getOrigin().getY() - AVATAR_Z_FUDGE;
     
     if(fabs(newpos.x - obj->pos.x) < 0.01 &&
        fabs(newpos.y - obj->pos.y) < 0.01 &&
@@ -235,7 +237,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   
   btTransform ground_transform;
   ground_transform.setIdentity();
-  ground_transform.setOrigin(btVector3(128,10,128));
+  ground_transform.setOrigin(btVector3(128,24.5,128));
   
   btDefaultMotionState* motion = new btDefaultMotionState(ground_transform);
   btRigidBody::btRigidBodyConstructionInfo body_info(0.0,motion,phys->ground_shape,btVector3(0,0,0));

@@ -33,5 +33,6 @@ void register_msg_handler(struct simulator_ctx *sim, sl_message_tmpl* tmpl,
    the actual struct sl_message itself. In normal usage, that's a 
    local variable (i.e. stack allocated) */
 void sl_send_udp(struct user_ctx* ctx, struct sl_message* msg);
+void sl_send_udp_throt(struct user_ctx* ctx, struct sl_message* msg, int throt_id);
 
 #endif

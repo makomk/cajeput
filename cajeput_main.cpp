@@ -26,6 +26,8 @@
 #include "cajeput_udp.h"
 #include "cajeput_int.h"
 #include "cajeput_j2k.h"
+#include "cajeput_prim.h"
+#include "terrain_compress.h"
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -385,7 +387,6 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 }
 
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
-  //FIXME - doesn't work since uuid_t is an array.
   sim->uuid_map.insert(std::pair<obj_uuid_t,world_obj*>(obj_uuid_t(ob->id),ob));
   ob->local_id = (uint32_t)random();
   //FIXME - generate local ID properly.
@@ -399,6 +400,17 @@ void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   world_octree_delete(sim->world_tree, ob);
   sim->physh.del_object(sim,sim->phys_priv,ob);
   delete ob->chat; ob->chat = NULL;
+}
+
+static void world_insert_demo_objects(struct simulator_ctx *sim) {
+  struct primitive_obj *prim = new primitive_obj();
+  memset(prim, 0, sizeof(struct primitive_obj));
+  prim->ob.type = OBJ_TYPE_PRIM;
+  prim->ob.pos.x = 128.0f; prim->ob.pos.y = 128.0f; prim->ob.pos.z = 25.0f;
+  prim->ob.scale.x = prim->ob.scale.y = prim->ob.scale.z = 1.0f;
+  prim->profile_curve = PROFILE_SHAPE_SQUARE | PROFILE_HOLLOW_DEFAULT;
+  prim->path_scale_x = 100; prim->path_scale_y = 100;
+  world_insert_obj(sim, &prim->ob);
 }
 
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
@@ -419,7 +431,7 @@ static GMainLoop *main_loop;
 
 // ------ END message handling code -------
 
-// Texture-related stuff
+//  ----------- Texture-related stuff ----------------
 
 
 // may want to move this to a thread, but it's reasonably fast since it 
@@ -571,6 +583,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
 	   av_user->first_name,av_user->last_name,av_user->group_title); // FIXME
   sl_string_set(&objd->NameValue,name);
 
+  upd.flags |= MSG_RELIABLE;
   sl_send_udp(ctx, &upd);
 }
 
@@ -621,6 +634,7 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
 
  
   sl_string_set_bin(&objd->Data, dat, 0x3C);
+  terse.flags |= MSG_RELIABLE;
   sl_send_udp(ctx, &terse);
 }
 
@@ -642,6 +656,7 @@ static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
       }
   }
   
+  aa.flags |= MSG_RELIABLE;
   sl_send_udp(ctx, &aa);
 }
 
@@ -682,6 +697,131 @@ static gboolean av_update_timer(gpointer data) {
   return TRUE;
 }
 
+
+// --- START of hacky object update code. FIXME - remove this ---
+
+#define UPDATE_LEVEL_FULL 255
+#define UPDATE_LEVEL_POSROT 1 // pos/rot/scale
+#define UPDATE_LEVEL_NONE 0
+
+static void obj_send_full_upd(user_ctx* ctx, world_obj* obj) {
+  if(obj->type != OBJ_TYPE_PRIM) return;
+  primitive_obj *prim = (primitive_obj*)obj;
+  unsigned char obj_data[60];
+  SL_DECLMSG(ObjectUpdate,upd);
+  SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
+  rd->RegionHandle = ctx->sim->region_handle;
+  rd->TimeDilation = 0xffff; // FIXME - report real time dilation
+
+  SL_DECLBLK(ObjectUpdate,ObjectData,objd,&upd);
+  objd->ID = prim->ob.local_id;
+  objd->State = 0;
+
+  uuid_copy(objd->FullID, prim->ob.id);
+  objd->CRC = 0; // FIXME - need this for caching
+  objd->PCode = PCODE_PRIM;
+  objd->Material = prim->material;
+  objd->ClickAction = 0; // FIXME.
+  objd->Scale = prim->ob.scale;
+
+  // FIXME - endianness issues
+  memcpy(obj_data, &prim->ob.pos, 12); 
+  memset(obj_data+12, 0, 12); // velocity
+  memset(obj_data+24, 0, 12); // accel
+  memcpy(obj_data+36, &prim->ob.rot, 12); 
+  memset(obj_data+48, 0, 12);
+  sl_string_set_bin(&objd->ObjectData, obj_data, 60);
+
+  objd->ParentID = 0; // FIXME - todo
+  objd->UpdateFlags = 0; // TODO - FIXME
+
+  objd->PathCurve = prim->path_curve;
+  objd->ProfileCurve = prim->profile_curve;
+  objd->PathBegin = prim->path_begin;
+  objd->PathEnd = prim->path_end;
+  objd->PathScaleX = prim->path_scale_x;
+  objd->PathScaleY = prim->path_scale_y;
+  objd->PathShearX = prim->path_shear_x;
+  objd->PathShearY = prim->path_shear_y;
+  objd->PathTwist = prim->path_twist;
+  objd->PathTwistBegin = prim->path_twist_begin;
+  objd->PathRadiusOffset = prim->path_radius_offset;
+  objd->PathTaperX = prim->path_taper_x;
+  objd->PathTaperY = prim->path_taper_y;
+  objd->ProfileBegin = prim->profile_begin;
+  objd->ProfileEnd = prim->profile_end;
+  objd->ProfileHollow = prim->profile_hollow;
+
+  objd->TextureEntry.len = 0;
+  objd->TextureAnim.len = 0;
+  objd->Data.len = 0;
+  objd->Text.len = 0;
+  memset(objd->TextColor, 0, 4);
+  objd->MediaURL.len = 0;
+  objd->PSBlock.len = 0;
+  objd->ExtraParams.len = 0;
+
+  uuid_copy(objd->OwnerID, prim->owner);
+  memset(objd->Sound,0,16);
+
+  objd->NameValue.len = 0;
+
+  upd.flags |= MSG_RELIABLE;
+  sl_send_udp_throt(ctx, &upd, SL_THROTTLE_TASK);
+}
+
+static gboolean obj_update_timer(gpointer data) {
+  struct simulator_ctx* sim = (simulator_ctx*)data;
+  for(user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+    if((ctx->flags & AGENT_FLAG_RHR) == 0) continue;
+    user_update_throttles(ctx);
+    std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
+    while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
+	  iter != ctx->obj_upd.end()) {
+      if(iter->second == UPDATE_LEVEL_NONE) {
+	iter++; continue;
+      } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
+	printf("DEBUG: sending full update for %u\n", iter->first);
+	obj_send_full_upd(ctx, sim->localid_map[iter->first]);
+	iter->second = UPDATE_LEVEL_NONE;
+      }
+    }
+
+    // FIXME - should probably move this elsewhere
+    int i = 0;
+    while(ctx->throttles[SL_THROTTLE_LAND].level > 0.0f && 
+	  i < 16) {
+      if(ctx->dirty_terrain[i] == 0) { i++; continue; }
+      int patch_cnt = 0; int patches[16]; uint16_t dirty = ctx->dirty_terrain[i];
+      for(int j = 0; j < 16 && patch_cnt < 4; j++) {
+	if(dirty & (1<<j)) {
+	  patches[patch_cnt++] = i * 16 + j;
+	  dirty &= ~(1<<j);
+	}
+      }
+      SL_DECLMSG(LayerData, layer);
+      SL_DECLBLK(LayerData, LayerID, lid, &layer);
+      lid->Type = LAYER_TYPE_LAND;
+      SL_DECLBLK(LayerData, LayerData, ldat, &layer);
+      terrain_create_patches(sim->terrain, patches, patch_cnt, &ldat->Data);
+      sl_send_udp_throt(ctx, &layer, SL_THROTTLE_LAND);
+      ctx->dirty_terrain[i] = dirty;
+    }
+  }
+
+  return TRUE;
+}
+
+static void init_obj_updates_for_user(user_ctx *ctx) {
+  struct simulator_ctx* sim = ctx->sim;
+  for(std::map<uint32_t,world_obj*>::iterator iter = sim->localid_map.begin();
+      iter != sim->localid_map.end(); iter++) {
+    world_obj *obj = iter->second;
+    if(obj->type == OBJ_TYPE_PRIM) {
+      ctx->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL;
+    }
+  }
+}
 
 // -- START of caps code --
 
@@ -1054,6 +1194,11 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   sim->gridh.user_created(sim,ctx,&ctx->grid_priv);
 
+  // HACK
+  init_obj_updates_for_user(ctx);
+
+  for(int i = 0; i < 16; i++) ctx->dirty_terrain[i] = 0xffff;
+
   // FIXME - where to put this?
   sim->gridh.fetch_user_inventory(sim,ctx,ctx->grid_priv);
 
@@ -1119,6 +1264,10 @@ static void user_remove_int(user_ctx **user) {
   llsd_free(ctx->queued_events);
 
   user_int_free_texture_sends(ctx);
+
+  sl_string_free(&ctx->texture_entry);
+  sl_string_free(&ctx->visual_params);
+
 
   free(ctx->first_name);
   free(ctx->last_name);
@@ -1259,9 +1408,24 @@ static char *read_text_file(const char *name, int *lenout) {
   close(fd); *lenout = len; return data;
 }
 
+void load_terrain(struct simulator_ctx *sim, const char* file) {
+  unsigned char *dat = new unsigned char[13*256*256];
+  int fd = open(file,O_RDONLY); int ret;
+  if(fd < 0) return;
+  ret = read(fd, dat, 13*256*256);
+  if(ret != 13*256*256) goto out;
+  for(int i = 0; i < 256*256; i++) {
+    sim->terrain[i] = (int)dat[i*13] * dat[i*13+1] / 128.0f;
+  }
+ out:
+  close(fd); delete[] dat;
+  
+}
+
 int main(void) {
   g_thread_init(NULL);
   g_type_init();
+  terrain_init_compress();
 
   char* sim_uuid, *sim_owner;
   struct simulator_ctx* sim = new simulator_ctx();
@@ -1269,6 +1433,10 @@ int main(void) {
   main_loop = g_main_loop_new(NULL, false);
 
   srandom(time(NULL));
+
+  sim->terrain = new float[256*256];
+  for(int i = 0; i < 256*256; i++) sim->terrain[i] = 25.0f;
+  load_terrain(sim,"terrain.raw");
 
   sim->config = g_key_file_new();
   sim->hold_off_shutdown = 0;
@@ -1340,6 +1508,7 @@ int main(void) {
   soup_server_run_async(sim->soup);
   
   g_timeout_add(100, av_update_timer, sim);
+  g_timeout_add(100, obj_update_timer, sim);
   g_timeout_add(1000, cleanup_timer, sim);
   g_timeout_add(1000/60, physics_timer, sim);
   sim->timer = g_timer_new();
@@ -1354,6 +1523,8 @@ int main(void) {
 			     &sim->phys_priv, &sim->physh)) {
     printf("Couldn't init physics engine!\n"); return 1;
   }
+
+  world_insert_demo_objects(sim);
 
   sim->gridh.do_grid_login(sim);
   set_sigint_handler();

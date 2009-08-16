@@ -45,11 +45,26 @@ struct obj_chat_listeners;
 struct world_obj {
   int type;
   sl_vector3 pos;
+  sl_vector3 scale; // FIXME - set correctly for avatars
   sl_quat rot;
   uuid_t id;
   uint32_t local_id;
   void *phys;
   struct obj_chat_listener *chat;
+};
+
+struct primitive_obj {
+  struct world_obj ob;
+  uint8_t material, path_curve, profile_curve;
+  uint16_t path_begin, path_end; // FIXME - why 16 bits?
+  uint8_t path_scale_x, path_scale_y, path_shear_x, path_shear_y;
+  int8_t path_twist, path_twist_begin, path_radius_offset;
+  int8_t path_taper_x, path_taper_y;
+  uint8_t path_revolutions; // slightly oddball one, this.
+  int8_t path_skew;
+  uint16_t profile_begin, profile_end, profile_hollow; // again, why 16 bits?
+  uuid_t creator, owner;
+  
 };
 
 // --- START sim query code ---

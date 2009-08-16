@@ -99,6 +99,8 @@ struct user_ctx {
   // float main_throttle; // FIXME - is this needed?
   struct sl_throttle throttles[SL_NUM_THROTTLES];
 
+  uint16_t dirty_terrain[16];
+
   uuid_t session_id;
   uuid_t secure_session_id;
   uuid_t user_id;
@@ -127,6 +129,8 @@ struct user_ctx {
 
   // Image transfers
   std::map<obj_uuid_t,image_request*> image_reqs;
+
+  std::map<uint32_t, int> obj_upd; // FIXME - HACK
 
   // Event queue stuff. FIXME - seperate this out
   sl_llsd *queued_events;
@@ -175,6 +179,7 @@ struct simulator_ctx {
   char *name;
   uint32_t region_x, region_y;
   uint64_t region_handle;
+  float *terrain;
   int sock, state_flags, hold_off_shutdown;
   uint16_t http_port, udp_port;
   char *ip_addr;
@@ -231,6 +236,8 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 			   int32_t channel);
 
 void user_int_free_texture_sends(struct user_ctx *ctx);
+
+void user_update_throttles(struct user_ctx *ctx);
 
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1

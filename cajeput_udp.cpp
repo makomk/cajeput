@@ -252,6 +252,8 @@ static void handle_AgentSetAppearance_msg(struct user_ctx* ctx, struct sl_messag
 
   ctx->appearance_serial = ad->SerialNum;
   // FIXME - do something with size
+  printf("DEBUG: agent size (%f,%f,%f)\n",(double)ad->Size.x,(double)ad->Size.y,
+	 (double)ad->Size.z);
 
   // FIXME - what to do with WearableData blocks?
 
@@ -298,6 +300,10 @@ static void handle_RegionHandshakeReply_msg(struct user_ctx* ctx, struct sl_mess
       return;
     ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_APPEARANCE;
     // FIXME - should we do something with RegionInfo.Flags?
+}
+
+static void handle_PacketAck_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  // FIXME FIXME FIXME
 }
 
 static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -883,6 +889,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(RequestImage);
   ADD_HANDLER(AgentDataUpdateRequest);
   ADD_HANDLER(AgentSetAppearance);
+  ADD_HANDLER(PacketAck);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;
