@@ -133,15 +133,15 @@ static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg)
     sl_vector3 force; 
     force.x = 0.0f; force.y = 0.0f; force.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
-      force.x = 200.0;
+      force.x = 4.0;
     if(control_flags & AGENT_CONTROL_AT_NEG)
-      force.x = -200.0;
+      force.x = -4.0;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
-      force.y = -200.0;
+      force.y = -4.0;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
-      force.y = 200.0;
+      force.y = 4.0;
     sl_mult_vect3_quat(&force,&ctx->av->ob.rot,&force);
-    ctx->sim->physh.set_force(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,force);
+    ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,force);
   }
 }
 

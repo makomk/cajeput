@@ -85,6 +85,9 @@ void* sim_get_grid_priv(struct simulator_ctx *sim) {
 void sim_set_grid_priv(struct simulator_ctx *sim, void* p) {
   sim->grid_priv = p;
 }
+float* sim_get_heightfield(struct simulator_ctx *sim) {
+  return sim->terrain;
+}
 // --- END sim query code ---
 
 

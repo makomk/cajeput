@@ -22,7 +22,11 @@
 
 #include "cajeput_core.h"
 #include "btBulletDynamicsCommon.h"
+#include "BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h"
 #include <stdio.h> /* for debugging */
+#include <set>
+
+struct phys_obj;
 
 struct physics_ctx {
   btDefaultCollisionConfiguration* collisionConfiguration;
@@ -36,11 +40,14 @@ struct physics_ctx {
   btStaticPlaneShape *plane_1x;
   btStaticPlaneShape *plane_0y;
   btStaticPlaneShape *plane_1y;  
+
+  std::set<phys_obj*> avatars;
 };
 
 struct phys_obj {
   btCollisionShape* shape;
   btRigidBody* body;
+  btVector3 target_velocity;
 #if 0
   btPairCachingGhostObject* ghost;
   btKinematicCharacterController* control;
@@ -86,7 +93,8 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     phys->dynamicsWorld->addAction(physobj->control);
 #endif
 
-
+    physobj->target_velocity = btVector3(0,0,0);
+    phys->avatars.insert(physobj);
   } else {
     obj->phys = NULL;
   }
@@ -108,6 +116,7 @@ static void del_object(struct simulator_ctx *sim, void *priv,
     phys->dynamicsWorld->removeCollisionObject(physobj->ghost);
     // ??? FIXME
 #endif
+    phys->avatars.erase(physobj);
     delete physobj;
     obj->phys = NULL;
   }
@@ -152,9 +161,29 @@ static void set_force(struct simulator_ctx *sim, void *priv,
     physobj->body->setActivationState(ACTIVE_TAG);
 }
 
+static void set_target_velocity(struct simulator_ctx *sim, void *priv,
+		      struct world_obj *obj, sl_vector3 velocity) {
+  if(obj->phys == NULL)
+    return;
+  struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+  physobj->target_velocity = btVector3(velocity.x, velocity.z, velocity.y);
+  if(velocity.x != 0.0f || velocity.y != 0.0f || velocity.z != 0.0f)
+    physobj->body->setActivationState(ACTIVE_TAG);  
+}
 
 static void step_world(struct simulator_ctx *sim, void *priv) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
+
+  for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
+      iter != phys->avatars.end(); iter++) {
+    struct phys_obj *physobj = *iter;
+    btVector3 impulse = physobj->target_velocity;
+    impulse -= physobj->body->getLinearVelocity();
+    impulse *= 0.8f * 50.0f; // FIXME - don't hardcode mass
+    impulse.setY(0.0f);
+    physobj->body->applyCentralImpulse(impulse);
+  }
+
   phys->dynamicsWorld->stepSimulation(1.f/60.f,10);
 }
 
@@ -214,6 +243,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   hooks->del_object = del_object;
   hooks->update_pos = update_pos;
   hooks->set_force = set_force;
+  hooks->set_target_velocity = set_target_velocity;
   hooks->step = step_world;
   hooks->destroy = destroy_physics;
 
@@ -233,16 +263,29 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 
   phys->dynamicsWorld->setGravity(btVector3(0,-9.8,0));
 
+#if 0
   phys->ground_shape = new btBoxShape(btVector3(256,1,256));
   
   btTransform ground_transform;
   ground_transform.setIdentity();
   ground_transform.setOrigin(btVector3(128,24.5,128));
+#else
+  float *heightfield = sim_get_heightfield(sim);
+  // WARNING: note that this does *NOT* make its own copy of the heightfield
+  // FIXME - this limits max terrain height to 100 metres
+  phys->ground_shape = new btHeightfieldTerrainShape(256, 256, heightfield,
+						     0, 0.0f, 100.0f, 1,
+						     PHY_FLOAT, 0 /* fixme - flip? */);
+  btTransform ground_transform;
+  ground_transform.setIdentity();
+  ground_transform.setOrigin(btVector3(128,50,128));
+#endif
   
   btDefaultMotionState* motion = new btDefaultMotionState(ground_transform);
   btRigidBody::btRigidBodyConstructionInfo body_info(0.0,motion,phys->ground_shape,btVector3(0,0,0));
   btRigidBody* body = new btRigidBody(body_info);
   phys->dynamicsWorld->addRigidBody(body);
+
 
   // Sim edges - will need to selectively remove when region
   // crossing is added

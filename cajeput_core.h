@@ -81,6 +81,7 @@ uint16_t sim_get_http_port(struct simulator_ctx *sim);
 uint16_t sim_get_udp_port(struct simulator_ctx *sim);
 void* sim_get_grid_priv(struct simulator_ctx *sim);
 void sim_set_grid_priv(struct simulator_ctx *sim, void* p);
+float* sim_get_heightfield(struct simulator_ctx *sim);
 
 // These, on the other hand, require you to g_free the returned string
 char *sim_config_get_value(struct simulator_ctx *sim, const char* section,
@@ -162,6 +163,8 @@ struct cajeput_physics_hooks {
 		   struct world_obj *obj); /* FIXME - HACK! */
   void(*set_force)(struct simulator_ctx *sim, void *priv,
 		   struct world_obj *obj, sl_vector3 force); /* HACK HACK HACK */
+  void(*set_target_velocity)(struct simulator_ctx *sim, void *priv,
+			     struct world_obj *obj, sl_vector3 velocity);
   void(*step)(struct simulator_ctx *sim, void *priv);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
 };
