@@ -51,6 +51,10 @@ void llsd_free(sl_llsd *llsd) {
   case LLSD_STRING:
   case LLSD_URI:
     free(llsd->t.str);
+    break;
+  case LLSD_BINARY:
+    sl_string_free(&llsd->t.bin);
+    break;
   }
   free(llsd);
 }
@@ -379,7 +383,7 @@ sl_llsd* llsd_new_map(void) {
   return llsd;
 }
 
-sl_llsd* llsd_new_string(char *str) {
+sl_llsd* llsd_new_string(const char *str) {
   sl_llsd* llsd = malloc(sizeof(sl_llsd));
   llsd->type_id = LLSD_STRING;
   llsd->t.str = strdup(str);
@@ -391,6 +395,21 @@ sl_llsd* llsd_new_string_take(char *str) {
   sl_llsd* llsd = malloc(sizeof(sl_llsd));
   llsd->type_id = LLSD_STRING;
   llsd->t.str = str;
+  return llsd;
+}
+
+sl_llsd* llsd_new_binary(void* data, int len) {
+  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+  llsd->type_id = LLSD_BINARY;
+  sl_string_set_bin(&llsd->t.bin, (unsigned char*)data, len);
+  return llsd;
+  
+}
+
+sl_llsd* llsd_new_uuid(uuid_t u) {
+  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+  llsd->type_id = LLSD_UUID;
+  uuid_copy(llsd->t.uuid, u);
   return llsd;
 }
 

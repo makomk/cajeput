@@ -519,6 +519,55 @@ void user_send_teleport_failed(struct user_ctx* ctx, const char* reason) {
   sl_send_udp(ctx, &fail);
 }
 
+void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t flags) {
+  SL_DECLMSG(TeleportProgress, prog);
+  SL_DECLBLK(TeleportProgress, AgentData, ad, &prog);
+  uuid_copy(ad->AgentID, ctx->user_id);
+   SL_DECLBLK(TeleportProgress, Info, info, &prog);
+  sl_string_set(&info->Message, msg);
+  info->TeleportFlags = flags;
+  // prog.flags |= MSG_RELIABLE; // not really needed, I think. FIXME?
+  sl_send_udp(ctx, &prog);
+}
+
+
+// ah, SL and its random endianness
+static sl_llsd* helper_u64_to_llsd(uint64_t val) {
+  unsigned char rawmsg[8];
+  rawmsg[7] = val&0xff; rawmsg[6] = val >> 8; 
+  rawmsg[5] = val >> 16; rawmsg[4] = val >> 24;
+  rawmsg[3] = val >> 32; rawmsg[2] = val >> 40;
+  rawmsg[1] = val >> 48; rawmsg[0] = val >> 56;
+  return llsd_new_binary(rawmsg, 8);
+}
+
+static sl_llsd* helper_u32_to_llsd(uint64_t val) {
+  unsigned char rawmsg[4];
+  rawmsg[3] = val&0xff; rawmsg[2] = val >> 8; 
+  rawmsg[1] = val >> 16; rawmsg[0] = val >> 24;
+  return llsd_new_binary(rawmsg, 4);
+}
+
+void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
+  sl_llsd *msg = llsd_new_map();
+  sl_llsd *info = llsd_new_map();
+
+  llsd_map_append(info, "AgentID", llsd_new_uuid(ctx->user_id));
+  llsd_map_append(info, "LocationID", llsd_new_int(4)); // ???!! FIXME ???
+  llsd_map_append(info, "SimIP", llsd_new_binary(&tp->sim_ip,4)); // big-endian?
+  llsd_map_append(info, "SimPort", llsd_new_int(tp->sim_port));
+  llsd_map_append(info, "RegionHandle", helper_u64_to_llsd(tp->region_handle));
+  llsd_map_append(info, "SeedCapability", llsd_new_string(tp->seed_cap));
+  llsd_map_append(info, "SimAccess", llsd_new_int(13)); // ????!! FIXME!
+  llsd_map_append(info, "TeleportFlags", helper_u32_to_llsd(tp->flags));
+
+  sl_llsd *array = llsd_new_array();
+  llsd_array_append(array, info);
+  llsd_map_append(msg, "Info", array);
+
+  user_event_queue_send(ctx,"TeleportFinish",msg);
+}
+
 // FIXME - handle TeleportRequest message (by UUID)?
 
 static void handle_TeleportLocationRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -559,6 +608,26 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
     user_set_throttles(ctx, throttles);
   }
 }
+
+void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len) {
+  float throttles[SL_NUM_THROTTLES];
+
+  if(len < SL_NUM_THROTTLES*4) {
+    printf("Error: AgentThrottle with not enough data\n");
+    return;
+  } else {
+    len =  SL_NUM_THROTTLES*4;
+  }
+
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    throttles[i] = ctx->throttles[i].rate;
+  }
+
+  // FIXME - endianness
+  memcpy(data, throttles, len);
+}
+
 
 static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* msg) {
   struct sl_blk_AgentThrottle_AgentData *ad;

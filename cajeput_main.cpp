@@ -1034,6 +1034,18 @@ static void event_queue_do_timeout(user_ctx* ctx) {
   }
 }
 
+void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body) {
+  sl_llsd *event = llsd_new_map();
+  llsd_map_append(event, "message", llsd_new_string(name));
+  llsd_map_append(event, "body", body);
+  llsd_array_append(ctx->queued_events, event);
+  if(ctx->event_queue_msg) {
+    soup_server_unpause_message(ctx->sim->soup, ctx->event_queue_msg);
+    event_queue_get_resp(ctx->event_queue_msg, ctx);
+    ctx->event_queue_msg = NULL;
+  }
+}
+
 static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
@@ -1057,7 +1069,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
     printf("DEBUG: message is {{%s}}\n", msg->request_body->data);
     goto free_fail;
   }
-  if(ack->type_id == LLSD_INT && ack->t.i == ctx->event_queue_ctr &&
+  if(ack->type_id == LLSD_INT && ack->t.i < ctx->event_queue_ctr &&
      ctx->last_eventqueue != NULL) {
     llsd_soup_set_response(msg, ctx->last_eventqueue);
     llsd_free(llsd);
@@ -1132,11 +1144,48 @@ void *user_get_grid_priv(struct user_ctx *user) {
   return user->grid_priv;
 }
 
+struct simulator_ctx* user_get_sim(struct user_ctx *user) {
+  return user->sim;
+}
+
 void user_get_uuid(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->user_id);
 }
+
 void user_get_session_id(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->session_id);
+}
+
+void user_get_secure_session_id(struct user_ctx *user, uuid_t u) {
+  uuid_copy(u, user->secure_session_id);
+}
+
+uint32_t user_get_circuit_code(struct user_ctx *user) {
+  return user->circuit_code;
+}
+
+const char* user_get_first_name(struct user_ctx *user) {
+  return user->first_name;
+}
+
+const char* user_get_last_name(struct user_ctx *user) {
+  return user->last_name;
+}
+
+const sl_string* user_get_texture_entry(struct user_ctx *user) {
+  return &user->texture_entry;
+}
+
+const sl_string* user_get_visual_params(struct user_ctx *user) {
+  return &user->visual_params;
+}
+
+wearable_desc* user_get_wearables(struct user_ctx* user) {
+  return user->wearables;
+}
+
+float user_get_draw_dist(struct user_ctx *user) {
+  return user->draw_dist;
 }
 
 uint32_t user_get_flags(struct user_ctx *user) {
@@ -1279,13 +1328,27 @@ static void do_real_teleport(struct teleport_desc* tp) {
   } else if(tp->region_handle == tp->ctx->sim->region_handle) {
     user_teleport_failed(tp, "FIXME: Local teleport not supported");
   } else {
-    user_teleport_failed(tp, "FIXME: Teleports not supported");
+    //user_teleport_failed(tp, "FIXME: Teleports not supported");
+    simulator_ctx *sim = tp->ctx->sim;
+    sim->gridh.do_teleport(sim, tp);
   }
 }
 
 void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
   if(tp->ctx != NULL) {
     user_send_teleport_failed(tp->ctx, reason);
+  }
+  del_teleport_desc(tp);
+}
+
+void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
+  if(tp->ctx != NULL) 
+    user_send_teleport_progress(tp->ctx, msg, tp->flags);
+}
+
+void user_complete_teleport(struct teleport_desc* tp) {
+  if(tp->ctx != NULL) {
+    user_send_teleport_complete(tp->ctx, tp);
   }
   del_teleport_desc(tp);
 }
@@ -1297,6 +1360,7 @@ void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
   desc->region_handle = region_handle;
   desc->pos = *pos;
   desc->look_at = *look_at;
+  desc->flags = TELEPORT_TO_LOCATION;
   do_real_teleport(desc);
 }
 
@@ -1305,8 +1369,10 @@ void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {
   if(desc == NULL) return;
   // FIXME - todo
   if(uuid_is_null(landmark)) {
+    desc->flags = TELEPORT_TO_HOME;
     user_teleport_failed(desc,"FIXME: teleport home not supported");
   } else {
+    desc->flags = TELEPORT_TO_LOCATION;
     user_teleport_failed(desc,"FIXME: teleport to landmark not supported");
   }
 }

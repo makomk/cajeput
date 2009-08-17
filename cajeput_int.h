@@ -77,10 +77,6 @@ struct sl_throttle {
   float level, rate; // current reservoir level and flow rate
 };
 
-struct wearable_desc {
-  uuid_t asset_id, item_id;
-};
-
 struct asset_xfer;
 
 struct image_request {
@@ -256,8 +252,13 @@ void user_int_free_texture_sends(struct user_ctx *ctx);
 
 void user_update_throttles(struct user_ctx *ctx);
 
-// for strictly internal use ONLY! Really!
+// for strictly internal use ONLY! Really! Use equivalents in cajeput_core.h
 void user_send_teleport_failed(struct user_ctx* ctx, const char* reason);
+void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t flags);
+void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp);
+
+// takes ownership of the passed LLSD
+void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
 
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1

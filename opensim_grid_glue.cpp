@@ -33,6 +33,7 @@
 #include <cassert>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
+#include <netinet/ip.h>
 
 static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
@@ -857,6 +858,8 @@ static void agent_PUT_handler(SoupServer *server,
     }
 
     // FIXME - need to handle serial
+
+    // FIXME - TODO: wearables, pos, etc...
     
   } else {
     printf("DEBUG: agent PUT with unknown type %s\n",msg_type);
@@ -1192,7 +1195,6 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
   int num_blocks = 0;
   GHashTable *hash = NULL;
   GValueArray *sims = NULL;
-  //char *s; uuid_t u;
 
   sim_shutdown_release(st->sim);
 
@@ -1317,6 +1319,504 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
 			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
 }
 
+struct os_region_info { // FIXME - merge with other region info desc.
+  int x, y;
+  char *name;
+  char *sim_ip;
+  int sim_port, http_port;
+  uuid_t region_id;
+  // FIXME - TODO
+};
+
+struct region_info_state {
+  simulator_ctx* sim;
+  void(*cb)(simulator_ctx* sim, void* cb_priv, os_region_info* info);
+  void *cb_priv;
+};
+
+
+static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct region_info_state *st = (region_info_state*)user_data;
+  struct os_region_info info;
+  //GRID_PRIV_DEF(st->sim);
+  GHashTable *hash = NULL;
+  char *s; //uuid_t u;
+
+  sim_shutdown_release(st->sim);
+
+  if(msg->status_code != 200) {
+    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+  if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
+					 msg->response_body->length,
+					 NULL,
+					 G_TYPE_HASH_TABLE, &hash)) {
+    printf("Region info request failed: couldn't parse response\n");
+    goto out_fail;
+  }
+
+  printf("DEBUG: region info response ~%s~\n", msg->response_body->data);
+  //printf("DEBUG: got map block response\n");
+   
+  if(!soup_value_hash_lookup(hash, "region_locx", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.x = atoi(s);
+  if(!soup_value_hash_lookup(hash, "region_locy", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.y = atoi(s);
+  if(!soup_value_hash_lookup(hash, "region_name", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.name = s;
+  if(!soup_value_hash_lookup(hash, "sim_ip", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.sim_ip = s;
+  if(!soup_value_hash_lookup(hash, "sim_port", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.sim_port = atoi(s);
+   if(!soup_value_hash_lookup(hash, "http_port", G_TYPE_STRING, &s))
+    goto bad_block;
+  info.http_port = atoi(s);
+
+  // FIXME - use regionHandle, region_UUID, server_uri!
+ 
+  st->cb(st->sim, st->cb_priv, &info);
+  g_hash_table_destroy(hash);
+  delete st;
+  return;
+
+ bad_block:
+  printf("ERROR: couldn't lookup expected values in region info reply\n");
+ out_free_fail:
+  g_hash_table_destroy(hash);
+ out_fail:
+  st->cb(st->sim, st->cb_priv, NULL);
+  delete st;
+}
+
+static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
+			    void(*cb)(simulator_ctx* sim, void* cb_priv, os_region_info* info),
+			    void *cb_priv) {
+  GRID_PRIV_DEF(sim);
+  char buf[40];
+
+  GHashTable *hash;
+  //GError *error = NULL;
+  SoupMessage *msg;
+
+  hash = soup_value_hash_new();
+  sprintf(buf, "%llu", handle);
+  soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,buf);
+  soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
+
+  msg = soup_xmlrpc_request_new(grid->gridserver, "simulator_data_request",
+				G_TYPE_HASH_TABLE, hash,
+				G_TYPE_INVALID);
+  g_hash_table_destroy(hash);
+  if (!msg) {
+    fprintf(stderr, "Could not create region_info request\n");
+    cb(sim, cb_priv, NULL);
+    return;
+  }
+
+  region_info_state *st = new region_info_state();
+  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+
+  sim_shutdown_hold(sim);
+  // FIXME - why SOUP_MESSAGE(foo)?
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 got_region_info, st);
+
+}
+
+struct os_teleport_desc {
+  simulator_ctx *our_sim; // for internal use
+  char *sim_ip;
+  int sim_port, http_port;
+  teleport_desc* tp;
+  char *caps_path;
+};
+
+static void os_teleport_failed(os_teleport_desc *tp_priv, const char* reason) {
+  user_teleport_failed(tp_priv->tp, reason);
+  free(tp_priv->sim_ip);
+  free(tp_priv->caps_path);
+  delete tp_priv;
+}
+
+static void helper_json_add_uuid(JsonObject *obj, const char* key, uuid_t u) {
+  JsonNode *node = json_node_new(JSON_NODE_VALUE);
+  char buf[40];
+  uuid_unparse(u, buf);
+  json_node_set_string(node, buf);
+  json_object_add_member(obj, key, node);
+}
+
+static void helper_json_add_string(JsonObject *obj, const char* key, 
+				   const char* s) {
+  JsonNode *node = json_node_new(JSON_NODE_VALUE);
+  json_node_set_string(node, s);
+  json_object_add_member(obj, key, node);
+}
+
+static void helper_json_add_bool(JsonObject *obj, const char* key, 
+				   gboolean b) {
+  JsonNode *node = json_node_new(JSON_NODE_VALUE);
+  json_node_set_boolean(node, b);
+  json_object_add_member(obj, key, node);
+}
+
+static void helper_json_add_double(JsonObject *obj, const char* key, 
+				   double f) {
+  JsonNode *node = json_node_new(JSON_NODE_VALUE);
+  json_node_set_double(node, f);
+  json_object_add_member(obj, key, node);
+}
+
+int helper_parse_json_resp(JsonParser *parser, const char* data, gsize len, const char **reason_out) {
+  if(!json_parser_load_from_data(parser, data, len, NULL)) {
+    printf("parse json resp: json parse failed\n");
+    *reason_out = "[LOCAL] json parse error";
+    return false;
+  }
+
+  JsonNode *node = json_parser_get_root(parser); // reused later
+  JsonObject *object; int success;
+
+  if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
+    printf("parse json resp: Root JSON node not object?!\n");
+    *reason_out = "[LOCAL] bad json response";
+    return false;
+  }
+  object = json_node_get_object(node);
+  
+  if(helper_json_to_boolean(object,"success",&success)) {
+    printf("parse json resp: couldn't get success boolean!\n");
+    *reason_out = "[LOCAL] bad json response";
+    return false;    
+  }
+  
+  *reason_out = helper_json_to_string(object,"reason");
+  if(*reason_out == NULL) *reason_out = "[reason missing from response]";
+  return success;
+}
+
+
+
+static void do_teleport_put_agent_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  os_teleport_desc *tp_priv = (os_teleport_desc*)user_data;
+  sim_shutdown_release(tp_priv->our_sim);
+  if(tp_priv->tp->ctx == NULL) {
+    // FIXME - delete child agent!!
+    os_teleport_failed(tp_priv,"cancelled");
+  } else if(msg->status_code != 200) {
+    printf("Agent PUT request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    // FIXME - the OpenSim code seems to think this should send a reason...
+    os_teleport_failed(tp_priv, "Error. Agent PUT request failed");
+  } else {
+    printf("DEBUG: Got agent PUT response: ~%s~", msg->response_body->data);
+    JsonParser *parser = json_parser_new();
+    const char *reason = "[NO REASON - FIXME!]";
+    int success = helper_parse_json_resp(parser, msg->response_body->data,
+					 msg->response_body->length, &reason);
+    if(strcasecmp(msg->response_body->data, "True") == 0) {
+      // FIXME - this is where we should actually send the avatar across
+      teleport_desc *tp = tp_priv->tp;
+      int seed_len = strlen(tp_priv->sim_ip)+70;
+      char *seed_cap = (char*)malloc(seed_len);
+      snprintf(seed_cap, seed_len, "http://%s:%i/CAPS/%s0000/", 
+	       tp_priv->sim_ip, tp_priv->sim_port, tp_priv->caps_path);
+      tp->seed_cap = seed_cap;
+
+      user_complete_teleport(tp);
+
+      free(seed_cap); free(tp_priv->sim_ip); free(tp_priv->caps_path);
+      delete tp_priv;
+      //os_teleport_failed(tp_priv,"It's the hippos, honest");
+    } else {
+      os_teleport_failed(tp_priv,"Agent PUT request returned error");
+    }
+    g_object_unref(parser);
+  }
+}
+
+static JsonNode* jsonise_blob(unsigned char* data, int len) {
+  JsonArray *arr = json_array_new();
+  JsonNode *node;
+
+  for(int i = 0; i < len; i++) {
+    node = json_node_new(JSON_NODE_VALUE);
+    json_node_set_int(node, data[i]);
+    json_array_add_element(arr, node);
+  }
+
+  node = json_node_new(JSON_NODE_ARRAY);
+  json_node_take_array(node, arr);
+  return node;
+}
+
+static JsonNode* jsonise_throttles(user_ctx* ctx) {
+  unsigned char data[SL_NUM_THROTTLES*4];
+  user_get_throttles_block(ctx, data, SL_NUM_THROTTLES*4);
+  return jsonise_blob(data, SL_NUM_THROTTLES*4);
+}
+
+static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
+				  os_teleport_desc *tp_priv) {
+  JsonGenerator* gen;
+  JsonObject *obj = json_object_new();
+  JsonNode *node; uuid_t u, agent_id; 
+  char buf[40]; gchar *jbuf; gsize len;
+  char uri[256]; // FIXME
+  uint64_t our_region_handle = sim_get_region_handle(sim);
+  const sl_string *pstr;
+
+  user_teleport_progress(tp,"Upgrading child agent to full agent");
+  
+  // Now, we upgrade the child agent to a fully-fledged agent
+
+  // TODO (FIXME)!
+
+  helper_json_add_string(obj, "message_type", "AgentData");
+  sprintf(buf, "%llu", our_region_handle); // yes, *our* region handle!
+  helper_json_add_string(obj, "region_handle", buf);
+  helper_json_add_string(obj, "circuit_code", "0"); // not used
+
+  user_get_uuid(tp->ctx, agent_id);
+  helper_json_add_uuid(obj, "agent_id", agent_id);
+
+  uuid_clear(u); // also not used
+  helper_json_add_uuid(obj, "session_id", u);
+
+  // FIXME - actually fill these in
+  helper_json_add_string(obj,"position","<128, 128, 1.5>");
+  helper_json_add_string(obj,"velocity","<0, 0, 0>");
+  helper_json_add_string(obj,"center","<126.4218, 125.6846, 39.70211>");
+  helper_json_add_string(obj,"size","<0, 0, 0>");
+  helper_json_add_string(obj,"at_axis","<0.4857194, 0.8467544, -0.2169876>");
+  helper_json_add_string(obj,"left_axis","<-0.8674213, 0.4975745, 0>");
+  helper_json_add_string(obj,"up_axis","<0.1079675, 0.1882197, 0.9761744>");
+  // "position":"<128, 128, 1.5>","velocity":"<0, 0, 0>","center":"<126.4218, 125.6846, 39.70211>","size":"<0, 0, 0>","at_axis":"<0.4857194, 0.8467544, -0.2169876>","left_axis":"<-0.8674213, 0.4975745, 0>","up_axis":"<0.1079675, 0.1882197, 0.9761744>",
+
+  helper_json_add_bool(obj,"changed_grid",false);
+  helper_json_add_double(obj,"far",user_get_draw_dist(tp->ctx));
+  helper_json_add_double(obj,"aspect",0.0); // FIXME - ???
+  json_object_add_member(obj,"throttles",jsonise_throttles(tp->ctx));
+  //"changed_grid":false,"far":64.0,"aspect":0.0,"throttles":[0,0,150,70,0,0,170,70,0,0,136,69,0,0,136,69,0,0,95,71,0,0,95,71,0,0,220,70],"locomotion_state":"0","head_rotation":"<0, 0, 0.5012131, 0.8653239>","body_rotation":"<0, 0, 0.5012121, 0.8653245>","control_flags":"0","energy_level":0.0,"god_level":"0","always_run":false,"prey_agent":"00000000-0000-0000-0000-000000000000","agent_access":"0","active_group_id":"00000000-0000-0000-0000-000000000000",
+  helper_json_add_string(obj,"locomotion_state","0"); // FIXME - ???
+  helper_json_add_string(obj,"head_rotation","<0, 0, 0.5012131, 0.8653239>"); // FIXME
+  helper_json_add_string(obj,"body_rotation","<0, 0, 0.5012121, 0.8653245>"); // FIXME
+  helper_json_add_string(obj,"control_flags","0"); // FIXME - ???
+  helper_json_add_double(obj,"energy_level",0.0); // not really used anymore?
+  helper_json_add_string(obj,"god_level","0"); // FIXME - ???
+  helper_json_add_bool(obj,"always_run",false); // FIXME - once we store this, set it.
+  helper_json_add_string(obj,"prey_agent","00000000-0000-0000-0000-000000000000"); // FIXME
+  helper_json_add_string(obj,"active_group_id","00000000-0000-0000-0000-000000000000"); // FIXME
+
+  // texture_entry, visual_params, wearables
+  pstr = user_get_texture_entry(tp->ctx);
+  json_object_add_member(obj, "texture_entry",
+			 jsonise_blob(pstr->data, pstr->len));
+  pstr = user_get_visual_params(tp->ctx);
+  json_object_add_member(obj, "visual_params",
+			 jsonise_blob(pstr->data, pstr->len));
+  // FIXME - TODO wearables
+
+  sprintf(buf,"%llu",tp->region_handle);
+  helper_json_add_string(obj,"destination_handle",buf);
+  //helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
+  
+  {
+    char *my_ip_addr = sim_get_ip_addr(sim);
+    char callback_uri[256]; // FIXME - non-fixed size buffer!
+    uuid_unparse(agent_id,buf);
+    snprintf(callback_uri, 256, "http://%s:%i/agent/%s/%llu/release/",
+	     my_ip_addr, (int)sim_get_http_port(sim), buf,
+	     our_region_handle);
+    printf("DEBUG: sending \"%s\" as callback URI\n", callback_uri);
+    helper_json_add_string(obj,"callback_uri",callback_uri);
+  }
+  // FIXME - actually implement callback URI
+
+  gen = json_generator_new();
+  node = json_node_new(JSON_NODE_OBJECT);
+  json_node_take_object(node, obj);
+  json_generator_set_root(gen, node);
+  jbuf = json_generator_to_data(gen, &len);
+  json_node_free(node);
+  g_object_unref(gen);
+
+  uuid_unparse(agent_id,buf);
+  snprintf(uri, 256, "http://%s:%i/agent/%s/",tp_priv->sim_ip,
+	   tp_priv->http_port, buf);
+  SoupMessage *msg = soup_message_new ("PUT", uri);
+  soup_message_set_request (msg, "application/json", // FIXME - check mime type
+			    SOUP_MEMORY_TAKE,  jbuf, 
+			    len);
+  sim_shutdown_hold(sim);
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 do_teleport_put_agent_resp, tp_priv);
+  
+}
+
+static void do_teleport_send_agent_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  os_teleport_desc *tp_priv = (os_teleport_desc*)user_data;
+  sim_shutdown_release(tp_priv->our_sim);
+  if(tp_priv->tp->ctx == NULL) {
+    // FIXME - delete child agent!!
+    os_teleport_failed(tp_priv,"cancelled");
+  } else if(msg->status_code != 200) {
+    printf("Agent POST request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    // FIXME - the OpenSim code seems to think this should send a reason...
+    os_teleport_failed(tp_priv, "Error. Destination not accepting teleports?");
+  } else {
+    printf("DEBUG: Got agent POST response: ~%s~", msg->response_body->data);
+    JsonParser *parser = json_parser_new();
+    const char *reason = "[NO REASON - FIXME!]";
+    int success = helper_parse_json_resp(parser, msg->response_body->data,
+					 msg->response_body->length, &reason);
+    if(success) {
+      //os_teleport_failed(tp_priv,"It's the hippos, honest");
+      do_teleport_put_agent(tp_priv->our_sim, tp_priv->tp, tp_priv);
+    } else {
+      char buf[256]; // FIXME - don't use fixed-size buffer;
+      // FIXME - change message to be in line with OpenSim
+      snprintf(buf, 256, "Couldn't create child agent: %s",reason);
+      os_teleport_failed(tp_priv, buf);
+    }
+    g_object_unref(parser);
+  }
+}
+
+static void do_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
+				   os_teleport_desc *tp_priv) {
+  JsonGenerator* gen;
+  JsonObject *obj = json_object_new();
+  JsonNode *node; uuid_t u, agent_id; 
+  char buf[40]; gchar *jbuf; gsize len;
+  char uri[256]; // FIXME
+
+  user_teleport_progress(tp,"Adding child agent to destination");
+  
+  // First, we add a new child agent to the destination...
+
+  // FIXME - factor out, reuse existing child agents, etc
+  user_get_uuid(tp->ctx, agent_id);
+  helper_json_add_uuid(obj, "agent_id", agent_id);
+  user_get_session_id(tp->ctx,u);
+  helper_json_add_uuid(obj, "session_id", u);
+  user_get_secure_session_id(tp->ctx,u);
+  helper_json_add_uuid(obj, "secure_session_id", u);
+  sprintf(buf,"%lu",(unsigned long)user_get_circuit_code(tp->ctx));
+  helper_json_add_string(obj, "circuit_code", buf);
+
+  helper_json_add_string(obj,"first_name",user_get_first_name(tp->ctx));
+  helper_json_add_string(obj,"last_name",user_get_last_name(tp->ctx));
+
+  helper_json_add_bool(obj,"child",true);
+  sprintf(buf,"%llu",tp->region_handle);
+  helper_json_add_string(obj,"destination_handle",buf);
+  helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
+
+  // FIXME - need to reuse existing caps?
+  uuid_generate(u);
+  tp_priv->caps_path = (char*)malloc(40);
+  uuid_unparse(u,tp_priv->caps_path);
+  helper_json_add_string(obj,"caps_path",tp_priv->caps_path);
+  
+  // FIXME - fill these out properly? (were zero in the dump I saw)
+  uuid_clear(u);
+  helper_json_add_uuid(obj,"inventory_folder",u);
+  helper_json_add_uuid(obj,"base_folder",u);
+
+  {
+    // FIXME - should actually fill this out, I guess
+    JsonArray *arr = json_array_new();
+    node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, arr);
+    json_object_add_member(obj,"children_seeds",node);
+  }
+
+  gen = json_generator_new();
+  node = json_node_new(JSON_NODE_OBJECT);
+  json_node_take_object(node, obj);
+  json_generator_set_root(gen, node);
+  jbuf = json_generator_to_data(gen, &len);
+  json_node_free(node);
+  g_object_unref(gen);
+
+  uuid_unparse(agent_id,buf);
+  snprintf(uri, 256, "http://%s:%i/agent/%s/",tp_priv->sim_ip,
+	   tp_priv->http_port, buf);
+  SoupMessage *msg = soup_message_new ("POST", uri);
+  soup_message_set_request (msg, "application/json", // FIXME - check mime type
+			    SOUP_MEMORY_TAKE,  jbuf, 
+			    len);
+  sim_shutdown_hold(sim);
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 do_teleport_send_agent_resp, tp_priv);
+}
+
+static void do_teleport_resolve_cb(SoupAddress *addr,
+				   guint status,
+				   gpointer priv) {
+  os_teleport_desc* tp_priv = (os_teleport_desc*)priv;
+  sim_shutdown_release(tp_priv->our_sim);
+
+  if(tp_priv->tp->ctx == NULL) {
+    os_teleport_failed(tp_priv,"cancelled");
+  } else if(status != SOUP_STATUS_OK) {
+    os_teleport_failed(tp_priv,"Couldn't resolve sim IP address");
+  } else {
+    int len;
+    struct sockaddr_in *saddr = (struct sockaddr_in*)
+      soup_address_get_sockaddr(addr, &len);
+    if(saddr == NULL || saddr->sin_family != AF_INET) {
+      // FIXME - need to restrict resolution to IPv4
+      os_teleport_failed(tp_priv, "FIXME: Got a non-AF_INET address for sim");
+    } else {
+      teleport_desc* tp = tp_priv->tp;
+      tp->sim_port = tp_priv->sim_port;
+      tp->sim_ip = saddr->sin_addr.s_addr;
+      do_teleport_send_agent(tp_priv->our_sim, tp, tp_priv);
+    }
+  }
+  // FIXME - free SoupAddress??
+}
+
+static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv, 
+				 os_region_info *info) {
+  teleport_desc* tp = (teleport_desc*)priv;
+  if(tp->ctx == NULL) {
+    user_teleport_failed(tp, "cancelled");
+  } else if(info == NULL) {
+    user_teleport_failed(tp, "Couldn't find destination region");
+  } else {
+    os_teleport_desc *tp_priv = new os_teleport_desc();
+    tp_priv->our_sim = sim;
+    tp_priv->sim_ip = strdup(info->sim_ip);
+    tp_priv->sim_port = info->sim_port;
+    tp_priv->http_port = info->http_port;
+    tp_priv->tp = tp;
+    tp_priv->caps_path = NULL;
+
+    // FIXME - use provided region handle
+
+    // FIXME - do we really need to hold simulator shutdown here?
+    sim_shutdown_hold(sim);
+    SoupAddress *addr = soup_address_new(info->sim_ip, 0);
+    soup_address_resolve_async(addr, g_main_context_default(),
+			       NULL, do_teleport_resolve_cb, tp_priv);
+  }
+}
+
+static void do_teleport(struct simulator_ctx* sim, struct teleport_desc* tp) {
+  GRID_PRIV_DEF(sim);
+ 
+  // FIXME - handle teleport via region ID
+  user_teleport_progress(tp, "Requesting destination region info");
+  req_region_info(sim, tp->region_handle, do_teleport_rinfo_cb, tp);
+}
 
 static void cleanup(struct simulator_ctx* sim) {
   GRID_PRIV_DEF(sim);
@@ -1344,6 +1844,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_entered = user_entered;
   hooks->fetch_user_inventory = fetch_user_inventory;
   hooks->map_block_request = map_block_request;
+  hooks->do_teleport = do_teleport;
 
   hooks->get_texture = get_texture;
   hooks->cleanup = cleanup;

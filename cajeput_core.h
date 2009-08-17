@@ -29,7 +29,7 @@
 #include <libsoup/soup.h>
 #include "sl_types.h"
 
-#define CAJEPUT_API_VERSION 0x0003
+#define CAJEPUT_API_VERSION 0x0004
 
 #define WORLD_HEIGHT 4096
 
@@ -137,6 +137,8 @@ struct cajeput_grid_hooks {
 		      struct user_ctx* user,
 		      void *user_priv);
 
+  void(*do_teleport)(struct simulator_ctx* sim, struct teleport_desc* tp);
+
   void(*get_texture)(struct simulator_ctx *sim, struct texture_desc *texture);
   void(*map_block_request)(struct simulator_ctx *sim, int min_x, int max_x, 
 			   int min_y, int max_y, 
@@ -219,7 +221,7 @@ static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task"
 #define SL_WEARABLE_UNDERPANTS 11
 #define SL_WEARABLE_SKIRT 12
 
-#define SL_NUM_WEARABLES 13
+#define SL_NUM_WEARABLES 13 // WARNING: changing this would break ABI compat
 static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 					  "pants","shoes","socks","jacket",
 					  "gloves","undershirt","underpants",
@@ -239,11 +241,21 @@ static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 #define AGENT_FLAG_ANIM_UPDATE 0x100 // need to send AvatarAnimation to other agents
 #define AGENT_FLAG_AV_FULL_UPD 0x200 // need to send full ObjectUpdate for this avatar
 
-// #define AGENT_FLAG_IN_TELEPORT 0x400 // teleport in progress - not used
+#define AGENT_FLAG_TELEPORT_COMPLETE 0x400
 
 void *user_get_grid_priv(struct user_ctx *user);
+struct simulator_ctx* user_get_sim(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
+void user_get_secure_session_id(struct user_ctx *user, uuid_t u);
+uint32_t user_get_circuit_code(struct user_ctx *user);
+float user_get_draw_dist(struct user_ctx *user);
+
+// as with sim_get_*, you mustn't free or store the strings
+const char* user_get_first_name(struct user_ctx *user);
+const char* user_get_last_name(struct user_ctx *user);
+const sl_string* user_get_texture_entry(struct user_ctx *user);
+const sl_string* user_get_visual_params(struct user_ctx *user);
 
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
@@ -251,6 +263,15 @@ void user_clear_flag(struct user_ctx *user, uint32_t flag);
 void user_set_throttles(struct user_ctx *ctx, float rates[]);
 void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
+void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len);
+
+struct wearable_desc {
+  uuid_t asset_id, item_id;
+};
+
+// again, you don't free this
+wearable_desc* user_get_wearables(struct user_ctx* ctx);
 
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
@@ -280,6 +301,22 @@ void user_reset_timeout(struct user_ctx* ctx);
 void user_add_self_pointer(struct user_ctx** pctx);
 void user_del_self_pointer(struct user_ctx** pctx);
 
+// teleport flags (for SL/OMV viewer, but also used internally)
+#define TELEPORT_FLAG_SET_HOME 0x1 // not used much
+#define TELEPORT_FLAG_SET_LAST 0x2 // ???
+#define TELEPORT_TO_LURE 0x4
+#define TELEPORT_TO_LANDMARK 0x8
+#define TELEPORT_TO_LOCATION 0x10
+#define TELEPORT_TO_HOME 0x20
+// 0x40 VIA_TELEHUB
+// 0x80 VIA_LOGIN
+// Ox100 VIA_GODLIKE_LURE
+// 0x200 GODLIKE 
+// 0x400 911
+#define TELEPORT_FLAG_NO_CANCEL 0x800 // disable cancel button - maybe useful
+// 0x1000 VIA_REGION_ID
+// 0x2000 FLYING, ignored by viewer
+
 // Should only really be used to handle incoming requests from client
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
 			    const sl_vector3 *pos, const sl_vector3 *look_at);
@@ -287,12 +324,18 @@ void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark);
 
 // and these should only be used by code that handles teleports
 struct teleport_desc {
-  struct user_ctx* ctx;
+  struct user_ctx* ctx; // may become NULL;
   uint64_t region_handle;
   sl_vector3 pos, look_at;
+  uint32_t flags; // TELEPORT_FLAG_*
+  int want_cancel;
+  uint32_t sim_ip;
+  uint16_t sim_port; // native byte order
+  const char *seed_cap;
 };
 void user_teleport_failed(struct teleport_desc* tp, const char* reason);
-			    
+void user_teleport_progress(struct teleport_desc* tp, const char* msg);
+void user_complete_teleport(struct teleport_desc* tp);		    
 
 // ----- MISC STUFF ---------
 
@@ -314,8 +357,8 @@ void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 struct texture_desc {
   uuid_t asset_id;
   int flags;
-  unsigned char *data;
   int len;
+  unsigned char *data;
   int refcnt;
   int width, height, num_discard;
   int *discard_levels;

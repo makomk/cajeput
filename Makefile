@@ -38,7 +38,7 @@ cajeput_anims.o: cajeput_anims.c cajeput_anims.h
 
 sl_messages.o: sl_messages.c sl_messages.h sl_types.h
 
-sl_udp_proto.o: sl_udp_proto.c sl_udp_proto.h sl_messages.h sl_types.h
+sl_udp_proto.o: sl_udp_proto.c sl_udp_proto.h sl_messages.h sl_types.h sl_llsd.h
 
 terrain_compress.o: terrain_compress.c terrain_compress.h sl_types.h
 
