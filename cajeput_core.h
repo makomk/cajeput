@@ -239,6 +239,8 @@ static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 #define AGENT_FLAG_ANIM_UPDATE 0x100 // need to send AvatarAnimation to other agents
 #define AGENT_FLAG_AV_FULL_UPD 0x200 // need to send full ObjectUpdate for this avatar
 
+// #define AGENT_FLAG_IN_TELEPORT 0x400 // teleport in progress - not used
+
 void *user_get_grid_priv(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
@@ -275,8 +277,22 @@ void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);
 
 // used to ensure pointers to the user_ctx are NULLed correctly on removal
-void user_add_self_pointer(struct user_ctx** ctx);
-void user_del_self_pointer(struct user_ctx** ctx);
+void user_add_self_pointer(struct user_ctx** pctx);
+void user_del_self_pointer(struct user_ctx** pctx);
+
+// Should only really be used to handle incoming requests from client
+void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
+			    const sl_vector3 *pos, const sl_vector3 *look_at);
+void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark);
+
+// and these should only be used by code that handles teleports
+struct teleport_desc {
+  struct user_ctx* ctx;
+  uint64_t region_handle;
+  sl_vector3 pos, look_at;
+};
+void user_teleport_failed(struct teleport_desc* tp, const char* reason);
+			    
 
 // ----- MISC STUFF ---------
 

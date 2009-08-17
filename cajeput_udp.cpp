@@ -510,6 +510,32 @@ static void handle_LogoutRequest_msg(struct user_ctx* ctx, struct sl_message* ms
   user_session_close(ctx);
 }
 
+void user_send_teleport_failed(struct user_ctx* ctx, const char* reason) {
+  SL_DECLMSG(TeleportFailed, fail);
+  SL_DECLBLK(TeleportFailed, Info, info, &fail);
+  uuid_copy(info->AgentID, ctx->user_id);
+  sl_string_set(&info->Reason, reason);
+  fail.flags |= MSG_RELIABLE;
+  sl_send_udp(ctx, &fail);
+}
+
+// FIXME - handle TeleportRequest message (by UUID)?
+
+static void handle_TeleportLocationRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(TeleportLocationRequest, AgentData, ad, msg);
+  SL_DECLBLK_GET1(TeleportLocationRequest, Info, info, msg);
+  if(ad == NULL || info == NULL || VALIDATE_SESSION(ad)) 
+    return;
+  user_teleport_location(ctx, info->RegionHandle, &info->Position, &info->LookAt);
+}
+
+static void handle_TeleportLandmarkRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(TeleportLandmarkRequest, Info, info, msg);
+  if(info == NULL || VALIDATE_SESSION(info)) 
+    return;
+  user_teleport_landmark(ctx, info->LandmarkID);
+}
+
 static float sl_unpack_float(unsigned char *buf) {
   float f;
   // FIXME - need to swap byte order if necessary.
@@ -1033,6 +1059,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(PacketAck);
   ADD_HANDLER(MapLayerRequest);
   ADD_HANDLER(MapBlockRequest);
+  ADD_HANDLER(TeleportLocationRequest);
+  ADD_HANDLER(TeleportLandmarkRequest);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

@@ -134,6 +134,8 @@ struct user_ctx {
   std::vector<animation_desc> anims;
   int32_t anim_seq; // FIXME - seems fishy
 
+  struct teleport_desc *tp_out;
+
   // FIXME - move this out of struct to save l KB of space per child agent
   struct wearable_desc wearables[SL_NUM_WEARABLES];
 
@@ -253,6 +255,9 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 void user_int_free_texture_sends(struct user_ctx *ctx);
 
 void user_update_throttles(struct user_ctx *ctx);
+
+// for strictly internal use ONLY! Really!
+void user_send_teleport_failed(struct user_ctx* ctx, const char* reason);
 
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1

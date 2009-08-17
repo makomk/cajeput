@@ -1248,6 +1248,69 @@ void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim) {
   } 
 }
 
+static teleport_desc* begin_teleport(struct user_ctx* ctx) {
+  if(ctx->tp_out != NULL) {
+    printf("!!! ERROR: can't teleport while teleporting!\n");
+    return NULL;    
+  } else if(ctx->av == NULL) {
+    printf("!!! ERROR: can't teleport with no body!\n");
+    return NULL;    
+  }
+  teleport_desc* desc = new teleport_desc();
+  desc->ctx = ctx;
+  user_add_self_pointer(&desc->ctx);
+  ctx->tp_out = desc;
+  return desc;
+}
+
+static void del_teleport_desc(teleport_desc* desc) {
+  if(desc->ctx != NULL) {
+    assert(desc->ctx->tp_out == desc);
+    desc->ctx->tp_out = NULL;
+    user_del_self_pointer(&desc->ctx);
+  }
+  delete desc;
+}
+
+// for after region handle is resolved...
+static void do_real_teleport(struct teleport_desc* tp) {
+  if(tp->ctx == NULL) {
+    user_teleport_failed(tp,"cancelled");
+  } else if(tp->region_handle == tp->ctx->sim->region_handle) {
+    user_teleport_failed(tp, "FIXME: Local teleport not supported");
+  } else {
+    user_teleport_failed(tp, "FIXME: Teleports not supported");
+  }
+}
+
+void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
+  if(tp->ctx != NULL) {
+    user_send_teleport_failed(tp->ctx, reason);
+  }
+  del_teleport_desc(tp);
+}
+
+void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
+			    const sl_vector3 *pos, const sl_vector3 *look_at) {
+  teleport_desc* desc = begin_teleport(ctx);
+  if(desc == NULL) return;
+  desc->region_handle = region_handle;
+  desc->pos = *pos;
+  desc->look_at = *look_at;
+  do_real_teleport(desc);
+}
+
+void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {
+  teleport_desc* desc = begin_teleport(ctx);
+  if(desc == NULL) return;
+  // FIXME - todo
+  if(uuid_is_null(landmark)) {
+    user_teleport_failed(desc,"FIXME: teleport home not supported");
+  } else {
+    user_teleport_failed(desc,"FIXME: teleport to landmark not supported");
+  }
+}
+
 static void debug_prepare_new_user(struct sim_new_user *uinfo) {
   char user_id[40], session_id[40];
   uuid_unparse(uinfo->user_id,user_id);
@@ -1270,6 +1333,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->sock = sim->sock; ctx->counter = 0;
   ctx->draw_dist = 0.0f;
   ctx->circuit_code = uinfo->circuit_code;
+  ctx->tp_out = NULL;
 
   ctx->texture_entry.data = NULL;
   ctx->visual_params.data = NULL;
