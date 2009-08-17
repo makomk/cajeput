@@ -29,7 +29,7 @@
 #include <libsoup/soup.h>
 #include "sl_types.h"
 
-#define CAJEPUT_API_VERSION 0x0002
+#define CAJEPUT_API_VERSION 0x0003
 
 #define WORLD_HEIGHT 4096
 
@@ -104,6 +104,15 @@ void sim_http_add_handler (struct simulator_ctx *sim,
 
 
 /* ------ LOGIN GLUE - FOR GRID  --------- */
+struct map_block_info {
+  uint32_t x, y; // larger size for future-proofing
+  char *name;
+  uint8_t access, water_height, num_agents;
+  uint32_t flags;
+  uuid_t map_image;
+  // TODO
+};
+
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simulator_ctx* sim);
   void(*user_created)(struct simulator_ctx* sim,
@@ -129,6 +138,11 @@ struct cajeput_grid_hooks {
 		      void *user_priv);
 
   void(*get_texture)(struct simulator_ctx *sim, struct texture_desc *texture);
+  void(*map_block_request)(struct simulator_ctx *sim, int min_x, int max_x, 
+			   int min_y, int max_y, 
+			   void(*cb)(void *priv, struct map_block_info *blocks, 
+				     int count),
+			   void *cb_priv);
 };
 
 // void do_grid_login(struct simulator_ctx* sim);
@@ -152,6 +166,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 // ICK. For use by OpenSim glue code only.
 void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id, 
 			     uuid_t secure_session_id);
+
 
 // ----- PHYSICS GLUE -------------
 
@@ -258,6 +273,10 @@ user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 void user_send_message(struct user_ctx *user, const char* msg);
 void user_session_close(user_ctx* ctx);
 void user_reset_timeout(struct user_ctx* ctx);
+
+// used to ensure pointers to the user_ctx are NULLed correctly on removal
+void user_add_self_pointer(struct user_ctx** ctx);
+void user_del_self_pointer(struct user_ctx** ctx);
 
 // ----- MISC STUFF ---------
 

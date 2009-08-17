@@ -451,7 +451,7 @@ void sim_texture_read_metadata(struct texture_desc *desc) {
 	   info.num_discard*sizeof(int));
   } else {
     char buf[40]; uuid_unparse(desc->asset_id, buf);
-    printf("WARNING: texture metadata read failed for %s\n");
+    printf("WARNING: texture metadata read failed for %s\n", buf);
     desc->num_discard = 1;
     desc->discard_levels = new int[1];
     desc->discard_levels[0] = desc->len;
@@ -643,8 +643,6 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
 }
 
 static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
-  avatar_obj* av = av_user->av;
-  char name[0x100]; unsigned char obj_data[60];
   SL_DECLMSG(AvatarAppearance,aa);
   SL_DECLBLK(AvatarAppearance,Sender,sender,&aa);
   uuid_copy(sender->ID, av_user->user_id);
@@ -665,8 +663,6 @@ static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
 }
 
 static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
-  avatar_obj* av = av_user->av;
-  char name[0x100]; unsigned char obj_data[60];
   SL_DECLMSG(AvatarAnimation,aa);
   SL_DECLBLK(AvatarAnimation,Sender,sender,&aa);
   uuid_copy(sender->ID, av_user->user_id);
@@ -711,11 +707,11 @@ static gboolean av_update_timer(gpointer data) {
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) {
 	send_av_full_update(user, user2);
       } else {
-	send_av_terse_update(user, user2->av);
+	send_av_terse_update(user, user2->av); // FIXME - only send if needed
       }
       if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) && user != user2) {
-	// FIXME - shouldn't send AvatarAppearance to self?
+	// shouldn't send AvatarAppearance to self, I think.
 	send_av_appearance(user, user2);
       }
       if(user2->flags & AGENT_FLAG_ANIM_UPDATE ||
@@ -1153,6 +1149,15 @@ void user_clear_flag(struct user_ctx *user, uint32_t flag) {
   user->flags &= ~flag;
 }
 
+void user_add_self_pointer(struct user_ctx** pctx) {
+  (*pctx)->self_ptrs.insert(pctx);
+}
+
+void user_del_self_pointer(struct user_ctx** pctx) {
+  (*pctx)->self_ptrs.erase(pctx);
+  *pctx = NULL;
+}
+
 
 void user_set_texture_entry(struct user_ctx *user, struct sl_string* data) {
   sl_string_free(&user->texture_entry);
@@ -1383,6 +1388,13 @@ static void user_remove_int(user_ctx **user) {
   free(ctx->name);
   free(ctx->group_title);
   caps_remove(ctx->seed_cap);
+
+  for(std::set<user_ctx**>::iterator iter = ctx->self_ptrs.begin();
+      iter != ctx->self_ptrs.end(); iter++) {
+    user_ctx **pctx = *iter;
+    assert(*pctx == ctx);
+    *pctx = NULL;
+  }
   
   *user = ctx->next;
   delete ctx;

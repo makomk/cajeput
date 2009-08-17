@@ -106,6 +106,8 @@ struct user_ctx {
   uint32_t circuit_code;
   uint32_t counter;
 
+  std::set<user_ctx**> self_ptrs;
+
   // float main_throttle; // FIXME - is this needed?
   struct sl_throttle throttles[SL_NUM_THROTTLES];
 

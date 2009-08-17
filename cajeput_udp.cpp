@@ -187,7 +187,7 @@ static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg)
 static void handle_AgentAnimation_msg(struct user_ctx* ctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentAnimation, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
-  sl_dump_packet(msg); // FIXME - TODO
+  // sl_dump_packet(msg); // FIXME - TODO
 
   int count = SL_GETBLK(AgentAnimation, AnimationList, msg).count;
   for(int i = 0; i < count; i++) {
@@ -273,6 +273,79 @@ static void handle_ChatFromViewer_msg(struct user_ctx* ctx, struct sl_message* m
       chat.msg = (char*)cdata->Message.data;
       world_send_chat(ctx->sim, &chat);
     }
+}
+
+static void handle_MapLayerRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(MapLayerRequest, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  
+  // FIXME - this is some evil hack copied from OpenSim
+  SL_DECLMSG(MapLayerReply, reply);
+  SL_DECLBLK(MapLayerReply, AgentData, ad2, &reply);
+  uuid_copy(ad2->AgentID, ctx->user_id);
+  ad2->Flags = 0;
+  SL_DECLBLK(MapLayerReply, LayerData, ld, &reply);
+  ld->Bottom = ld->Left = 0;
+  ld->Top = ld->Right = 30000; // is this even valid?
+  uuid_parse("00000000-0000-1111-9999-000000000006", ld->ImageID);
+  sl_send_udp(ctx, &reply);
+}
+
+struct map_block_req_priv {
+  user_ctx *ctx;
+  uint32_t flags;
+};
+
+// we'll start running into trouble if a bunch of sims have names longer than
+// 100 bytes, but that's unlikely, I think.
+#define MAX_MAP_BLOCKS_PER_MSG 10
+
+static void map_block_req_cb(void *priv, struct map_block_info *blocks, int count) {
+  map_block_req_priv *req = (map_block_req_priv*)priv;
+  if(req->ctx != NULL) {
+    // FIXME - should we send an empty message if we have nothing?
+    // For now, I'm guessing not
+
+    // FIXME - OpenSim has some special case re. clicking a map tile!
+ 
+    for(int i = 0; i < count; /*nothing*/) {
+      SL_DECLMSG(MapBlockReply, reply);
+      SL_DECLBLK(MapBlockReply, AgentData, ad, &reply);
+      uuid_copy(ad->AgentID, req->ctx->user_id);
+      ad->Flags = req->flags;
+      
+      for(int j = 0; j < MAX_MAP_BLOCKS_PER_MSG && i < count; i++, j++) {
+	SL_DECLBLK(MapBlockReply, Data, dat, &reply);
+	dat->X = blocks[i].x;
+	dat->Y = blocks[i].y;
+	sl_string_set(&dat->Name, blocks[i].name);
+	dat->RegionFlags = blocks[i].flags;
+	dat->WaterHeight = blocks[i].water_height;
+	dat->Agents = blocks[i].num_agents;
+	uuid_copy(dat->MapImageID, blocks[i].map_image);
+      }
+      
+      reply.flags |= MSG_RELIABLE;
+      sl_send_udp(req->ctx, &reply);
+    }
+    
+    user_del_self_pointer(&req->ctx);
+  }
+  delete req;
+}
+
+static void handle_MapBlockRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(MapBlockRequest, AgentData, ad, msg);
+  SL_DECLBLK_GET1(MapBlockRequest, PositionData, pos, msg);
+  if(ad == NULL || pos == NULL || VALIDATE_SESSION(ad)) return;
+
+  map_block_req_priv *priv = new map_block_req_priv();
+  priv->ctx = ctx; priv->flags = ad->Flags;
+  user_add_self_pointer(&priv->ctx);
+  ctx->sim->gridh.map_block_request(ctx->sim, pos->MinX, pos->MaxX, pos->MinY, 
+				    pos->MaxY, map_block_req_cb, priv);
+  
+  // FIXME - TODO
 }
 
 static void send_agent_wearables(struct user_ctx* ctx) {
@@ -958,6 +1031,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(AgentSetAppearance);
   ADD_HANDLER(AgentAnimation);
   ADD_HANDLER(PacketAck);
+  ADD_HANDLER(MapLayerRequest);
+  ADD_HANDLER(MapBlockRequest);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

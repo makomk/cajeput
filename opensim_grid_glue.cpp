@@ -105,14 +105,13 @@ static void do_grid_login(struct simulator_ctx* sim) {
   uuid_t zero_uuid, u;
   uuid_clear(zero_uuid);
   GHashTable *hash;
-  GError *error = NULL;
+  // GError *error = NULL;
   SoupMessage *msg;
   char *ip_addr = sim_get_ip_addr(sim);
   GRID_PRIV_DEF(sim);
 
   printf("Logging into grid...\n");
 
-  // FIXME - do I need to free this?
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
   soup_value_hash_insert(hash,"recvkey",G_TYPE_STRING,grid->grid_recvkey);
@@ -425,7 +424,7 @@ static void xmlrpc_logoff_user(SoupServer *server,
   char *s;
   uint64_t region_handle;
   GHashTable *hash;
-  GError *error = NULL;
+  // GError *error = NULL;
   printf("DEBUG: Got a logoff_user call\n");
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
@@ -507,7 +506,6 @@ static void xmlrpc_handler (SoupServer *server,
     return;
   }
 
-  // FIXME FIXME FIXME - leaks memory, but hard to fix due to oddball lifetimes
   if(strcmp(method_name, "logoff_user") == 0) {
     xmlrpc_logoff_user(server, msg, params, sim);
     
@@ -551,11 +549,10 @@ static void user_logoff(struct simulator_ctx* sim,
   char buf[40];
   uuid_t u;
   GHashTable *hash;
-  GError *error = NULL;
+  // GError *error = NULL;
   SoupMessage *msg;
   GRID_PRIV_DEF(sim);
 
-  // FIXME - do I need to free this?
   hash = soup_value_hash_new();
   uuid_unparse(user_id, buf);
   soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,buf);
@@ -609,7 +606,6 @@ void pretty_print_json(JsonNode *node) {
 }
 
 static int helper_json_to_boolean(JsonObject *obj, const char* key, int *val) {
-  const char* str;
   JsonNode *node = json_object_get_member(obj, key);
   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
     return -1;
@@ -769,7 +765,7 @@ static void agent_PUT_handler(SoupServer *server,
   const char *msg_type, *callback_uri;
   user_grid_glue *user_glue;
   uuid_t user_id, session_id;
-  GRID_PRIV_DEF(sim);
+  // GRID_PRIV_DEF(sim);
   int is_ok = 1;
 
   if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
@@ -1091,7 +1087,7 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
 
   printf("Get texture resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
-	 msg->response_body->length);
+	 (int)msg->response_body->length);
 
   if(msg->status_code >= 400 && msg->status_code < 500) {
     // not transitory, don't bother retrying
@@ -1178,6 +1174,150 @@ static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture)
 
 }
 
+struct map_block_state {
+  struct simulator_ctx *sim;
+  void(*cb)(void *priv, struct map_block_info *blocks, 
+	    int count);
+  void *cb_priv;
+
+  map_block_state(struct simulator_ctx *sim_, void(*cb_)(void *priv, struct map_block_info *blocks, 
+							 int count), void *cb_priv_) : 
+    sim(sim_), cb(cb_), cb_priv(cb_priv_) { };
+};
+
+static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct map_block_state *st = (map_block_state*)user_data;
+  //GRID_PRIV_DEF(st->sim);
+  struct map_block_info *blocks;
+  int num_blocks = 0;
+  GHashTable *hash = NULL;
+  GValueArray *sims = NULL;
+  //char *s; uuid_t u;
+
+  sim_shutdown_release(st->sim);
+
+  if(msg->status_code != 200) {
+    printf("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+  if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
+					 msg->response_body->length,
+					 NULL,
+					 G_TYPE_HASH_TABLE, &hash)) {
+    printf("Map block request failed: couldn't parse response\n");
+    goto out_fail;
+  }
+
+  //printf("DEBUG: map block response ~%s~\n", msg->response_body->data);
+  printf("DEBUG: got map block response\n");
+
+  if(!soup_value_hash_lookup(hash,"sim-profiles",G_TYPE_VALUE_ARRAY,&sims)
+     || sims == NULL) {
+    printf("Map block request failed: no/bad sim-profiles member\n");
+    goto out_free_fail;
+  }
+
+  blocks = new map_block_info[sims->n_values];
+  for(unsigned int i = 0; i < sims->n_values; i++) {
+    GHashTable *sim_info = NULL; char *s; int val;
+    if(!soup_value_array_get_nth(sims, i, G_TYPE_HASH_TABLE, &sim_info) ||
+       sim_info == NULL) {
+      printf("Map block request bad: expected hash table\n");
+      continue;
+    }
+    
+    if(!soup_value_hash_lookup(sim_info, "x", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].x = atoi(s);
+    if(!soup_value_hash_lookup(sim_info, "y", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].y = atoi(s);
+    if(!soup_value_hash_lookup(sim_info, "name", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].name = s; // the caller can copy this themselves!
+    if(!soup_value_hash_lookup(sim_info, "access", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].access = atoi(s);
+    if(!soup_value_hash_lookup(sim_info, "water-height", G_TYPE_INT, &val))
+      goto bad_block;
+    blocks[num_blocks].water_height = val;
+    if(!soup_value_hash_lookup(sim_info, "agents", G_TYPE_INT, &val))
+      goto bad_block;
+    blocks[num_blocks].num_agents = val;
+    if(!soup_value_hash_lookup(sim_info, "region-flags", G_TYPE_INT, &val))
+      goto bad_block;
+    blocks[num_blocks].flags = val;
+    if(!soup_value_hash_lookup(sim_info, "map-image-id", G_TYPE_STRING, &s))
+      goto bad_block;
+    uuid_parse(s, blocks[num_blocks].map_image);
+
+    printf("DEBUG: map block %i,%i is %s\n",
+	   blocks[num_blocks].x, blocks[num_blocks].y, blocks[num_blocks].name);
+
+    num_blocks++;
+    
+    // FIXME - TODO
+      
+    continue;    
+  bad_block:
+    printf("WARNING: Map block response has bad block, skipping\n");
+  }
+
+
+  st->cb(st->cb_priv, blocks, num_blocks);
+
+  delete[] blocks;
+  g_hash_table_destroy(hash); // must be after calling the callback
+  delete st;
+  return;
+
+  // FIXME - TODO
+
+ out_free_fail:
+  g_hash_table_destroy(hash);
+ out_fail:
+  st->cb(st->cb_priv, NULL, 0);
+  delete st;
+}
+
+static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x, 
+			      int min_y, int max_y, 
+			      void(*cb)(void *priv, struct map_block_info *blocks, 
+					int count),
+			      void *cb_priv) {
+  
+  GHashTable *hash;
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF(sim);
+
+  printf("DEBUG: map block request (%i,%i)-(%i,%i)\n",
+	 min_x, min_y, max_x, max_y);
+
+  hash = soup_value_hash_new();
+  soup_value_hash_insert(hash,"xmin",G_TYPE_INT,min_x);
+  soup_value_hash_insert(hash,"xmax",G_TYPE_INT,max_x);
+  soup_value_hash_insert(hash,"ymin",G_TYPE_INT,min_y);
+  soup_value_hash_insert(hash,"ymax",G_TYPE_INT,max_y);
+  
+
+  msg = soup_xmlrpc_request_new(grid->gridserver, "map_block",
+				G_TYPE_HASH_TABLE, hash,
+				G_TYPE_INVALID);
+  g_hash_table_destroy(hash);
+  if (!msg) {
+    fprintf(stderr, "Could not create xmlrpc map request\n");
+    cb(cb_priv, NULL, 0);
+    return;
+  }
+
+  sim_shutdown_hold(sim);
+  // FIXME - why SOUP_MESSAGE(foo)?
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
+}
+
+
 static void cleanup(struct simulator_ctx* sim) {
   GRID_PRIV_DEF(sim);
   g_free(grid->userserver);
@@ -1203,6 +1343,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
   hooks->fetch_user_inventory = fetch_user_inventory;
+  hooks->map_block_request = map_block_request;
 
   hooks->get_texture = get_texture;
   hooks->cleanup = cleanup;
