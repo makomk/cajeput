@@ -117,7 +117,6 @@ void sim_shutdown_release(struct simulator_ctx *sim) {
   sim->hold_off_shutdown--;
 }
 
-
 // --- START octree code ---
 
 #define OCTREE_VERT_SCALE 64
@@ -881,6 +880,41 @@ void user_set_wearable(struct user_ctx *ctx, int id,
   uuid_copy(ctx->wearables[id].item_id, item_id);
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
 }
+
+
+void user_set_throttles(struct user_ctx *ctx, float rates[]) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    ctx->throttles[i].time = time_now;
+    ctx->throttles[i].level = 0.0f;
+    ctx->throttles[i].rate = rates[i];
+    
+  }
+}
+
+void user_reset_throttles(struct user_ctx *ctx) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    ctx->throttles[i].time = time_now;
+    ctx->throttles[i].level = 0.0f;
+  }
+}
+
+void user_update_throttles(struct user_ctx *ctx) {
+  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    assert(time_now >=  ctx->throttles[i].time); // need monotonic time
+    ctx->throttles[i].level += ctx->throttles[i].rate * 
+      (time_now - ctx->throttles[i].time);
+
+    if(ctx->throttles[i].level > ctx->throttles[i].rate * 0.3f) {
+      // limit maximum reservoir level to 0.3 sec of data
+      ctx->throttles[i].level = ctx->throttles[i].rate * 0.3f;
+    }
+    ctx->throttles[i].time = time_now;
+  }  
+}
+
 
 // FIXME - optimise this
 void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,

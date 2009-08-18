@@ -76,41 +76,6 @@ static void send_pending_acks(struct omuser_sim_ctx *sim) {
   }
 }
 
-void user_set_throttles(struct user_ctx *ctx, float rates[]) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    ctx->throttles[i].time = time_now;
-    ctx->throttles[i].level = 0.0f;
-    ctx->throttles[i].rate = rates[i];
-    
-  }
-}
-
-void user_reset_throttles(struct user_ctx *ctx) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    ctx->throttles[i].time = time_now;
-    ctx->throttles[i].level = 0.0f;
-  }
-}
-
-void user_update_throttles(struct user_ctx *ctx) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    assert(time_now >=  ctx->throttles[i].time); // need monotonic time
-    ctx->throttles[i].level += ctx->throttles[i].rate * 
-      (time_now - ctx->throttles[i].time);
-
-    if(ctx->throttles[i].level > ctx->throttles[i].rate * 0.3f) {
-      // limit maximum reservoir level to 0.3 sec of data
-      ctx->throttles[i].level = ctx->throttles[i].rate * 0.3f;
-    }
-    ctx->throttles[i].time = time_now;
-  }
-  
-}
-
-
 #define VALIDATE_SESSION(ad) (uuid_compare(lctx->u->user_id, ad->AgentID) != 0 || uuid_compare(lctx->u->session_id, ad->SessionID) != 0)
 
 // FIXME - move this somewhere saner!
@@ -495,7 +460,7 @@ static void teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t fl
 
 
 static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
-  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
+  //omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
   sl_llsd *msg = llsd_new_map();
   sl_llsd *info = llsd_new_map();
 
