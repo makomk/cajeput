@@ -23,6 +23,7 @@
 #ifndef CAJEPUT_UDP_H
 #define CAJEPUT_UDP_H
 #include "cajeput_core.h"
+#include "sl_messages.h"
 
 // FIXME - rename these to something saner
 typedef void(*sl_msg_handler)(user_ctx*,sl_message*);

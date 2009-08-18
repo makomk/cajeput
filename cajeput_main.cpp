@@ -867,7 +867,6 @@ static void init_obj_updates_for_user(user_ctx *ctx) {
 // Also note - the OpenSim grid server kinda assumes this path.
 #define CAPS_PATH "/CAPS"
 
-typedef void (*caps_callback) (SoupMessage *msg, user_ctx *ctx, void *user_data);
 
 struct cap_descrip {
   struct simulator_ctx *sim;
@@ -1010,91 +1009,6 @@ void seed_caps_callback(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   soup_message_set_status(msg,400);
 
 
-}
-
-static void event_queue_get_resp(SoupMessage *msg, user_ctx* ctx) {
-    sl_llsd *resp = llsd_new_map();
-
-    if(ctx->last_eventqueue != NULL)
-      llsd_free(ctx->last_eventqueue);
-
-    llsd_map_append(resp,"events",ctx->queued_events);
-    ctx->queued_events = llsd_new_array();
-    llsd_map_append(resp,"id",llsd_new_int(++ctx->event_queue_ctr));
-
-    ctx->last_eventqueue = resp;
-    llsd_soup_set_response(msg, resp);
-}
-
-static void event_queue_do_timeout(user_ctx* ctx) {
-  if(ctx->event_queue_msg != NULL) {
-    soup_server_unpause_message(ctx->sim->soup, ctx->event_queue_msg);
-    soup_message_set_status(ctx->event_queue_msg,502);
-    ctx->event_queue_msg = NULL;
-  }
-}
-
-void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body) {
-  sl_llsd *event = llsd_new_map();
-  llsd_map_append(event, "message", llsd_new_string(name));
-  llsd_map_append(event, "body", body);
-  llsd_array_append(ctx->queued_events, event);
-  if(ctx->event_queue_msg) {
-    soup_server_unpause_message(ctx->sim->soup, ctx->event_queue_msg);
-    event_queue_get_resp(ctx->event_queue_msg, ctx);
-    ctx->event_queue_msg = NULL;
-  }
-}
-
-static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
-  if (msg->method != SOUP_METHOD_POST) {
-    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
-    return;
-  }
-
-  sl_llsd *llsd, *ack;
-  if(msg->request_body->length > 4096) goto fail;
-  llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
-  if(llsd == NULL) {
-    printf("DEBUG: EventQueueGet parse failed\n");
-    goto fail;
-  }
-  if(!LLSD_IS(llsd, LLSD_MAP)) {
-    printf("DEBUG: EventQueueGet not map\n");
-    goto free_fail;
-  }
-  ack = llsd_map_lookup(llsd,"ack");
-  if(ack == NULL || (ack->type_id != LLSD_INT && ack->type_id != LLSD_UNDEF)) {
-    printf("DEBUG: EventQueueGet bad ack\n");
-    printf("DEBUG: message is {{%s}}\n", msg->request_body->data);
-    goto free_fail;
-  }
-  if(ack->type_id == LLSD_INT && ack->t.i < ctx->event_queue_ctr &&
-     ctx->last_eventqueue != NULL) {
-    llsd_soup_set_response(msg, ctx->last_eventqueue);
-    llsd_free(llsd);
-    return;
-  }
-
-  event_queue_do_timeout(ctx);
-
-  if(ctx->queued_events->t.arr.count > 0) {
-    event_queue_get_resp(msg, ctx);
-  } else {
-    soup_server_pause_message(ctx->sim->soup, msg);
-    ctx->event_queue_timeout = g_timer_elapsed(ctx->sim->timer, NULL) + 10.0;
-    ctx->event_queue_msg = msg;
-  }
-
-  
-  llsd_free(llsd);
-  return;
-  
- free_fail:
-  llsd_free(llsd);
- fail:
-  soup_message_set_status(msg,400);
-  
 }
 
 #define NO_RELEASE_NOTES "Sorry, no release notes available."
@@ -1470,17 +1384,42 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   ctx->seed_cap = caps_new_capability_named(sim, seed_caps_callback, 
 					    ctx, NULL, uinfo->seed_cap);
-  // FIXME - split off the event queue stuff
-  ctx->queued_events = llsd_new_array();
-  ctx->last_eventqueue = NULL;
-  ctx->event_queue_ctr = 0;
-  ctx->event_queue_msg = NULL;
-  user_add_named_cap(sim,"EventQueueGet",event_queue_get,ctx,NULL);
+
+  user_int_event_queue_init(ctx);
+
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
 
   return ctx;
 }
 
+int user_complete_movement(user_ctx *ctx) {
+  if(!(ctx->flags & AGENT_FLAG_INCOMING)) {
+    printf("ERROR: unexpected CompleteAgentMovement for %s %s\n",
+	   ctx->first_name, ctx->last_name);
+    return false;
+  }
+  ctx->flags &= ~AGENT_FLAG_CHILD;
+  ctx->flags |= AGENT_FLAG_ENTERED | AGENT_FLAG_APPEARANCE_UPD |  
+    AGENT_FLAG_ANIM_UPDATE | AGENT_FLAG_AV_FULL_UPD;
+  if(ctx->av == NULL) {
+    ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
+    ctx->av->ob.type = OBJ_TYPE_AVATAR;
+    ctx->av->ob.pos.x = 128.0f; // FIXME - correct position!
+    ctx->av->ob.pos.y = 128.0f;
+    ctx->av->ob.pos.z = 60.0f;
+    ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
+    ctx->av->ob.rot.w = 1.0f;
+    ctx->av->ob.velocity.x = ctx->av->ob.velocity.y = ctx->av->ob.velocity.z = 0.0f;
+    uuid_copy(ctx->av->ob.id, ctx->user_id);
+    world_insert_obj(ctx->sim, &ctx->av->ob);
+    world_obj_listen_chat(ctx->sim,&ctx->av->ob,user_av_chat_callback,ctx);
+    world_obj_add_channel(ctx->sim,&ctx->av->ob,0);
+
+    ctx->sim->gridh.user_entered(ctx->sim, ctx, ctx->grid_priv);
+  }
+
+  return true;
+}
 
 static void simstatus_rest_handler (SoupServer *server,
 				SoupMessage *msg,
@@ -1519,17 +1458,14 @@ static void user_remove_int(user_ctx **user) {
     sl_send_udp(ctx, &quit);
   } 
 
-  event_queue_do_timeout(ctx);
+  user_int_event_queue_free(ctx);
+
   sim->gridh.user_deleted(ctx->sim,ctx,ctx->grid_priv);
 
   for(named_caps_iter iter = ctx->named_caps.begin(); 
       iter != ctx->named_caps.end(); iter++) {
     caps_remove(iter->second);
   }
-
-  if(ctx->last_eventqueue != NULL)
-    llsd_free(ctx->last_eventqueue);
-  llsd_free(ctx->queued_events);
 
   user_int_free_texture_sends(ctx);
 
@@ -1634,11 +1570,7 @@ static gboolean cleanup_timer(gpointer data) {
       user_remove_int(user);
     else {
       user_ctx *ctx = *user;
-      if(ctx->event_queue_msg != NULL && 
-	 time_now > ctx->event_queue_timeout) {
-	printf("DEBUG: Timing out EventQueueGet\n");
-	event_queue_do_timeout(ctx);
-      }
+      user_int_event_queue_check_timeout(ctx, time_now);
       user = &ctx->next;
     }
   }

@@ -131,10 +131,8 @@ static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
 #define AGENT_CONTROL_FLY (1<<13)
 
 static void handle_AgentUpdate_msg(struct user_ctx* ctx, struct sl_message* msg) {
-  struct sl_blk_AgentUpdate_AgentData *ad;
-  if(SL_GETBLK(AgentUpdate,AgentData,msg).count != 1) return;
-  ad = SL_GETBLKI(AgentUpdate,AgentData,msg,0);
-  if(VALIDATE_SESSION(ad)) return;
+  SL_DECLBLK_GET1(AgentUpdate, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
   ctx->draw_dist = ad->Far;
   if(ctx->av != NULL) {
     if(!sl_quat_equal(&ctx->av->ob.rot, &ad->BodyRotation)) {
@@ -211,17 +209,16 @@ static void handle_AgentAnimation_msg(struct user_ctx* ctx, struct sl_message* m
 }
 
 static void handle_StartPingCheck_msg(struct user_ctx* ctx, struct sl_message* msg) {
-  struct sl_blk_StartPingCheck_PingID *ping;
-  if(SL_GETBLK(StartPingCheck,PingID,msg).count != 1) return;
-  ping = SL_GETBLKI(StartPingCheck,PingID,msg,0);
+  SL_DECLBLK_GET1(StartPingCheck, PingID, ping, msg);
+  if(ping == NULL) return;
   SL_DECLMSG(CompletePingCheck, pong);
   SL_DECLBLK(CompletePingCheck, PingID, pongid, &pong);
   pongid->PingID = ping->PingID;
   sl_send_udp(ctx,&pong);
 }
 
-void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
-		       const struct chat_message *msg, void *user_data) {
+void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
+			   const struct chat_message *msg, void *user_data) {
   struct user_ctx* ctx = (user_ctx*)user_data;
   SL_DECLMSG(ChatFromSimulator, chat);
   SL_DECLBLK(ChatFromSimulator, ChatData, cdata, &chat);
@@ -235,6 +232,8 @@ void av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
   sl_send_udp(ctx, &chat);
 }
 
+
+// FIXME - move to cajeput_main.cpp
 void user_send_message(struct user_ctx *ctx, const char* msg) {
   struct chat_message chat;
   chat.source_type = CHAT_SOURCE_SYSTEM;
@@ -245,34 +244,30 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   chat.msg = (char*)msg;
 
   // FIXME - evil hack
-  av_chat_callback(ctx->sim, NULL, &chat, ctx);
+  user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
 static void handle_ChatFromViewer_msg(struct user_ctx* ctx, struct sl_message* msg) {
-    struct sl_blk_ChatFromViewer_AgentData *ad;
-    struct sl_blk_ChatFromViewer_ChatData *cdata;
-    struct chat_message chat;
-    //struct sl_message amc;
-    if(SL_GETBLK(ChatFromViewer,AgentData,msg).count != 1) return;
-    ad = SL_GETBLKI(ChatFromViewer,AgentData,msg,0);
-    if(VALIDATE_SESSION(ad)) return;
-    if(SL_GETBLK(ChatFromViewer,ChatData,msg).count != 1) return;
-    cdata = SL_GETBLKI(ChatFromViewer,ChatData,msg,0);
-    printf("DEBUG: got ChatFromViewer\n");
-    if(cdata->Channel < 0) return; // can't send on negative channels
-    if(ctx->av == NULL) return; // I have no mouth and I must scream...
-    if(cdata->Type == CHAT_TYPE_WHISPER || cdata->Type == CHAT_TYPE_NORMAL ||
-       cdata->Type == CHAT_TYPE_SHOUT) {
-      chat.channel = cdata->Channel;
-      chat.pos = ctx->av->ob.pos;
-      chat.name = ctx->name;
-      uuid_copy(chat.source,ctx->user_id);
-      uuid_clear(chat.owner); // FIXME - ???
-      chat.source_type = CHAT_SOURCE_AVATAR;
-      chat.chat_type = cdata->Type;
-      chat.msg = (char*)cdata->Message.data;
-      world_send_chat(ctx->sim, &chat);
-    }
+  SL_DECLBLK_GET1(ChatFromViewer, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ChatFromViewer, ChatData, cdata, msg);
+  struct chat_message chat;
+  if(ad == NULL || cdata == NULL || VALIDATE_SESSION(ad)) return;
+
+  printf("DEBUG: got ChatFromViewer\n");
+  if(cdata->Channel < 0) return; // can't send on negative channels
+  if(ctx->av == NULL) return; // I have no mouth and I must scream...
+  if(cdata->Type == CHAT_TYPE_WHISPER || cdata->Type == CHAT_TYPE_NORMAL ||
+     cdata->Type == CHAT_TYPE_SHOUT) {
+    chat.channel = cdata->Channel;
+    chat.pos = ctx->av->ob.pos;
+    chat.name = ctx->name;
+    uuid_copy(chat.source,ctx->user_id);
+    uuid_clear(chat.owner); // FIXME - ???
+    chat.source_type = CHAT_SOURCE_AVATAR;
+    chat.chat_type = cdata->Type;
+    chat.msg = (char*)cdata->Message.data;
+    world_send_chat(ctx->sim, &chat);
+  }
 }
 
 static void handle_MapLayerRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -369,12 +364,10 @@ static void send_agent_wearables(struct user_ctx* ctx) {
 }
 
 static void handle_AgentWearablesRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
-    struct sl_blk_AgentWearablesRequest_AgentData *ad;
-    if(SL_GETBLK(AgentWearablesRequest,AgentData,msg).count != 1) return;
-    ad = SL_GETBLKI(AgentWearablesRequest,AgentData,msg,0);
-    if(VALIDATE_SESSION(ad)) 
-      return;
-    send_agent_wearables(ctx);
+  SL_DECLBLK_GET1(AgentWearablesRequest, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
+    return;
+  send_agent_wearables(ctx);
 }
 
 static void handle_AgentSetAppearance_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -431,13 +424,11 @@ static void handle_AgentDataUpdateRequest_msg(struct user_ctx* ctx, struct sl_me
 }
 
 static void handle_RegionHandshakeReply_msg(struct user_ctx* ctx, struct sl_message* msg) {
-    struct sl_blk_RegionHandshakeReply_AgentData *ad;
-    if(SL_GETBLK(RegionHandshakeReply,AgentData,msg).count != 1) return;
-    ad = SL_GETBLKI(RegionHandshakeReply,AgentData,msg,0);
-    if(VALIDATE_SESSION(ad)) 
-      return;
-    ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_OTHER_AVS;
-    // FIXME - should we do something with RegionInfo.Flags?
+  SL_DECLBLK_GET1(RegionHandshakeReply, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
+    return;
+  ctx->flags |= AGENT_FLAG_RHR | AGENT_FLAG_NEED_OTHER_AVS;
+  // FIXME - should we do something with RegionInfo.Flags?
 }
 
 static void handle_PacketAck_msg(struct user_ctx* ctx, struct sl_message* msg) {
@@ -445,36 +436,10 @@ static void handle_PacketAck_msg(struct user_ctx* ctx, struct sl_message* msg) {
 }
 
 static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_message* msg) {
-    struct sl_blk_CompleteAgentMovement_AgentData *ad;
-    //struct sl_message amc;
-    if(SL_GETBLK(CompleteAgentMovement,AgentData,msg).count != 1) return;
-    ad = SL_GETBLKI(CompleteAgentMovement,AgentData,msg,0);
-    if(ad->CircuitCode != ctx->circuit_code || VALIDATE_SESSION(ad)) 
-      return;
-    if(!(ctx->flags & AGENT_FLAG_INCOMING)) {
-      printf("ERROR: unexpected CompleteAgentMovement for %s %s\n",
-	     ctx->first_name, ctx->last_name);
-      return;
-    }
-    ctx->flags &= ~AGENT_FLAG_CHILD;
-    ctx->flags |= AGENT_FLAG_ENTERED | AGENT_FLAG_APPEARANCE_UPD |  
-      AGENT_FLAG_ANIM_UPDATE | AGENT_FLAG_AV_FULL_UPD;
-    if(ctx->av == NULL) {
-      ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
-      ctx->av->ob.type = OBJ_TYPE_AVATAR;
-      ctx->av->ob.pos.x = 128.0f;
-      ctx->av->ob.pos.y = 128.0f;
-      ctx->av->ob.pos.z = 60.0f;
-      ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
-      ctx->av->ob.rot.w = 1.0f;
-      ctx->av->ob.velocity.x = ctx->av->ob.velocity.y = ctx->av->ob.velocity.z = 0.0f;
-      uuid_copy(ctx->av->ob.id, ctx->user_id);
-      world_insert_obj(ctx->sim, &ctx->av->ob);
-      world_obj_listen_chat(ctx->sim,&ctx->av->ob,av_chat_callback,ctx);
-      world_obj_add_channel(ctx->sim,&ctx->av->ob,0);
-
-      ctx->sim->gridh.user_entered(ctx->sim, ctx, ctx->grid_priv);
-    }
+  SL_DECLBLK_GET1(CompleteAgentMovement, AgentData, ad, msg);
+  if(ad == NULL || ad->CircuitCode != ctx->circuit_code || VALIDATE_SESSION(ad)) 
+    return;
+  if(user_complete_movement(ctx)) {
     printf("Got CompleteAgentMovement; sending AgentMovementComplete\n");
     SL_DECLMSG(AgentMovementComplete, amc);
     amc.flags |= MSG_RELIABLE;
@@ -489,17 +454,16 @@ static void handle_CompleteAgentMovement_msg(struct user_ctx* ctx, struct sl_mes
     dat->Timestamp = time(NULL);
     sl_string_set(&simdat->ChannelVersion, "OtherSim 0.001");
     sl_send_udp(ctx, &amc);
+  }
 
-    // FIXME - move this somewhere saner?
-    if(ctx->sim->welcome_message != NULL)
-      user_send_message(ctx, ctx->sim->welcome_message);
+  // FIXME - move this somewhere saner?
+  if(ctx->sim->welcome_message != NULL)
+    user_send_message(ctx, ctx->sim->welcome_message);
 }
 
 static void handle_LogoutRequest_msg(struct user_ctx* ctx, struct sl_message* msg) {
-  struct sl_blk_LogoutRequest_AgentData *ad;
-  if(SL_GETBLK(LogoutRequest,AgentData,msg).count != 1) return;
-  ad = SL_GETBLKI(LogoutRequest,AgentData,msg,0);
-  if(VALIDATE_SESSION(ad)) 
+  SL_DECLBLK_GET1(LogoutRequest, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
   ctx->flags |= AGENT_FLAG_IN_LOGOUT;
   SL_DECLMSG(LogoutReply, reply);
@@ -613,14 +577,10 @@ void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 
 
 static void handle_AgentThrottle_msg(struct user_ctx* ctx, struct sl_message* msg) {
-  struct sl_blk_AgentThrottle_AgentData *ad;
-  struct sl_blk_AgentThrottle_Throttle *throt;
-  if(SL_GETBLK(AgentThrottle,AgentData,msg).count != 1) return;
-  ad = SL_GETBLKI(AgentThrottle,AgentData,msg,0);
-  if(VALIDATE_SESSION(ad) || ad->CircuitCode != ctx->circuit_code) return;
-
-  if(SL_GETBLK(AgentThrottle,Throttle,msg).count != 1) return;
-  throt = SL_GETBLKI(AgentThrottle,Throttle,msg,0);
+  SL_DECLBLK_GET1(AgentThrottle, AgentData, ad, msg);
+  SL_DECLBLK_GET1(AgentThrottle, Throttle, throt, msg);
+  if(ad == NULL || throt == NULL || VALIDATE_SESSION(ad) || 
+     ad->CircuitCode != ctx->circuit_code) return;
 
   // FIXME - need to check generation counter
 

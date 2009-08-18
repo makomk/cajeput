@@ -30,6 +30,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "sl_llsd.h"
+#include "cajeput_core.h"
+#include "cajeput_udp.h"
 
 #define USER_CONNECTION_TIMEOUT 15
 
@@ -146,11 +148,13 @@ struct user_ctx {
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
 
   // Event queue stuff. FIXME - seperate this out
-  sl_llsd *queued_events;
-  sl_llsd *last_eventqueue;
-  int event_queue_ctr;
-  SoupMessage *event_queue_msg;
-  double event_queue_timeout;
+  struct {
+    sl_llsd *queued;
+    sl_llsd *last;
+    int ctr;
+    SoupMessage *msg;
+    double timeout;
+  } evqueue;
 
   user_ctx(simulator_ctx* our_sim) : sim(our_sim), av(NULL) {
   }
@@ -248,7 +252,22 @@ void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,
 void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 			   int32_t channel);
 
+// FIXME - rename and export more widely!
+void llsd_soup_set_response(SoupMessage *msg, sl_llsd *llsd);
+
 void user_int_free_texture_sends(struct user_ctx *ctx);
+
+
+void user_int_event_queue_init(user_ctx *ctx);
+void user_int_event_queue_check_timeout(user_ctx *ctx, double time_now);
+void user_int_event_queue_free(user_ctx *ctx);
+
+// called on CompleteAgentMovement - returns success (true/false)
+int user_complete_movement(user_ctx *ctx);
+
+// FIXME - this really shouldn't be exposed
+void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
+			   const struct chat_message *msg, void *user_data);
 
 void user_update_throttles(struct user_ctx *ctx);
 
@@ -259,6 +278,17 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
 
 // takes ownership of the passed LLSD
 void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
+
+// --------- CAPS STUFF -----------------------------
+
+// perhaps caps-related functions should be externally available
+
+struct cap_descrip; // opaque
+
+typedef void (*caps_callback) (SoupMessage *msg, user_ctx *ctx, void *user_data);
+struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx, 
+				       const char* name, caps_callback callback,
+				       user_ctx* user, void *user_data);
 
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1
