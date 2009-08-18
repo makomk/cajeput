@@ -1687,7 +1687,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 
   // OpenSim sets this to 0 itself, but doing that seems to break teleports
   // for us. I have a nasty feeling that's the *real* reason the viewer has
-  // to connect as a child agent first, actually...x
+  // to connect as a child agent first, actually...
   //helper_json_add_string(obj, "circuit_code", "0"); // not used
 
   user_get_uuid(tp->ctx, agent_id);
@@ -1697,10 +1697,14 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_uuid(obj, "session_uuid", u);
 
   // FIXME - actually fill these in
-  helper_json_add_string(obj,"position","<128, 128, 1.5>");
+  snprintf(buf, 40, "<%f, %f, %f>", tp->pos.x, tp->pos.y,
+	   tp->pos.z);
+  helper_json_add_string(obj,"position",buf);
   helper_json_add_string(obj,"velocity","<0, 0, 0>");
-  helper_json_add_string(obj,"center","<126.4218, 125.6846, 39.70211>");
   helper_json_add_string(obj,"size","<0, 0, 0>");
+
+  // camera stuff - FIXME fill this in.
+  helper_json_add_string(obj,"center","<126.4218, 125.6846, 39.70211>");
   helper_json_add_string(obj,"at_axis","<0.4857194, 0.8467544, -0.2169876>");
   helper_json_add_string(obj,"left_axis","<-0.8674213, 0.4975745, 0>");
   helper_json_add_string(obj,"up_axis","<0.1079675, 0.1882197, 0.9761744>");

@@ -1349,6 +1349,7 @@ void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
 
 void user_complete_teleport(struct teleport_desc* tp) {
   if(tp->ctx != NULL) {
+    printf("DEBUG: completing teleport\n");
     tp->ctx->flags |= AGENT_FLAG_TELEPORT_COMPLETE;
     user_send_teleport_complete(tp->ctx, tp);
   }
@@ -1556,8 +1557,10 @@ void user_session_close(user_ctx* ctx) {
   if(ctx->av != NULL) {
     // FIXME - code duplication
     world_remove_obj(ctx->sim, &ctx->av->ob);
-    sim->gridh.user_logoff(sim, ctx->user_id,
-			   &ctx->av->ob.pos, &ctx->av->ob.pos);
+    if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
+      sim->gridh.user_logoff(sim, ctx->user_id,
+			     &ctx->av->ob.pos, &ctx->av->ob.pos);
+    }
     free(ctx->av); ctx->av = NULL;
   }
   ctx->flags |= AGENT_FLAG_PURGE;
