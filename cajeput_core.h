@@ -270,8 +270,8 @@ struct wearable_desc {
   uuid_t asset_id, item_id;
 };
 
-// again, you don't free this
-wearable_desc* user_get_wearables(struct user_ctx* ctx);
+// again, you don't free or modify this
+const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
@@ -336,6 +336,11 @@ struct teleport_desc {
 void user_teleport_failed(struct teleport_desc* tp, const char* reason);
 void user_teleport_progress(struct teleport_desc* tp, const char* msg);
 void user_complete_teleport(struct teleport_desc* tp);		    
+
+// FIXME - HACK
+void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
+				  uint32_t sim_ip, uint16_t sim_port,
+				  const char* seed_cap);
 
 // ----- MISC STUFF ---------
 

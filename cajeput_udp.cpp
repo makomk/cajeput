@@ -531,23 +531,6 @@ void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t
 }
 
 
-// ah, SL and its random endianness
-static sl_llsd* helper_u64_to_llsd(uint64_t val) {
-  unsigned char rawmsg[8];
-  rawmsg[7] = val&0xff; rawmsg[6] = val >> 8; 
-  rawmsg[5] = val >> 16; rawmsg[4] = val >> 24;
-  rawmsg[3] = val >> 32; rawmsg[2] = val >> 40;
-  rawmsg[1] = val >> 48; rawmsg[0] = val >> 56;
-  return llsd_new_binary(rawmsg, 8);
-}
-
-static sl_llsd* helper_u32_to_llsd(uint64_t val) {
-  unsigned char rawmsg[4];
-  rawmsg[3] = val&0xff; rawmsg[2] = val >> 8; 
-  rawmsg[1] = val >> 16; rawmsg[0] = val >> 24;
-  return llsd_new_binary(rawmsg, 4);
-}
-
 void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
   sl_llsd *msg = llsd_new_map();
   sl_llsd *info = llsd_new_map();
@@ -556,10 +539,10 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
   llsd_map_append(info, "LocationID", llsd_new_int(4)); // ???!! FIXME ???
   llsd_map_append(info, "SimIP", llsd_new_binary(&tp->sim_ip,4)); // big-endian?
   llsd_map_append(info, "SimPort", llsd_new_int(tp->sim_port));
-  llsd_map_append(info, "RegionHandle", helper_u64_to_llsd(tp->region_handle));
+  llsd_map_append(info, "RegionHandle", llsd_new_from_u64(tp->region_handle));
   llsd_map_append(info, "SeedCapability", llsd_new_string(tp->seed_cap));
   llsd_map_append(info, "SimAccess", llsd_new_int(13)); // ????!! FIXME!
-  llsd_map_append(info, "TeleportFlags", helper_u32_to_llsd(tp->flags));
+  llsd_map_append(info, "TeleportFlags", llsd_new_from_u32(tp->flags));
 
   sl_llsd *array = llsd_new_array();
   llsd_array_append(array, info);

@@ -24,6 +24,7 @@
 #define SL_LLSD_H
 #include "sl_types.h"
 #include <uuid/uuid.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,6 +90,8 @@ sl_llsd* llsd_new_int( int i);
 void llsd_array_append(sl_llsd *arr, sl_llsd *it);
 void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it);
 
+  sl_llsd* llsd_new_from_u64(uint64_t val);
+  sl_llsd* llsd_new_from_u32(uint32_t val);
 
 #define LLSD_IS(llsd, typ) ((llsd) != NULL && (llsd)->type_id == typ)
 

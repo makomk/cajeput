@@ -425,3 +425,20 @@ sl_llsd* llsd_new() {
   llsd->type_id = LLSD_UNDEF;
   return llsd;
 }
+
+// ah, SL and its random endianness
+sl_llsd* llsd_new_from_u64(uint64_t val) {
+  unsigned char rawmsg[8];
+  rawmsg[7] = val&0xff; rawmsg[6] = val >> 8; 
+  rawmsg[5] = val >> 16; rawmsg[4] = val >> 24;
+  rawmsg[3] = val >> 32; rawmsg[2] = val >> 40;
+  rawmsg[1] = val >> 48; rawmsg[0] = val >> 56;
+  return llsd_new_binary(rawmsg, 8);
+}
+
+sl_llsd* llsd_new_from_u32(uint32_t val) {
+  unsigned char rawmsg[4];
+  rawmsg[3] = val&0xff; rawmsg[2] = val >> 8; 
+  rawmsg[1] = val >> 16; rawmsg[0] = val >> 24;
+  return llsd_new_binary(rawmsg, 4);
+}

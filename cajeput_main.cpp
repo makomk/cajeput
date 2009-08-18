@@ -1180,7 +1180,7 @@ const sl_string* user_get_visual_params(struct user_ctx *user) {
   return &user->visual_params;
 }
 
-wearable_desc* user_get_wearables(struct user_ctx* user) {
+const wearable_desc* user_get_wearables(struct user_ctx* user) {
   return user->wearables;
 }
 
@@ -1341,6 +1341,7 @@ void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
   del_teleport_desc(tp);
 }
 
+// In theory, we can send arbitrary strings, but that seems to be bugged.
 void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
   if(tp->ctx != NULL) 
     user_send_teleport_progress(tp->ctx, msg, tp->flags);
@@ -1348,6 +1349,7 @@ void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
 
 void user_complete_teleport(struct teleport_desc* tp) {
   if(tp->ctx != NULL) {
+    tp->ctx->flags |= AGENT_FLAG_TELEPORT_COMPLETE;
     user_send_teleport_complete(tp->ctx, tp);
   }
   del_teleport_desc(tp);
@@ -1375,6 +1377,25 @@ void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {
     desc->flags = TELEPORT_TO_LOCATION;
     user_teleport_failed(desc,"FIXME: teleport to landmark not supported");
   }
+}
+
+// FIXME - HACK
+void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
+				  uint32_t sim_ip, uint16_t sim_port,
+				  const char* seed_cap) {
+  // FIXME - need to move this into general EnableSimulator handling once
+  // we have such a thing.
+  sl_llsd *body = llsd_new_map();
+  sl_llsd *sims = llsd_new_array();
+  sl_llsd *info = llsd_new_map();
+
+  llsd_map_append(info, "IP", llsd_new_binary(&sim_ip,4)); // big-endian?
+  llsd_map_append(info, "Port", llsd_new_int(sim_port));
+  llsd_map_append(info, "Handle", llsd_new_from_u64(region));
+
+  llsd_array_append(sims, info);
+  llsd_map_append(body,"SimulatorInfo",sims);
+  user_event_queue_send(ctx,"EnableSimulator",body);
 }
 
 static void debug_prepare_new_user(struct sim_new_user *uinfo) {
@@ -1480,7 +1501,7 @@ static void user_remove_int(user_ctx **user) {
   simulator_ctx *sim = ctx->sim;
   if(ctx->av != NULL) {
     world_remove_obj(ctx->sim, &ctx->av->ob);
-    if(!(ctx->flags & AGENT_FLAG_CHILD)) {
+    if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       sim->gridh.user_logoff(sim, ctx->user_id,
 			     &ctx->av->ob.pos, &ctx->av->ob.pos);
     }

@@ -606,7 +606,7 @@ void pretty_print_json(JsonNode *node) {
   g_free(data);
 }
 
-static int helper_json_to_boolean(JsonObject *obj, const char* key, int *val) {
+static int helper_json_get_boolean(JsonObject *obj, const char* key, int *val) {
   JsonNode *node = json_object_get_member(obj, key);
   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
     return -1;
@@ -614,7 +614,17 @@ static int helper_json_to_boolean(JsonObject *obj, const char* key, int *val) {
   return 0;
 }
 
-static int helper_json_to_uuid(JsonObject *obj, const char* key, uuid_t uuid) {
+static int helper_json_to_uuid(JsonNode *node, uuid_t uuid) {
+  const char* str;
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+    return -1;
+  str = json_node_get_string(node);
+  if(str == NULL) return -1;
+  return uuid_parse(str, uuid);
+}
+
+// FIXME - use helper_json_to_uuid
+static int helper_json_get_uuid(JsonObject *obj, const char* key, uuid_t uuid) {
   const char* str;
   JsonNode *node = json_object_get_member(obj, key);
   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
@@ -624,14 +634,14 @@ static int helper_json_to_uuid(JsonObject *obj, const char* key, uuid_t uuid) {
   return uuid_parse(str, uuid);
 }
 
-static const char* helper_json_to_string(JsonObject *obj, const char* key) {
+static const char* helper_json_get_string(JsonObject *obj, const char* key) {
   JsonNode *node = json_object_get_member(obj, key);
   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
     return NULL;
   return json_node_get_string(node);
 }
 
-static unsigned char* helper_json_to_bin(JsonNode *node, int *len_out) {
+static unsigned char* helper_json_get_bin(JsonNode *node, int *len_out) {
   JsonArray *arr; unsigned char* buf; int len;
   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
     return NULL;
@@ -665,33 +675,33 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   struct sim_new_user uinfo;
  
   soup_server_unpause_message(st->server,st->msg);
-  if(helper_json_to_uuid(object, "agent_id", uinfo.user_id)) {
+  if(helper_json_get_uuid(object, "agent_id", uinfo.user_id)) {
     printf("DEBUG agent POST: couldn't get agent_id\n");
     is_ok = 0; goto out;
   }
-  if(helper_json_to_uuid(object, "session_id", uinfo.session_id)) {
+  if(helper_json_get_uuid(object, "session_id", uinfo.session_id)) {
     printf("DEBUG agent POST: couldn't get session_id\n");
     is_ok = 0; goto out;
   }
-  if(helper_json_to_uuid(object, "secure_session_id", uinfo.secure_session_id)) {
+  if(helper_json_get_uuid(object, "secure_session_id", uinfo.secure_session_id)) {
     printf("DEBUG agent POST: couldn't get secure_session_id\n");
     is_ok = 0; goto out;
   }
   // HACK
-  uinfo.first_name = (char*)helper_json_to_string(object, "first_name");
-  uinfo.last_name = (char*)helper_json_to_string(object, "last_name");
+  uinfo.first_name = (char*)helper_json_get_string(object, "first_name");
+  uinfo.last_name = (char*)helper_json_get_string(object, "last_name");
   if(uinfo.first_name == NULL || uinfo.last_name == NULL) {
     printf("DEBUG agent POST: couldn't get user name\n");
     is_ok = 0; goto out;
   }
-  caps_path = (char*)helper_json_to_string(object, "caps_path");
-  s = (char*)helper_json_to_string(object, "circuit_code");
+  caps_path = (char*)helper_json_get_string(object, "caps_path");
+  s = (char*)helper_json_get_string(object, "circuit_code");
   if(caps_path == NULL || s == NULL) {
     printf("DEBUG agent POST: caps path or circuit_code missing\n");
     is_ok = 0; goto out;
   }
   uinfo.circuit_code = atol(s);
-  if(helper_json_to_boolean(object, "child", &is_child)) {
+  if(helper_json_get_boolean(object, "child", &is_child)) {
     printf("DEBUG agent POST: \"child\" attribute missing\n");
     is_ok = 0; goto out;    
   }
@@ -724,8 +734,8 @@ static void agent_POST_handler(SoupServer *server,
     goto out_fail;
   }
   object = json_node_get_object(node);
-  agent_id_st = helper_json_to_string(object, "agent_id");
-  session_id_st = helper_json_to_string(object,"session_id");
+  agent_id_st = helper_json_get_string(object, "agent_id");
+  session_id_st = helper_json_get_string(object,"session_id");
   if(agent_id_st == NULL || session_id_st == NULL) {
     printf("Missing agent or session id from agent REST POST\n");
     goto out_fail;
@@ -756,6 +766,27 @@ static void agent_POST_handler(SoupServer *server,
 			    "false",5);  
 }
 
+static void set_wearables_from_json(user_ctx *user, JsonNode *node) {
+  JsonArray *arr; int len;
+   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
+     return;
+   arr = json_node_get_array(node);
+   if(arr == NULL) return;
+   len = json_array_get_length(arr);
+
+   for(int i = 0; i+1 < len; i += 2) {
+     uuid_t item_id, asset_id;
+     if(helper_json_to_uuid(json_array_get_element(arr, i), item_id) ||
+	helper_json_to_uuid(json_array_get_element(arr, i+1), asset_id)) {
+       printf("ERROR: failed to extract wearable %i from JSON\n",i/2);
+     } else {
+       user_set_wearable(user, i/2, item_id, asset_id);
+     }
+   }
+
+   printf("DEBUG: set wearables from JSON\n");
+}
+
 static void agent_PUT_handler(SoupServer *server,
 			      SoupMessage *msg,
 			      uuid_t agent_id,
@@ -778,17 +809,17 @@ static void agent_PUT_handler(SoupServer *server,
   // FIXME - need to actually update the agent
   struct sim_new_user uinfo;
  
-  if(helper_json_to_uuid(object, "agent_uuid", user_id)) {
+  if(helper_json_get_uuid(object, "agent_uuid", user_id)) {
     printf("DEBUG agent PUT: couldn't get agent_id\n");
     is_ok = 0; goto out_fail;
   }
 #if 0 /* not meaningful - just get zero UUID */
-  if(helper_json_to_uuid(object, "session_uuid", session_id)) {
+  if(helper_json_get_uuid(object, "session_uuid", session_id)) {
     printf("DEBUG agent PUT: couldn't get session_id\n");
     is_ok = 0; goto out_fail;
   }
 #endif
-  msg_type = helper_json_to_string(object,"message_type");
+  msg_type = helper_json_get_string(object,"message_type");
   if(msg_type == NULL) msg_type = "AgentData";
  
   //user = user_find_session(sim, user_id, session_id);
@@ -814,7 +845,7 @@ static void agent_PUT_handler(SoupServer *server,
     user_set_flag(user, AGENT_FLAG_INCOMING);
 
     free(user_glue->enter_callback_uri);
-    callback_uri = helper_json_to_string(object,"callback_uri");
+    callback_uri = helper_json_get_string(object,"callback_uri");
     if(callback_uri != NULL && callback_uri[0] != 0) {
       user_glue->enter_callback_uri = strdup(callback_uri);
     } else {
@@ -824,7 +855,7 @@ static void agent_PUT_handler(SoupServer *server,
     node = json_object_get_member(object,"throttles");
     if(node != NULL) {
       int len; unsigned char* buf;
-      buf = helper_json_to_bin(node, &len);
+      buf = helper_json_get_bin(node, &len);
       if(buf == NULL) {
 	printf("DEBUG: agent PUT had bad throttle data");
 	goto out_fail;
@@ -836,7 +867,7 @@ static void agent_PUT_handler(SoupServer *server,
     node = json_object_get_member(object,"texture_entry");
     if(node != NULL) {
       struct sl_string buf;
-      buf.data = helper_json_to_bin(node, &buf.len);
+      buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
 	printf("DEBUG: agent PUT had bad texture_entry data\n");
 	goto out_fail;
@@ -848,7 +879,7 @@ static void agent_PUT_handler(SoupServer *server,
     node = json_object_get_member(object,"visual_params");
     if(node != NULL) {
       struct sl_string buf;
-      buf.data = helper_json_to_bin(node, &buf.len);
+      buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
 	printf("DEBUG: agent PUT had bad visual_params data\n");
 	goto out_fail;
@@ -859,7 +890,12 @@ static void agent_PUT_handler(SoupServer *server,
 
     // FIXME - need to handle serial
 
-    // FIXME - TODO: wearables, pos, etc...
+    node = json_object_get_member(object,"wearables");
+    if(node != NULL) {
+      set_wearables_from_json(user, node);
+    }
+
+    // FIXME - TODO: pos, etc...
     
   } else {
     printf("DEBUG: agent PUT with unknown type %s\n",msg_type);
@@ -910,6 +946,45 @@ static void agent_DELETE_handler(SoupServer *server,
 
 }
 #endif
+
+static void agent_DELETE_release_handler(SoupServer *server,
+					 SoupMessage *msg,
+					 uuid_t agent_id,
+					 JsonParser *parser,
+					 struct simulator_ctx* sim) {
+  JsonNode * node = json_parser_get_root(parser);
+  JsonObject *object; user_ctx *user;
+  user_grid_glue *user_glue;
+  int is_ok = 1;
+
+  user = user_find_ctx(sim, agent_id);
+  if(user == NULL) {
+    printf("ERROR: DELETE release for unknown agent\n");
+    soup_message_set_status(msg, 404); // FIXME - wrong?
+    is_ok = 0; return;
+  }
+
+  // FIXME - is this used for child agents too?
+  if(user_get_flags(user) & AGENT_FLAG_TELEPORT_COMPLETE) {
+    printf("DEBUG: releasing teleported user\n");
+    user_session_close(user); // FIXME - speed this up?
+  } else {
+    printf("ERROR: DELETE release for non-teleporting agent\n");
+    is_ok = 0; goto out;
+  }
+
+ out: // FIXME - correct return?
+  soup_message_set_status(msg,200); // FIXME - application/json?
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    is_ok?"true":"false", is_ok?4:5);  
+  return;
+ out_fail:
+  soup_message_set_status(msg,400);
+  soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
+			    "false",5);  
+
+}
+
 
 static void agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
@@ -988,6 +1063,10 @@ static void agent_rest_handler(SoupServer *server,
   } else if(msg->method == SOUP_METHOD_PUT && region_handle == 0
      && cmd == NULL) {
     agent_PUT_handler(server, msg, agent_id, parser, sim);
+  } else if(msg->method == SOUP_METHOD_DELETE && cmd != NULL &&
+	    (strcmp(cmd,"release/") == 0 || strcmp(cmd,"release") == 0)) {
+    // FIXME - check region ID in URL
+    agent_DELETE_release_handler(server, msg, agent_id, parser, sim);
   } /* else if(msg->method == SOUP_METHOD_DELETE && region_handle == 0
      && cmd == NULL) {
     agent_DELETE_handler(server, msg, agent_id, sim);
@@ -1490,13 +1569,13 @@ int helper_parse_json_resp(JsonParser *parser, const char* data, gsize len, cons
   }
   object = json_node_get_object(node);
   
-  if(helper_json_to_boolean(object,"success",&success)) {
+  if(helper_json_get_boolean(object,"success",&success)) {
     printf("parse json resp: couldn't get success boolean!\n");
     *reason_out = "[LOCAL] bad json response";
     return false;    
   }
   
-  *reason_out = helper_json_to_string(object,"reason");
+  *reason_out = helper_json_get_string(object,"reason");
   if(*reason_out == NULL) *reason_out = "[reason missing from response]";
   return success;
 }
@@ -1561,6 +1640,30 @@ static JsonNode* jsonise_throttles(user_ctx* ctx) {
   return jsonise_blob(data, SL_NUM_THROTTLES*4);
 }
 
+static JsonNode* jsonise_wearables(user_ctx* ctx) {
+  JsonArray *arr = json_array_new();
+  JsonNode *node;
+  const wearable_desc* wearables = user_get_wearables(ctx);
+  char buf[40];
+
+  for(int i = 0; i < SL_NUM_WEARABLES; i++) {
+    // item id, then asset id
+    node = json_node_new(JSON_NODE_VALUE);
+    uuid_unparse(wearables[i].item_id, buf);
+    json_node_set_string(node, buf);
+    json_array_add_element(arr, node);
+
+    node = json_node_new(JSON_NODE_VALUE);
+    uuid_unparse(wearables[i].asset_id, buf);
+    json_node_set_string(node, buf);
+    json_array_add_element(arr, node);
+  }  
+
+  node = json_node_new(JSON_NODE_ARRAY);
+  json_node_take_array(node, arr);
+  return node;  
+}
+
 static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 				  os_teleport_desc *tp_priv) {
   JsonGenerator* gen;
@@ -1571,7 +1674,8 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   uint64_t our_region_handle = sim_get_region_handle(sim);
   const sl_string *pstr;
 
-  user_teleport_progress(tp,"Upgrading child agent to full agent");
+  //user_teleport_progress(tp,"Upgrading child agent to full agent");
+  user_teleport_progress(tp,"sending_dest"); // FIXME - ????
   
   // Now, we upgrade the child agent to a fully-fledged agent
 
@@ -1580,13 +1684,17 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_string(obj, "message_type", "AgentData");
   sprintf(buf, "%llu", our_region_handle); // yes, *our* region handle!
   helper_json_add_string(obj, "region_handle", buf);
-  helper_json_add_string(obj, "circuit_code", "0"); // not used
+
+  // OpenSim sets this to 0 itself, but doing that seems to break teleports
+  // for us. I have a nasty feeling that's the *real* reason the viewer has
+  // to connect as a child agent first, actually...x
+  //helper_json_add_string(obj, "circuit_code", "0"); // not used
 
   user_get_uuid(tp->ctx, agent_id);
-  helper_json_add_uuid(obj, "agent_id", agent_id);
+  helper_json_add_uuid(obj, "agent_uuid", agent_id);
 
   uuid_clear(u); // also not used
-  helper_json_add_uuid(obj, "session_id", u);
+  helper_json_add_uuid(obj, "session_uuid", u);
 
   // FIXME - actually fill these in
   helper_json_add_string(obj,"position","<128, 128, 1.5>");
@@ -1620,7 +1728,9 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   pstr = user_get_visual_params(tp->ctx);
   json_object_add_member(obj, "visual_params",
 			 jsonise_blob(pstr->data, pstr->len));
-  // FIXME - TODO wearables
+
+  // FIXME - get wearables to *actually* work right
+  json_object_add_member(obj, "wearables",jsonise_wearables(tp->ctx));
 
   sprintf(buf,"%llu",tp->region_handle);
   helper_json_add_string(obj,"destination_handle",buf);
@@ -1636,7 +1746,6 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
     printf("DEBUG: sending \"%s\" as callback URI\n", callback_uri);
     helper_json_add_string(obj,"callback_uri",callback_uri);
   }
-  // FIXME - actually implement callback URI
 
   gen = json_generator_new();
   node = json_node_new(JSON_NODE_OBJECT);
@@ -1645,6 +1754,8 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   jbuf = json_generator_to_data(gen, &len);
   json_node_free(node);
   g_object_unref(gen);
+
+  printf("DEBUG: sending agent PUT ~%s~\n", jbuf);
 
   uuid_unparse(agent_id,buf);
   snprintf(uri, 256, "http://%s:%i/agent/%s/",tp_priv->sim_ip,
@@ -1676,6 +1787,16 @@ static void do_teleport_send_agent_resp(SoupSession *session, SoupMessage *msg, 
     int success = helper_parse_json_resp(parser, msg->response_body->data,
 					 msg->response_body->length, &reason);
     if(success) {
+      // FIXME - code duplication with seed cap
+      int seed_len = strlen(tp_priv->sim_ip)+70;
+      char *seed_cap = (char*)malloc(seed_len);
+      snprintf(seed_cap, seed_len, "http://%s:%i/CAPS/%s0000/", 
+	       tp_priv->sim_ip, tp_priv->sim_port, tp_priv->caps_path);
+
+      user_teleport_add_temp_child(tp_priv->tp->ctx,tp_priv->tp->region_handle,
+				   tp_priv->tp->sim_ip, tp_priv->tp->sim_port,
+				   seed_cap);
+      free(seed_cap);
       //os_teleport_failed(tp_priv,"It's the hippos, honest");
       do_teleport_put_agent(tp_priv->our_sim, tp_priv->tp, tp_priv);
     } else {
@@ -1696,7 +1817,8 @@ static void do_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
   char buf[40]; gchar *jbuf; gsize len;
   char uri[256]; // FIXME
 
-  user_teleport_progress(tp,"Adding child agent to destination");
+  //user_teleport_progress(tp,"Adding child agent to destination");
+  user_teleport_progress(tp,"sending_dest"); // FIXME - is this right?
   
   // First, we add a new child agent to the destination...
 
@@ -1814,7 +1936,7 @@ static void do_teleport(struct simulator_ctx* sim, struct teleport_desc* tp) {
   GRID_PRIV_DEF(sim);
  
   // FIXME - handle teleport via region ID
-  user_teleport_progress(tp, "Requesting destination region info");
+  user_teleport_progress(tp, "resolving");
   req_region_info(sim, tp->region_handle, do_teleport_rinfo_cb, tp);
 }
 
