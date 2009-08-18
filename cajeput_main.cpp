@@ -1512,7 +1512,9 @@ static void user_remove_int(user_ctx **user) {
   printf("Removing user %s %s\n", ctx->first_name, ctx->last_name);
 
   // If we're logging out, sending DisableSimulator causes issues
-  if(ctx->addr.sin_port != 0 && !(ctx->flags & AGENT_FLAG_IN_LOGOUT)) {
+  // HACK - also, for now teleports are also problematic - FIXME
+  if(ctx->addr.sin_port != 0 && !(ctx->flags & (AGENT_FLAG_IN_LOGOUT|
+						AGENT_FLAG_TELEPORT_COMPLETE))) {
     SL_DECLMSG(DisableSimulator, quit);
     sl_send_udp(ctx, &quit);
   } 

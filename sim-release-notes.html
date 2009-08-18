@@ -8,7 +8,7 @@
 
 <h2>Currently supported:</h2>
 <ul>
-  <li>Teleports into the region (mostly)</li>
+  <li>Teleports into the region (mostly), and even out (occasionally)</li>
   <li>Logging into the region directly (again, mostly)</li>
   <li>Logging out cleanly</li>
   <li>Chat</li>
@@ -16,6 +16,9 @@
 </ul>
 <h2>Still to do</h2>
 <ul>
+  <li>Fix teleport out. Various bits are unfinished, and I think it may <em>still</em> rnadomly log you out.</li>
+  <li>For some reason, if you teleport into Cajeput from an OpenSim region and then back to the original region, the original OpenSim region does a RequestTeleportToLocation back into the Cajeput region - which breaks the viewer! This may be an OpenSim or viewer issue, though - similar issues with rapid teleports between OpenSim regions</li>
+  <li>Teleport home/to landmark/to same region</li>
   <li>Prim creation and deletion</li>
   <li>Inventory</li>
   <li>Debug texture downloads</li>

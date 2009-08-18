@@ -667,12 +667,61 @@ struct agent_POST_state {
   struct simulator_ctx* sim;
 };
 
+// FIXME - call this in login
+static void add_child_cap(user_ctx *user, uint64_t region_handle, 
+			  const char* seed_path) {
+  USER_PRIV_DEF2(user);
+  user_glue->child_seeds[region_handle] = std::string(seed_path);
+}
+
+static char* make_child_cap(user_ctx *user, uint64_t region_handle) {
+  USER_PRIV_DEF2(user);
+  std::map<uint64_t,std::string>::iterator iter = 
+    user_glue->child_seeds.find(region_handle);
+  if(iter == user_glue->child_seeds.end()) {
+    uuid_t u; char* ret;
+    uuid_generate(u);
+    ret = (char*)malloc(40);
+    uuid_unparse(u, ret);
+    user_glue->child_seeds[region_handle] = std::string(ret);
+    return ret;
+  } else {
+    return strdup(iter->second.c_str());
+  }
+}
+
+static void fill_in_child_caps(user_ctx *user, JsonNode *node) {
+  USER_PRIV_DEF2(user);
+  assert(user_glue != NULL);
+  if(node == NULL|| JSON_NODE_TYPE(node) != JSON_NODE_ARRAY) 
+    return;
+  JsonArray *arr = json_node_get_array(node);
+
+  int len = json_array_get_length(arr);
+  for(int i = 0; i < len; i++) {
+    JsonNode* item = json_array_get_element(arr,i);
+    if(item == NULL || JSON_NODE_TYPE(item) != JSON_NODE_OBJECT) {
+      printf("ERROR: Child cap item not object\n"); continue;
+    }
+    JsonObject* obj = json_node_get_object(item);
+    const char *handle = helper_json_get_string(obj,"handle");
+    const char *seed = helper_json_get_string(obj,"seed");
+    if(handle == NULL || seed == NULL) {
+      printf("ERROR: Child cap item bad\n"); continue;
+    }
+    uint64_t region_handle = atoll(handle);
+    user_glue->child_seeds[region_handle] = std::string(seed);
+    printf(" DEBUG:  filled in child cap %s: %s\n", handle, seed);
+  }
+}
+
 static void agent_POST_stage2(void *priv, int is_ok) {
   int is_child = 0;
   char seed_cap[50]; const char *caps_path, *s;
   agent_POST_state* st = (agent_POST_state*)priv;
   JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
   struct sim_new_user uinfo;
+  user_ctx *user;
  
   soup_server_unpause_message(st->server,st->msg);
   if(helper_json_get_uuid(object, "agent_id", uinfo.user_id)) {
@@ -710,7 +759,12 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
   uinfo.is_child = 1;
-  sim_prepare_new_user(st->sim, &uinfo);
+  user = sim_prepare_new_user(st->sim, &uinfo);
+
+  if(user != NULL) {
+    fill_in_child_caps(user, json_object_get_member(object,"children_seeds"));
+    add_child_cap(user, sim_get_region_handle(st->sim), caps_path);
+  }
 
  out:
   soup_message_set_status(st->msg,200); // FIXME - application/json?
@@ -807,7 +861,7 @@ static void agent_PUT_handler(SoupServer *server,
   object = json_node_get_object(node);
 
   // FIXME - need to actually update the agent
-  struct sim_new_user uinfo;
+  // struct sim_new_user uinfo;
  
   if(helper_json_get_uuid(object, "agent_uuid", user_id)) {
     printf("DEBUG agent PUT: couldn't get agent_id\n");
@@ -1844,11 +1898,11 @@ static void do_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_string(obj,"destination_handle",buf);
   helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
 
-  // FIXME - need to reuse existing caps?
-  uuid_generate(u);
-  tp_priv->caps_path = (char*)malloc(40);
-  uuid_unparse(u,tp_priv->caps_path);
+  // FIXME - do we really need to reuse existing caps?
+  tp_priv->caps_path = make_child_cap(tp->ctx, tp->region_handle);
   helper_json_add_string(obj,"caps_path",tp_priv->caps_path);
+
+  // FIXME - send existing child caps to destination!
   
   // FIXME - fill these out properly? (were zero in the dump I saw)
   uuid_clear(u);
