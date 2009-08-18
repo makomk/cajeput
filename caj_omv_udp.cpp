@@ -24,10 +24,9 @@
 #include "sl_udp_proto.h"
 //#include "sl_llsd.h"
 #include "cajeput_core.h"
-#include "cajeput_udp.h"
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
-#include "cajeput_lluser.h"
+#include "caj_omv.h"
 #include "terrain_compress.h"
 #include <stdlib.h>
 #include <cassert>
@@ -36,7 +35,7 @@
 
 
 // FIXME - resend lost packets
-void sl_send_udp_throt(struct lluser_ctx* lctx, struct sl_message* msg, int throt_id) {
+void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int throt_id) {
   // sends packet and updates throttle, but doesn't queue
   unsigned char buf[BUF_SIZE]; int len, ret;
   msg->seqno = lctx->counter++;
@@ -56,13 +55,13 @@ void sl_send_udp_throt(struct lluser_ctx* lctx, struct sl_message* msg, int thro
   sl_free_msg(msg);
 }
 
-void sl_send_udp(struct lluser_ctx* lctx, struct sl_message* msg) {
+void sl_send_udp(struct omuser_ctx* lctx, struct sl_message* msg) {
   sl_send_udp_throt(lctx, msg, -1);
 }
 
 // FIXME - split acks across multiple packets if necessary
-static void send_pending_acks(struct lluser_sim_ctx *sim) {
-  struct lluser_ctx* lctx;
+static void send_pending_acks(struct omuser_sim_ctx *sim) {
+  struct omuser_ctx* lctx;
   for(lctx = sim->ctxts; lctx != NULL; lctx = lctx->next) {
     if(lctx->pending_acks.begin() == lctx->pending_acks.end()) 
       continue;
@@ -133,7 +132,7 @@ static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
 #define AGENT_CONTROL_UP_NEG (1<<5)
 #define AGENT_CONTROL_FLY (1<<13)
 
-static void handle_AgentUpdate_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentUpdate, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   user_ctx *ctx = lctx->u;
@@ -187,7 +186,7 @@ static void handle_AgentUpdate_msg(struct lluser_ctx* lctx, struct sl_message* m
   }
 }
 
-static void handle_AgentAnimation_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentAnimation_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentAnimation, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   // sl_dump_packet(msg); // FIXME - TODO
@@ -213,7 +212,7 @@ static void handle_AgentAnimation_msg(struct lluser_ctx* lctx, struct sl_message
   lctx->u->flags |= AGENT_FLAG_ANIM_UPDATE;
 }
 
-static void handle_StartPingCheck_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_StartPingCheck_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(StartPingCheck, PingID, ping, msg);
   if(ping == NULL) return;
   SL_DECLMSG(CompletePingCheck, pong);
@@ -223,7 +222,7 @@ static void handle_StartPingCheck_msg(struct lluser_ctx* lctx, struct sl_message
 }
 
 static void chat_callback(void *user_priv, const struct chat_message *msg) {
-  lluser_ctx* lctx = (lluser_ctx*)user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(ChatFromSimulator, chat);
   SL_DECLBLK(ChatFromSimulator, ChatData, cdata, &chat);
   sl_string_set(&cdata->FromName, msg->name);
@@ -236,7 +235,7 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
   sl_send_udp(lctx, &chat);
 }
 
-static void handle_ChatFromViewer_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_ChatFromViewer_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ChatFromViewer, AgentData, ad, msg);
   SL_DECLBLK_GET1(ChatFromViewer, ChatData, cdata, msg);
   struct chat_message chat;
@@ -260,7 +259,7 @@ static void handle_ChatFromViewer_msg(struct lluser_ctx* lctx, struct sl_message
   }
 }
 
-static void handle_MapLayerRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_MapLayerRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(MapLayerRequest, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   
@@ -276,9 +275,9 @@ static void handle_MapLayerRequest_msg(struct lluser_ctx* lctx, struct sl_messag
   sl_send_udp(lctx, &reply);
 }
 
-// FIXME - we assume lluser_ctx lifetime tied to user_ctx lifetime
+// FIXME - we assume omuser_ctx lifetime tied to user_ctx lifetime
 struct map_block_req_priv {
-  lluser_ctx *lctx;
+  omuser_ctx *lctx;
   user_ctx *ctx;
   uint32_t flags;
 };
@@ -321,7 +320,7 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
   delete req;
 }
 
-static void handle_MapBlockRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_MapBlockRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(MapBlockRequest, AgentData, ad, msg);
   SL_DECLBLK_GET1(MapBlockRequest, PositionData, pos, msg);
   if(ad == NULL || pos == NULL || VALIDATE_SESSION(ad)) return;
@@ -336,7 +335,7 @@ static void handle_MapBlockRequest_msg(struct lluser_ctx* lctx, struct sl_messag
   // FIXME - TODO
 }
 
-static void send_agent_wearables(struct lluser_ctx* lctx) {
+static void send_agent_wearables(struct omuser_ctx* lctx) {
   user_ctx *ctx = lctx->u;
   SL_DECLMSG(AgentWearablesUpdate, upd);
   SL_DECLBLK(AgentWearablesUpdate, AgentData, ad, &upd);
@@ -357,14 +356,14 @@ static void send_agent_wearables(struct lluser_ctx* lctx) {
   sl_send_udp(lctx, &upd);
 }
 
-static void handle_AgentWearablesRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentWearablesRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentWearablesRequest, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
   send_agent_wearables(lctx);
 }
 
-static void handle_AgentSetAppearance_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   sl_string str; user_ctx* ctx = lctx->u;
   SL_DECLBLK_GET1(AgentSetAppearance, AgentData, ad, msg);
   SL_DECLBLK_GET1(AgentSetAppearance, ObjectData, objd, msg);
@@ -396,7 +395,7 @@ static void handle_AgentSetAppearance_msg(struct lluser_ctx* lctx, struct sl_mes
   printf("DEBUG: Completed AgentSetAppearance\n");
 }
 
-static void send_agent_data_update(struct lluser_ctx* lctx) {
+static void send_agent_data_update(struct omuser_ctx* lctx) {
   user_ctx* ctx = lctx->u;
   SL_DECLMSG(AgentDataUpdate,upd);
   SL_DECLBLK(AgentDataUpdate, AgentData, ad, &upd);
@@ -411,14 +410,14 @@ static void send_agent_data_update(struct lluser_ctx* lctx) {
   sl_send_udp(lctx, &upd);
 }
 
-static void handle_AgentDataUpdateRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentDataUpdateRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentDataUpdateRequest, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
   send_agent_data_update(lctx);
 }
 
-static void handle_RegionHandshakeReply_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_RegionHandshakeReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RegionHandshakeReply, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
@@ -426,11 +425,11 @@ static void handle_RegionHandshakeReply_msg(struct lluser_ctx* lctx, struct sl_m
   // FIXME - should we do something with RegionInfo.Flags?
 }
 
-static void handle_PacketAck_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_PacketAck_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   // FIXME FIXME FIXME
 }
 
-static void handle_CompleteAgentMovement_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   user_ctx *ctx = lctx->u;
   SL_DECLBLK_GET1(CompleteAgentMovement, AgentData, ad, msg);
   if(ad == NULL || ad->CircuitCode != ctx->circuit_code || VALIDATE_SESSION(ad)) 
@@ -457,7 +456,7 @@ static void handle_CompleteAgentMovement_msg(struct lluser_ctx* lctx, struct sl_
     user_send_message(ctx, ctx->sim->welcome_message);
 }
 
-static void handle_LogoutRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_LogoutRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(LogoutRequest, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
@@ -473,7 +472,7 @@ static void handle_LogoutRequest_msg(struct lluser_ctx* lctx, struct sl_message*
 }
 
 static void teleport_failed(struct user_ctx* ctx, const char* reason) {
-  lluser_ctx* lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
   SL_DECLMSG(TeleportFailed, fail);
   SL_DECLBLK(TeleportFailed, Info, info, &fail);
   uuid_copy(info->AgentID, ctx->user_id);
@@ -483,7 +482,7 @@ static void teleport_failed(struct user_ctx* ctx, const char* reason) {
 }
 
 static void teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t flags) {
-  lluser_ctx* lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
   SL_DECLMSG(TeleportProgress, prog);
   SL_DECLBLK(TeleportProgress, AgentData, ad, &prog);
   uuid_copy(ad->AgentID, ctx->user_id);
@@ -496,7 +495,7 @@ static void teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t fl
 
 
 static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
-  lluser_ctx* lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
   sl_llsd *msg = llsd_new_map();
   sl_llsd *info = llsd_new_map();
 
@@ -518,7 +517,7 @@ static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
 
 // FIXME - handle TeleportRequest message (by UUID)?
 
-static void handle_TeleportLocationRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_TeleportLocationRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(TeleportLocationRequest, AgentData, ad, msg);
   SL_DECLBLK_GET1(TeleportLocationRequest, Info, info, msg);
   if(ad == NULL || info == NULL || VALIDATE_SESSION(ad)) 
@@ -526,7 +525,7 @@ static void handle_TeleportLocationRequest_msg(struct lluser_ctx* lctx, struct s
   user_teleport_location(lctx->u, info->RegionHandle, &info->Position, &info->LookAt);
 }
 
-static void handle_TeleportLandmarkRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_TeleportLandmarkRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(TeleportLandmarkRequest, Info, info, msg);
   if(info == NULL || VALIDATE_SESSION(info)) 
     return;
@@ -577,7 +576,7 @@ void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 }
 
 
-static void handle_AgentThrottle_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AgentThrottle_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentThrottle, AgentData, ad, msg);
   SL_DECLBLK_GET1(AgentThrottle, Throttle, throt, msg);
   if(ad == NULL || throt == NULL || VALIDATE_SESSION(ad) || 
@@ -610,7 +609,7 @@ static void helper_combine_uuids(uuid_t out, const uuid_t u1, const uuid_t u2) {
 
 // FIXME - need to free old transfers properly
 
-static asset_xfer* init_asset_upload(struct lluser_ctx* lctx, int is_local,
+static asset_xfer* init_asset_upload(struct omuser_ctx* lctx, int is_local,
 				     int asset_type, uuid_t transaction) {
   asset_xfer *xfer = new asset_xfer();
   xfer->local = is_local;
@@ -626,7 +625,7 @@ static asset_xfer* init_asset_upload(struct lluser_ctx* lctx, int is_local,
   return xfer;
 }
 
-static void complete_asset_upload(lluser_ctx* lctx, asset_xfer *xfer,
+static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
 				  int success) {
   lctx->xfers.erase(xfer->id);
   SL_DECLMSG(AssetUploadComplete, complete);
@@ -647,7 +646,7 @@ static void complete_asset_upload(lluser_ctx* lctx, asset_xfer *xfer,
   delete xfer;
 }
 
-static void handle_SendXferPacket_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_SendXferPacket_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   asset_xfer *xfer;
   SL_DECLBLK_GET1(SendXferPacket,XferID,xferid,msg);
   SL_DECLBLK_GET1(SendXferPacket,DataPacket,data,msg);
@@ -715,7 +714,7 @@ static void handle_SendXferPacket_msg(struct lluser_ctx* lctx, struct sl_message
   }
 }
 
-static void handle_AssetUploadRequest_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   asset_xfer *xfer;
   SL_DECLBLK_GET1(AssetUploadRequest,AssetBlock,asset,msg);
   if(asset == NULL) return;
@@ -755,7 +754,7 @@ static void handle_AssetUploadRequest_msg(struct lluser_ctx* lctx, struct sl_mes
 }
 
 // called as part of the user removal process
-static void free_texture_sends(struct lluser_ctx *lctx) {
+static void free_texture_sends(struct omuser_ctx *lctx) {
   for(std::map<obj_uuid_t,image_request*>::iterator iter = 
 	lctx->image_reqs.begin();  iter != lctx->image_reqs.end(); iter++) {
     image_request *req = iter->second;
@@ -769,9 +768,9 @@ static void free_texture_sends(struct lluser_ctx *lctx) {
 int send_err_throt = 0; // HACK
 
 static gboolean texture_send_timer(gpointer data) {
-  struct lluser_sim_ctx* lsim = (lluser_sim_ctx*)data;
+  struct omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
   send_err_throt++;
-  for(lluser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
+  for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
     std::map<obj_uuid_t,image_request*>::iterator req_iter =
       lctx->image_reqs.begin(); // FIXME - do by priority
     user_update_throttles(lctx->u);
@@ -876,7 +875,7 @@ static gboolean texture_send_timer(gpointer data) {
 }
 
 
-static void handle_RequestImage_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RequestImage, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad))
     return;
@@ -934,7 +933,7 @@ static void handle_RequestImage_msg(struct lluser_ctx* lctx, struct sl_message* 
 
 // FIXME - incomplete
 static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
-  lluser_ctx *lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
   avatar_obj* av = av_user->av;
   char name[0x100]; unsigned char obj_data[60];
   SL_DECLMSG(ObjectUpdate,upd);
@@ -999,7 +998,7 @@ static void sl_float_to_int16(unsigned char* out, float val, float range) {
 }
 
 static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
-  lluser_ctx *lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
   unsigned char dat[0x3C];
   SL_DECLMSG(ImprovedTerseObjectUpdate,terse);
   SL_DECLBLK(ImprovedTerseObjectUpdate,RegionData,rd,&terse);
@@ -1051,7 +1050,7 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
 }
 
 static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
-  lluser_ctx *lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
   SL_DECLMSG(AvatarAppearance,aa);
   SL_DECLBLK(AvatarAppearance,Sender,sender,&aa);
   uuid_copy(sender->ID, av_user->user_id);
@@ -1072,7 +1071,7 @@ static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
 }
 
 static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
-  lluser_ctx *lctx = (lluser_ctx*)ctx->user_priv;
+  omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
   SL_DECLMSG(AvatarAnimation,aa);
   SL_DECLBLK(AvatarAnimation,Sender,sender,&aa);
   uuid_copy(sender->ID, av_user->user_id);
@@ -1093,7 +1092,7 @@ static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
 
 // --- START of hacky object update code pt 2. FIXME - remove this ---
 
-static void obj_send_full_upd(lluser_ctx* lctx, world_obj* obj) {
+static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   if(obj->type != OBJ_TYPE_PRIM) return;
   primitive_obj *prim = (primitive_obj*)obj;
   unsigned char obj_data[60];
@@ -1160,8 +1159,8 @@ static void obj_send_full_upd(lluser_ctx* lctx, world_obj* obj) {
 }
 
 static gboolean obj_update_timer(gpointer data) {
-  lluser_sim_ctx* lsim = (lluser_sim_ctx*)data;
-  for(lluser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
+  omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
+  for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
     user_ctx *ctx = lctx->u;
     if((ctx->flags & AGENT_FLAG_RHR) == 0) continue;
     user_update_throttles(ctx);
@@ -1211,13 +1210,13 @@ static gboolean obj_update_timer(gpointer data) {
 
 // -------------------------------------------------------
 
-void register_msg_handler(struct lluser_sim_ctx *lsim, sl_message_tmpl* tmpl, 
+void register_msg_handler(struct omuser_sim_ctx *lsim, sl_message_tmpl* tmpl, 
 			  sl_msg_handler handler){
   lsim->msg_handlers.insert(std::pair<sl_message_tmpl*,sl_msg_handler>(tmpl,handler));
 }
 
 // Handles incoming messages
-static void dispatch_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
+static void dispatch_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   std::pair<msg_handler_map_iter, msg_handler_map_iter> iters =
     lctx->lsim->msg_handlers.equal_range(msg->tmpl);
   for(msg_handler_map_iter iter = iters.first; iter != iters.second; iter++) {
@@ -1232,17 +1231,17 @@ static void dispatch_msg(struct lluser_ctx* lctx, struct sl_message* msg) {
 }
 
 static void disable_sim(void *user_priv) {
-  lluser_ctx* lctx = (lluser_ctx*)user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(DisableSimulator, quit);
   sl_send_udp(lctx, &quit);
 }
 
 static void remove_user(void *user_priv) {
-  lluser_ctx* lctx = (lluser_ctx*)user_priv;
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
 
   free_texture_sends(lctx);
 
-  for(lluser_ctx** luser = &lctx->lsim->ctxts; *luser != NULL; ) {
+  for(omuser_ctx** luser = &lctx->lsim->ctxts; *luser != NULL; ) {
     if(*luser == lctx) {
       *luser = lctx->next; break;
     } else luser = &(*luser)->next;
@@ -1269,7 +1268,7 @@ static user_hooks our_hooks = {
 static gboolean got_packet(GIOChannel *source,
 			   GIOCondition condition,
 			   gpointer data) {
-  struct lluser_sim_ctx* lsim = (struct lluser_sim_ctx*)data;
+  struct omuser_sim_ctx* lsim = (struct omuser_sim_ctx*)data;
   struct sockaddr_in addr;
   int ret; socklen_t addrlen;
   unsigned char buf[BUF_SIZE];
@@ -1308,7 +1307,7 @@ static gboolean got_packet(GIOChannel *source,
 	goto out;
       }
 
-      lluser_ctx *lctx = new lluser_ctx();
+      omuser_ctx *lctx = new omuser_ctx();
       lctx->u = ctx; lctx->lsim = lsim; 
       ctx->user_priv = lctx;
       lctx->addr = addr;
@@ -1353,7 +1352,7 @@ static gboolean got_packet(GIOChannel *source,
       sl_send_udp(lctx,&rh);
       
     } else {
-      struct lluser_ctx* lctx;
+      struct omuser_ctx* lctx;
       for(lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
 	if(lctx->addr.sin_addr.s_addr == addr.sin_addr.s_addr &&
 	   lctx->addr.sin_port == addr.sin_port) {
@@ -1379,7 +1378,7 @@ static gboolean got_packet(GIOChannel *source,
 
 // FIXME - need to detect ABI mismatches before we can modularise!
 void sim_int_init_udp(struct simulator_ctx *sim)  {
-  lluser_sim_ctx *lsim = new lluser_sim_ctx();
+  omuser_sim_ctx *lsim = new omuser_sim_ctx();
   lsim->sim = sim;
   lsim->ctxts = NULL;
   lsim->xfer_id_ctr = 1;

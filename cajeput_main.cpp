@@ -23,7 +23,6 @@
 #include "sl_messages.h"
 #include "sl_llsd.h"
 #include "cajeput_core.h"
-#include "cajeput_udp.h"
 #include "cajeput_int.h"
 #include "cajeput_j2k.h"
 #include "cajeput_prim.h"
@@ -1413,7 +1412,7 @@ void load_terrain(struct simulator_ctx *sim, const char* file) {
 int main(void) {
   g_thread_init(NULL);
   g_type_init();
-  terrain_init_compress(); // FIXME - move to lluser module
+  terrain_init_compress(); // FIXME - move to omuser module
 
   char* sim_uuid, *sim_owner;
   struct simulator_ctx* sim = new simulator_ctx();
