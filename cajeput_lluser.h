@@ -20,20 +20,55 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CAJEPUT_UDP_H
-#define CAJEPUT_UDP_H
-#include "cajeput_core.h"
-#include "sl_messages.h"
+#ifndef CAJEPUT_LLUSER_H
+#define CAJEPUT_LLUSER_H
+
+// for clients speaking the Linden Labs UDP protocol
+
+struct lluser_sim_ctx;
+struct lluser_ctx;
 
 // FIXME - rename these to something saner
-typedef void(*sl_msg_handler)(user_ctx*,sl_message*);
-void register_msg_handler(struct simulator_ctx *sim, sl_message_tmpl* tmpl, 
+typedef void(*sl_msg_handler)(lluser_ctx*,sl_message*);
+void register_msg_handler(struct lluser_sim_ctx *sim, sl_message_tmpl* tmpl, 
 			  sl_msg_handler handler);
 
 /* Note - this calls sl_free_msg for you, but this does *not* free
    the actual struct sl_message itself. In normal usage, that's a 
    local variable (i.e. stack allocated) */
-void sl_send_udp(struct user_ctx* ctx, struct sl_message* msg);
-void sl_send_udp_throt(struct user_ctx* ctx, struct sl_message* msg, int throt_id);
+void sl_send_udp(struct lluser_ctx* ctx, struct sl_message* msg);
+void sl_send_udp_throt(struct lluser_ctx* ctx, struct sl_message* msg, int throt_id);
+
+typedef std::multimap<sl_message_tmpl*,sl_msg_handler> msg_handler_map;
+typedef std::multimap<sl_message_tmpl*,sl_msg_handler>::iterator msg_handler_map_iter;
+
+struct lluser_ctx {
+  struct user_ctx *u;
+  struct lluser_sim_ctx *lsim;
+  struct lluser_ctx *next;
+
+  struct sockaddr_in addr;
+  int sock;
+  uint32_t counter;
+
+  std::vector<uint32_t> pending_acks;
+  std::set<uint32_t> seen_packets; // FIXME - clean this up
+
+  // icky Linden stuff
+  std::map<uint64_t,asset_xfer*> xfers;
+
+  // Image transfers
+  std::map<obj_uuid_t,image_request*> image_reqs;
+
+};
+
+struct lluser_sim_ctx {
+  struct simulator_ctx *sim;
+  int sock;
+  struct lluser_ctx *ctxts;
+
+  msg_handler_map msg_handlers;
+  uint64_t xfer_id_ctr; 
+};
 
 #endif

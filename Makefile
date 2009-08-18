@@ -28,13 +28,13 @@ opensim_inventory_glue.o: opensim_inventory_glue.cpp cajeput_core.h sl_types.h o
 
 physics_bullet.o: physics_bullet.cpp cajeput_core.h sl_types.h
 
-cajeput_udp.o: cajeput_udp.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h sl_udp_proto.h cajeput_anims.h 
+cajeput_udp.o: cajeput_udp.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h sl_udp_proto.h cajeput_anims.h cajeput_lluser.h terrain_compress.h
 
 cajeput_evqueue.o: cajeput_evqueue.cpp cajeput_core.h cajeput_int.h sl_types.h sl_llsd.h cajeput_udp.h sl_messages.h
 
 cajeput_inventory.o: cajeput_inventory.cpp cajeput_core.h cajeput_udp.h cajeput_int.h sl_messages.h sl_types.h
 
-cajeput_main.o: cajeput_main.cpp cajeput_core.h cajeput_udp.h cajeput_int.h cajeput_j2k.h cajeput_prim.h sl_messages.h sl_types.h sl_llsd.h terrain_compress.h cajeput_anims.h
+cajeput_main.o: cajeput_main.cpp cajeput_core.h cajeput_udp.h cajeput_int.h cajeput_j2k.h cajeput_prim.h sl_messages.h sl_types.h sl_llsd.h cajeput_anims.h terrain_compress.h
 
 cajeput_anims.o: cajeput_anims.c cajeput_anims.h
 

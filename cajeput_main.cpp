@@ -27,8 +27,8 @@
 #include "cajeput_int.h"
 #include "cajeput_j2k.h"
 #include "cajeput_prim.h"
-#include "terrain_compress.h"
 #include "cajeput_anims.h"
+#include "terrain_compress.h"
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -519,12 +519,8 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
   }
 }
 
-static void sl_float_to_int16(unsigned char* out, float val, float range) {
-  uint16_t ival = (uint16_t)((val+range)*32768/range);
-  out[0] = ival & 0xff;
-  out[1] = (ival >> 8) & 0xff;
-}
 
+// FIXME - remove these!
 #define PCODE_PRIM 9
 #define PCODE_AV 47
 #define PCODE_GRASS 95
@@ -532,156 +528,7 @@ static void sl_float_to_int16(unsigned char* out, float val, float range) {
 #define PCODE_PARTSYS 143 /* ??? */
 #define PCODE_TREE 255
 
-// FIXME - incomplete
-static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
-  avatar_obj* av = av_user->av;
-  char name[0x100]; unsigned char obj_data[60];
-  SL_DECLMSG(ObjectUpdate,upd);
-  SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
-  rd->RegionHandle = ctx->sim->region_handle;
-  rd->TimeDilation = 0xffff; // FIXME - report real time dilation
-
-  SL_DECLBLK(ObjectUpdate,ObjectData,objd,&upd);
-  objd->ID = av->ob.local_id;
-  objd->State = 0;
-  uuid_copy(objd->FullID, av->ob.id);
-  objd->PCode = PCODE_AV;
-  objd->Scale.x = 1.0f; objd->Scale.y = 1.0f; objd->Scale.z = 1.0f;
-
-  // FIXME - endianness issues
-  memcpy(obj_data, &av->ob.pos, 12); 
-  memcpy(obj_data+12, &av->ob.velocity, 12); // velocity
-  memset(obj_data+24, 0, 12); // accel
-  memcpy(obj_data+36, &av->ob.rot, 12); 
-  memset(obj_data+48, 0, 12);
-  sl_string_set_bin(&objd->ObjectData, obj_data, 60);
-
-  objd->ParentID = 0;
-  objd->UpdateFlags = 0; // TODO
-
-  sl_string_copy(&objd->TextureEntry, &ctx->texture_entry);
-  //objd->TextureEntry.len = 0;
-  objd->TextureAnim.len = 0;
-  objd->Data.len = 0;
-  objd->Text.len = 0;
-  memset(objd->TextColor, 0, 4);
-  objd->MediaURL.len = 0;
-  objd->PSBlock.len = 0;
-  objd->ExtraParams.len = 0;
-
-  memset(objd->OwnerID,0,16);
-  memset(objd->Sound,0,16);
-
-  // FIXME - copied from OpenSim
-  objd->UpdateFlags = 61 + (9 << 8) + (130 << 16) + (16 << 24);
-  objd->PathCurve = 16;
-  objd->ProfileCurve = 1;
-  objd->PathScaleX = 100;
-  objd->PathScaleY = 100;
-  objd->ParentID = 0;
-  objd->Material = 4;
-  // END FIXME
-  
-  name[0] = 0;
-  snprintf(name,0xff,"FirstName STRING RW SV %s\nLastName STRING RW SV %s\nTitle STRING RW SV %s",
-	   av_user->first_name,av_user->last_name,av_user->group_title); // FIXME
-  sl_string_set(&objd->NameValue,name);
-
-  upd.flags |= MSG_RELIABLE;
-  sl_send_udp(ctx, &upd);
-}
-
-static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
-  unsigned char dat[0x3C];
-  SL_DECLMSG(ImprovedTerseObjectUpdate,terse);
-  SL_DECLBLK(ImprovedTerseObjectUpdate,RegionData,rd,&terse);
-  rd->RegionHandle = ctx->sim->region_handle;
-  rd->TimeDilation = 0xffff; // FIXME - report real time dilation
-  SL_DECLBLK(ImprovedTerseObjectUpdate,ObjectData,objd,&terse);
-  objd->TextureEntry.data = NULL;
-  objd->TextureEntry.len = 0;
-
-  dat[0] = av->ob.local_id & 0xff;
-  dat[1] = (av->ob.local_id >> 8) & 0xff;
-  dat[2] = (av->ob.local_id >> 16) & 0xff;
-  dat[3] = (av->ob.local_id >> 24) & 0xff;
-  dat[4] = 0; // state - ???
-  dat[5] = 1; // object is an avatar
-  
-  // FIXME - copied from OpenSim
-  memset(dat+6,0,16);
-  dat[0x14] = 128; dat[0x15] = 63;
-  
-  // FIXME - correct endianness
-  memcpy(dat+0x16, &av->ob.pos, 12); 
-
-  // Velocity
-  sl_float_to_int16(dat+0x22, av->ob.velocity.x, 128.0f);
-  sl_float_to_int16(dat+0x24, av->ob.velocity.y, 128.0f);
-  sl_float_to_int16(dat+0x26, av->ob.velocity.z, 128.0f);
-
-  // Acceleration
-  sl_float_to_int16(dat+0x28, 0.0f, 64.0f);
-  sl_float_to_int16(dat+0x2A, 0.0f, 64.0f);
-  sl_float_to_int16(dat+0x2C, 0.0f, 64.0f);
- 
-  // Rotation
-  sl_float_to_int16(dat+0x2E, av->ob.rot.x, 1.0f);
-  sl_float_to_int16(dat+0x30, av->ob.rot.y, 1.0f);
-  sl_float_to_int16(dat+0x32, av->ob.rot.z, 1.0f);
-  sl_float_to_int16(dat+0x34, av->ob.rot.w, 1.0f);
-
-  // Rotational velocity
-  sl_float_to_int16(dat+0x36, 0.0f, 64.0f);
-  sl_float_to_int16(dat+0x38, 0.0f, 64.0f);
-  sl_float_to_int16(dat+0x3A, 0.0f, 64.0f);
-
- 
-  sl_string_set_bin(&objd->Data, dat, 0x3C);
-  terse.flags |= MSG_RELIABLE;
-  sl_send_udp(ctx, &terse);
-}
-
-static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
-  SL_DECLMSG(AvatarAppearance,aa);
-  SL_DECLBLK(AvatarAppearance,Sender,sender,&aa);
-  uuid_copy(sender->ID, av_user->user_id);
-  sender->IsTrial = 0;
-  SL_DECLBLK(AvatarAppearance,ObjectData,objd,&aa);
-  sl_string_copy(&objd->TextureEntry, &av_user->texture_entry);
-
-  // FIXME - this is horribly, horribly inefficient
-  if(av_user->visual_params.data != NULL) {
-      for(int i = 0; i < av_user->visual_params.len; i++) {
-	SL_DECLBLK(AvatarAppearance,VisualParam,param,&aa);
-	param->ParamValue = av_user->visual_params.data[i];
-      }
-  }
-  
-  aa.flags |= MSG_RELIABLE;
-  sl_send_udp(ctx, &aa);
-}
-
-static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
-  SL_DECLMSG(AvatarAnimation,aa);
-  SL_DECLBLK(AvatarAnimation,Sender,sender,&aa);
-  uuid_copy(sender->ID, av_user->user_id);
-  
-  {
-    SL_DECLBLK(AvatarAnimation,AnimationList,anim,&aa);
-    uuid_copy(anim->AnimID, av_user->default_anim.anim);
-    anim->AnimSequenceID = av_user->default_anim.sequence; // FIXME - ???
-    SL_DECLBLK(AvatarAnimation,AnimationSourceList,source,&aa);
-    uuid_copy(source->ObjectID,av_user->default_anim.obj); // FIXME!!!
-  }
-  
-  // FIXME - copy non-default animations too
-  
-  // aa.flags |= MSG_RELIABLE; // FIXME - not reliable?
-  sl_send_udp(ctx, &aa);
-}
-
-
+// FIXME - this whole timer, and the associated callbacks, are a huge kludge
 static gboolean av_update_timer(gpointer data) {
   struct simulator_ctx* sim = (simulator_ctx*)data;
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
@@ -705,18 +552,22 @@ static gboolean av_update_timer(gpointer data) {
       if(av == NULL) continue;
       if(user2->flags & AGENT_FLAG_AV_FULL_UPD ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) {
-	send_av_full_update(user, user2);
+	if(user->userh != NULL && user->userh->send_av_full_update != NULL)
+	  user->userh->send_av_full_update(user, user2);
       } else {
-	send_av_terse_update(user, user2->av); // FIXME - only send if needed
+	if(user->userh != NULL && user->userh->send_av_terse_update != NULL)
+	  user->userh->send_av_terse_update(user, user2->av); // FIXME - only send if needed
       }
       if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) && user != user2) {
 	// shouldn't send AvatarAppearance to self, I think.
-	send_av_appearance(user, user2);
+	if(user->userh != NULL && user->userh->send_av_appearance != NULL)
+	  user->userh->send_av_appearance(user, user2);
       }
       if(user2->flags & AGENT_FLAG_ANIM_UPDATE ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) {
-	send_av_animations(user, user2);
+	if(user->userh != NULL && user->userh->send_av_animations != NULL)
+	  user->userh->send_av_animations(user, user2);
       }
     }
     user_clear_flag(user, AGENT_FLAG_NEED_OTHER_AVS);
@@ -730,126 +581,9 @@ static gboolean av_update_timer(gpointer data) {
 }
 
 
-// --- START of hacky object update code. FIXME - remove this ---
+// --- START of part of hacky object update code. FIXME - remove this ---
 
-#define UPDATE_LEVEL_FULL 255
-#define UPDATE_LEVEL_POSROT 1 // pos/rot/scale
-#define UPDATE_LEVEL_NONE 0
-
-static void obj_send_full_upd(user_ctx* ctx, world_obj* obj) {
-  if(obj->type != OBJ_TYPE_PRIM) return;
-  primitive_obj *prim = (primitive_obj*)obj;
-  unsigned char obj_data[60];
-  SL_DECLMSG(ObjectUpdate,upd);
-  SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
-  rd->RegionHandle = ctx->sim->region_handle;
-  rd->TimeDilation = 0xffff; // FIXME - report real time dilation
-
-  SL_DECLBLK(ObjectUpdate,ObjectData,objd,&upd);
-  objd->ID = prim->ob.local_id;
-  objd->State = 0;
-
-  uuid_copy(objd->FullID, prim->ob.id);
-  objd->CRC = 0; // FIXME - need this for caching
-  objd->PCode = PCODE_PRIM;
-  objd->Material = prim->material;
-  objd->ClickAction = 0; // FIXME.
-  objd->Scale = prim->ob.scale;
-
-  // FIXME - endianness issues
-  memcpy(obj_data, &prim->ob.pos, 12); 
-  memset(obj_data+12, 0, 12); // velocity
-  memset(obj_data+24, 0, 12); // accel
-  memcpy(obj_data+36, &prim->ob.rot, 12); 
-  memset(obj_data+48, 0, 12);
-  sl_string_set_bin(&objd->ObjectData, obj_data, 60);
-
-  objd->ParentID = 0; // FIXME - todo
-  objd->UpdateFlags = 0; // TODO - FIXME
-
-  objd->PathCurve = prim->path_curve;
-  objd->ProfileCurve = prim->profile_curve;
-  objd->PathBegin = prim->path_begin;
-  objd->PathEnd = prim->path_end;
-  objd->PathScaleX = prim->path_scale_x;
-  objd->PathScaleY = prim->path_scale_y;
-  objd->PathShearX = prim->path_shear_x;
-  objd->PathShearY = prim->path_shear_y;
-  objd->PathTwist = prim->path_twist;
-  objd->PathTwistBegin = prim->path_twist_begin;
-  objd->PathRadiusOffset = prim->path_radius_offset;
-  objd->PathTaperX = prim->path_taper_x;
-  objd->PathTaperY = prim->path_taper_y;
-  objd->ProfileBegin = prim->profile_begin;
-  objd->ProfileEnd = prim->profile_end;
-  objd->ProfileHollow = prim->profile_hollow;
-
-  objd->TextureEntry.len = 0;
-  objd->TextureAnim.len = 0;
-  objd->Data.len = 0;
-  objd->Text.len = 0;
-  memset(objd->TextColor, 0, 4);
-  objd->MediaURL.len = 0;
-  objd->PSBlock.len = 0;
-  objd->ExtraParams.len = 0;
-
-  uuid_copy(objd->OwnerID, prim->owner);
-  memset(objd->Sound,0,16);
-
-  objd->NameValue.len = 0;
-
-  upd.flags |= MSG_RELIABLE;
-  sl_send_udp_throt(ctx, &upd, SL_THROTTLE_TASK);
-}
-
-static gboolean obj_update_timer(gpointer data) {
-  struct simulator_ctx* sim = (simulator_ctx*)data;
-  for(user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
-    if((ctx->flags & AGENT_FLAG_RHR) == 0) continue;
-    user_update_throttles(ctx);
-    std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
-    while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
-	  iter != ctx->obj_upd.end()) {
-      if(iter->second == UPDATE_LEVEL_NONE) {
-	iter++; continue;
-      } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
-	printf("DEBUG: sending full update for %u\n", iter->first);
-	obj_send_full_upd(ctx, sim->localid_map[iter->first]);
-	iter->second = UPDATE_LEVEL_NONE;
-      }
-    }
-
-    // FIXME - should probably move this elsewhere
-    int i = 0;
-    while(ctx->throttles[SL_THROTTLE_LAND].level > 0.0f && 
-	  i < 16) {
-      if(ctx->dirty_terrain[i] == 0) { i++; continue; }
-      int patch_cnt = 0; int patches[4]; uint16_t dirty = ctx->dirty_terrain[i];
-
-      // in the worst case, we could only fit 2 texture patches per packet
-      // (this is probably unlikely, but best to be safe anyway, especially as
-      // getting it wrong can crash the viewer!)
-      // should really do this dynamically - normally we'll fit at least 4
-      for(int j = 0; j < 16 && patch_cnt < 2; j++) {
-	if(dirty & (1<<j)) {
-	  patches[patch_cnt++] = i * 16 + j;
-	  dirty &= ~(1<<j);
-	}
-      }
-      SL_DECLMSG(LayerData, layer);
-      SL_DECLBLK(LayerData, LayerID, lid, &layer);
-      lid->Type = LAYER_TYPE_LAND;
-      SL_DECLBLK(LayerData, LayerData, ldat, &layer);
-      terrain_create_patches(sim->terrain, patches, patch_cnt, &ldat->Data);
-      layer.flags |= MSG_RELIABLE;
-      sl_send_udp_throt(ctx, &layer, SL_THROTTLE_LAND);
-      ctx->dirty_terrain[i] = dirty;
-    }
-  }
-
-  return TRUE;
-}
-
+// FIXME - move this in with rest of the object update code 
 static void init_obj_updates_for_user(user_ctx *ctx) {
   struct simulator_ctx* sim = ctx->sim;
   for(std::map<uint32_t,world_obj*>::iterator iter = sim->localid_map.begin();
@@ -969,7 +703,6 @@ void llsd_soup_set_response(SoupMessage *msg, sl_llsd *llsd) {
 			    str,strlen(str));
   free(str);
 }
-
 void seed_caps_callback(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   // TODO
   if (msg->method != SOUP_METHOD_POST) {
@@ -1010,7 +743,6 @@ void seed_caps_callback(SoupMessage *msg, user_ctx* ctx, void *user_data) {
 
 
 }
-
 #define NO_RELEASE_NOTES "Sorry, no release notes available."
 
 static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data) {
@@ -1033,6 +765,7 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
 
 
 // -- END of caps code --
+
 
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id) {
@@ -1211,6 +944,28 @@ void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim) {
   } 
 }
 
+// FIXME - remove???
+void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
+			   const struct chat_message *msg, void *user_data) {
+  struct user_ctx* ctx = (user_ctx*)user_data;
+  if(ctx->userh != NULL && ctx->userh->chat_callback != NULL)
+    ctx->userh->chat_callback(ctx->user_priv, msg);
+}
+
+
+void user_send_message(struct user_ctx *ctx, const char* msg) {
+  struct chat_message chat;
+  chat.source_type = CHAT_SOURCE_SYSTEM;
+  chat.chat_type = CHAT_TYPE_NORMAL;
+  uuid_clear(chat.source); // FIXME - set this?
+  uuid_clear(chat.owner);
+  chat.name = "Cajeput";
+  chat.msg = (char*)msg;
+
+  // FIXME - evil hack
+  user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
+}
+
 static teleport_desc* begin_teleport(struct user_ctx* ctx) {
   if(ctx->tp_out != NULL) {
     printf("!!! ERROR: can't teleport while teleporting!\n");
@@ -1250,22 +1005,25 @@ static void do_real_teleport(struct teleport_desc* tp) {
 
 void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
   if(tp->ctx != NULL) {
-    user_send_teleport_failed(tp->ctx, reason);
+    // FIXME - need to check hook not NULL
+    tp->ctx->userh->teleport_failed(tp->ctx, reason);
   }
   del_teleport_desc(tp);
 }
 
 // In theory, we can send arbitrary strings, but that seems to be bugged.
 void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
+  // FIXME - need to check hook not NULL
   if(tp->ctx != NULL) 
-    user_send_teleport_progress(tp->ctx, msg, tp->flags);
+    tp->ctx->userh->teleport_progress(tp->ctx, msg, tp->flags);
 }
 
 void user_complete_teleport(struct teleport_desc* tp) {
   if(tp->ctx != NULL) {
     printf("DEBUG: completing teleport\n");
     tp->ctx->flags |= AGENT_FLAG_TELEPORT_COMPLETE;
-    user_send_teleport_complete(tp->ctx, tp);
+    // FIXME - need to check hook not NULL
+    tp->ctx->userh->teleport_complete(tp->ctx, tp);
   }
   del_teleport_desc(tp);
 }
@@ -1332,7 +1090,8 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 				      struct sim_new_user *uinfo) {
   struct user_ctx* ctx;
   ctx = new user_ctx(sim); 
-  ctx->sock = sim->sock; ctx->counter = 0;
+  ctx->userh = NULL; ctx->user_priv = NULL;
+
   ctx->draw_dist = 0.0f;
   ctx->circuit_code = uinfo->circuit_code;
   ctx->tp_out = NULL;
@@ -1354,8 +1113,6 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   uuid_copy(ctx->session_id, uinfo->session_id);
   uuid_copy(ctx->secure_session_id, uinfo->secure_session_id);
 
-  ctx->addr.sin_family = AF_INET; 
-  ctx->addr.sin_port = 0;
   ctx->sim = sim;
   ctx->next = sim->ctxts; sim->ctxts = ctx;
   if(uinfo->is_child) {
@@ -1389,6 +1146,25 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
 
+  return ctx;
+}
+
+user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
+			uint32_t circ_code, struct user_hooks* hooks) {
+  user_ctx* ctx;
+  for(ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+    if(ctx->circuit_code == circ_code &&
+       uuid_compare(ctx->user_id, user_id) == 0 &&
+       uuid_compare(ctx->session_id, session_id) == 0) 
+      break;
+  }
+  if(ctx == NULL) return NULL;
+  
+  if(ctx->userh != NULL && ctx->userh != hooks) {
+    printf("ERROR: module tried to bind already-claimed user\n");
+  }
+
+  ctx->userh = hooks;
   return ctx;
 }
 
@@ -1452,10 +1228,11 @@ static void user_remove_int(user_ctx **user) {
 
   // If we're logging out, sending DisableSimulator causes issues
   // HACK - also, for now teleports are also problematic - FIXME
-  if(ctx->addr.sin_port != 0 && !(ctx->flags & (AGENT_FLAG_IN_LOGOUT|
-						AGENT_FLAG_TELEPORT_COMPLETE))) {
-    SL_DECLMSG(DisableSimulator, quit);
-    sl_send_udp(ctx, &quit);
+  if(ctx->userh != NULL  && !(ctx->flags & (AGENT_FLAG_IN_LOGOUT|
+					    AGENT_FLAG_TELEPORT_COMPLETE)) &&
+     ctx->userh->disable_sim != NULL) {
+    // HACK HACK HACK - should be in main hook?
+    ctx->userh->disable_sim(ctx->user_priv); // FIXME
   } 
 
   user_int_event_queue_free(ctx);
@@ -1466,8 +1243,11 @@ static void user_remove_int(user_ctx **user) {
       iter != ctx->named_caps.end(); iter++) {
     caps_remove(iter->second);
   }
+  caps_remove(ctx->seed_cap);
 
-  user_int_free_texture_sends(ctx);
+  if(ctx->userh != NULL) { // non-optional hook!
+    ctx->userh->remove(ctx->user_priv);
+  }
 
   sl_string_free(&ctx->texture_entry);
   sl_string_free(&ctx->visual_params);
@@ -1477,7 +1257,6 @@ static void user_remove_int(user_ctx **user) {
   free(ctx->last_name);
   free(ctx->name);
   free(ctx->group_title);
-  caps_remove(ctx->seed_cap);
 
   for(std::set<user_ctx**>::iterator iter = ctx->self_ptrs.begin();
       iter != ctx->self_ptrs.end(); iter++) {
@@ -1634,7 +1413,7 @@ void load_terrain(struct simulator_ctx *sim, const char* file) {
 int main(void) {
   g_thread_init(NULL);
   g_type_init();
-  terrain_init_compress();
+  terrain_init_compress(); // FIXME - move to lluser module
 
   char* sim_uuid, *sim_owner;
   struct simulator_ctx* sim = new simulator_ctx();
@@ -1650,7 +1429,6 @@ int main(void) {
   sim->config = g_key_file_new();
   sim->hold_off_shutdown = 0;
   sim->state_flags = 0;
-  sim->xfer_id_ctr = 1;
   // FIXME - make sure to add G_KEY_FILE_KEEP_COMMENTS/TRANSLATIONS 
   // if I ever want to modify the config
   if(!g_key_file_load_from_file(sim->config,  "server.ini", 
@@ -1717,7 +1495,6 @@ int main(void) {
   soup_server_run_async(sim->soup);
   
   g_timeout_add(100, av_update_timer, sim);
-  g_timeout_add(100, obj_update_timer, sim);
   g_timeout_add(1000, cleanup_timer, sim);
   g_timeout_add(1000/60, physics_timer, sim);
   sim->timer = g_timer_new();

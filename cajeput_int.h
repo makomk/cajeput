@@ -31,10 +31,9 @@
 #include <netinet/in.h>
 #include "sl_llsd.h"
 #include "cajeput_core.h"
-#include "cajeput_udp.h"
+//#include "cajeput_udp.h"
 
 #define USER_CONNECTION_TIMEOUT 15
-
 
 struct cap_descrip;
 
@@ -92,17 +91,51 @@ struct image_request {
 #define CAJ_ANIM_TYPE_DEFAULT 1 // default anim
 // #define CAJ_ANIM_TYPE_MOVEMENT 2 // walking
 
+struct avatar_obj {
+  struct world_obj ob;
+};
+
 struct animation_desc {
   uuid_t anim, obj;
   int32_t sequence;
   uint32_t caj_type; // internal animation type info - FIXME remove?
 };
 
+/* !!!     WARNING   WARNING   WARNING    !!!
+   Changing the user_hooks structure breaks ABI compatibility. Also,
+   doing anything except inserting a new hook at the end breaks API 
+   compatibility, potentially INVISIBLY! 
+   Be sure to bump the ABI version after any change.
+   !!!     WARNING   WARNING   WARNING    !!!
+*/
+struct user_hooks {
+  void(*teleport_failed)(struct user_ctx* ctx, const char* reason);
+  void(*teleport_progress)(struct user_ctx* ctx, const char* msg, 
+			   uint32_t flags);
+  void(*teleport_complete)(struct user_ctx* ctx, struct teleport_desc *tp);
+  void(*remove)(void* user_priv);
+ 
+  void(*disable_sim)(void* user_priv); // HACK
+  void(*chat_callback)(void *user_priv, const struct chat_message *msg);
+
+  // these are temporary hacks.
+  void(*send_av_full_update)(user_ctx* ctx, user_ctx* av_user);
+  void(*send_av_terse_update)(user_ctx* ctx, avatar_obj* av);
+  void(*send_av_appearance)(user_ctx* ctx, user_ctx* av_user);
+  void(*send_av_animations)(user_ctx* ctx, user_ctx* av_user);
+};
+
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
   uint32_t circuit_code;
-  uint32_t counter;
+
+  struct user_hooks *userh;
+  void *user_priv;
+
+  // this is core enough we can't do without it!
+  struct cap_descrip* seed_cap;
+  named_caps_map named_caps;
 
   std::set<user_ctx**> self_ptrs;
 
@@ -111,20 +144,25 @@ struct user_ctx {
 
   uint16_t dirty_terrain[16];
 
+  // Event queue stuff. FIXME - seperate this out
+  struct {
+    sl_llsd *queued;
+    sl_llsd *last;
+    int ctr;
+    SoupMessage *msg;
+    double timeout;
+  } evqueue;  
+
   uuid_t session_id;
   uuid_t secure_session_id;
   uuid_t user_id;
-  struct sockaddr_in addr;
-  int sock;
+
   int flags; // AGENT_FLAG_*
   double last_activity;
   float draw_dist;
   struct simulator_ctx* sim;
   struct avatar_obj* av;
-  struct cap_descrip* seed_cap;
-  named_caps_map named_caps;
-  std::vector<uint32_t> pending_acks;
-  std::set<uint32_t> seen_packets; // FIXME - clean this up
+
 
   uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
   struct sl_string texture_entry, visual_params;
@@ -139,31 +177,15 @@ struct user_ctx {
 
   void *grid_priv;
 
-  // icky Linden stuff
-  std::map<uint64_t,asset_xfer*> xfers;
-
-  // Image transfers
-  std::map<obj_uuid_t,image_request*> image_reqs;
 
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
 
-  // Event queue stuff. FIXME - seperate this out
-  struct {
-    sl_llsd *queued;
-    sl_llsd *last;
-    int ctr;
-    SoupMessage *msg;
-    double timeout;
-  } evqueue;
 
   user_ctx(simulator_ctx* our_sim) : sim(our_sim), av(NULL) {
   }
 };
 
 struct world_obj;
-
-typedef std::multimap<sl_message_tmpl*,sl_msg_handler> msg_handler_map;
-typedef std::multimap<sl_message_tmpl*,sl_msg_handler>::iterator msg_handler_map_iter;
 
 struct chat_message {
   int32_t channel;
@@ -197,11 +219,10 @@ struct simulator_ctx {
   uint32_t region_x, region_y;
   uint64_t region_handle;
   float *terrain;
-  int sock, state_flags, hold_off_shutdown;
+  int state_flags, hold_off_shutdown;
   uint16_t http_port, udp_port;
   char *ip_addr;
   uuid_t region_id, owner;
-  msg_handler_map msg_handlers;
   std::map<obj_uuid_t,world_obj*> uuid_map;
   std::map<uint32_t,world_obj*> localid_map;
   struct world_octree* world_tree;
@@ -210,7 +231,6 @@ struct simulator_ctx {
   GTimer *timer;
   GKeyFile *config;
 
-  uint64_t xfer_id_ctr; // FIXME - should prob. init this, but meh.
 
   std::map<obj_uuid_t,texture_desc*> textures;
 
@@ -230,9 +250,6 @@ struct simulator_ctx {
 
 
 
-struct avatar_obj {
-  struct world_obj ob;
-};
 
 // should be small enough not to be affected by sane quantisation
 #define SL_QUAT_EPS 0.0001
@@ -265,6 +282,9 @@ void user_int_event_queue_free(user_ctx *ctx);
 // called on CompleteAgentMovement - returns success (true/false)
 int user_complete_movement(user_ctx *ctx);
 
+user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
+			uint32_t circ_code, struct user_hooks* hooks);
+
 // FIXME - this really shouldn't be exposed
 void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 			   const struct chat_message *msg, void *user_data);
@@ -278,6 +298,13 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
 
 // takes ownership of the passed LLSD
 void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
+
+// --------- HACKY OBJECT UPDATE STUFF ---------------
+
+#define UPDATE_LEVEL_FULL 255
+#define UPDATE_LEVEL_POSROT 1 // pos/rot/scale
+#define UPDATE_LEVEL_NONE 0
+
 
 // --------- CAPS STUFF -----------------------------
 
