@@ -2003,6 +2003,7 @@ static void cleanup(struct simulator_ctx* sim) {
   g_free(grid->userserver);
   g_free(grid->gridserver);
   g_free(grid->assetserver);
+  g_free(grid->inventoryserver);
   g_free(grid->grid_recvkey);
   g_free(grid->grid_sendkey);
   delete grid;

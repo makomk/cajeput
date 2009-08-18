@@ -1303,6 +1303,9 @@ static gboolean shutdown_timer(gpointer data) {
     printf("Shutting down (%i items pending)\n", sim->hold_off_shutdown);
     return TRUE;
   }
+
+  soup_session_abort(sim->soup_session);
+
   g_key_file_free(sim->config);
   sim->config = NULL;
   sim->physh.destroy(sim, sim->phys_priv);
@@ -1310,7 +1313,15 @@ static gboolean shutdown_timer(gpointer data) {
   sim->gridh.cleanup(sim);
   sim->grid_priv = NULL;
 
+  sim_call_shutdown_hook(sim);
+
   free(sim->release_notes);
+
+  soup_server_quit(sim->soup);
+  g_object_unref(sim->soup);
+
+  soup_session_abort(sim->soup_session); // yes, again!
+  g_object_unref(sim->soup_session);
 
   for(std::map<obj_uuid_t,texture_desc*>::iterator iter = sim->textures.begin();
       iter != sim->textures.end(); iter++) {
@@ -1323,6 +1334,7 @@ static gboolean shutdown_timer(gpointer data) {
   g_free(sim->name);
   g_free(sim->ip_addr);
   g_free(sim->welcome_message);
+  delete[] sim->terrain;
   delete sim;
   exit(0); // FIXME
   return FALSE;

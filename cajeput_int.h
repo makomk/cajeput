@@ -73,6 +73,44 @@ static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
   return uuid_compare(u1.u,u2.u) >= 0;
 };
 
+// ---------------- CALLBACKS CODE ---------------
+
+// FIXME - I think this is generating a bunch of practically identical code
+// for each possible function pointer type, which is not good!
+template <class T> 
+struct caj_cb_entry {
+  T cb;
+  void *priv;
+};
+
+template <class T> 
+bool operator < (const caj_cb_entry<T> &e1, const caj_cb_entry<T> &e2) {
+  return e1.cb < e2.cb || (e1.cb == e2.cb && e1.priv < e2.priv);
+}
+
+
+template <class T>
+struct caj_callback {
+
+  typedef std::set<caj_cb_entry<T> > cb_set;
+
+  std::set<caj_cb_entry<T> > callbacks;
+
+  void add_callback(T cb, void *priv) {
+    caj_cb_entry<T> entry;
+    entry.cb = cb; entry.priv = priv;
+    callbacks.insert(entry);
+  }
+
+  void remove_callback(T cb, void *priv) {
+    caj_cb_entry<T> entry;
+    entry.cb = cb; entry.priv = priv;
+    callbacks.erase(entry);
+  }  
+};
+
+// -------------------------------------------------------------
+
 struct sl_throttle {
   double time; // time last refilled
   float level, rate; // current reservoir level and flow rate
@@ -210,6 +248,7 @@ struct obj_chat_listener {
 };
 
 
+
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
 
@@ -246,9 +285,14 @@ struct simulator_ctx {
 
   std::map<std::string,cap_descrip*> caps;
   //struct obj_bucket[8][8][32];
+
+  // bunch of callbacks
+  caj_callback<sim_generic_cb> shutdown_hook;
 };
 
+// ------ CALLBACKS ----------------
 
+void sim_call_shutdown_hook(struct simulator_ctx *sim);
 
 
 // should be small enough not to be affected by sane quantisation

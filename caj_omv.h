@@ -65,6 +65,7 @@ struct omuser_ctx {
 struct omuser_sim_ctx {
   struct simulator_ctx *sim;
   int sock;
+  GIOChannel* gio_sock;
   struct omuser_ctx *ctxts;
 
   msg_handler_map msg_handlers;

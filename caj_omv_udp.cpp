@@ -1374,6 +1374,14 @@ static gboolean got_packet(GIOChannel *source,
     // FIXME - what should I return?
 }
 
+static void shutdown_handler(simulator_ctx *sim, void *priv) {
+  printf("DEBUG: running caj_omv shutdown hook\n");
+  omuser_sim_ctx *lsim = (omuser_sim_ctx*) priv;
+  g_io_channel_shutdown(lsim->gio_sock, FALSE, NULL);
+  g_io_channel_unref(lsim->gio_sock);
+  delete lsim;
+}
+
 #define ADD_HANDLER(name) register_msg_handler(lsim, &sl_msgt_##name, handle_##name##_msg)
 
 // FIXME - need to detect ABI mismatches before we can modularise!
@@ -1383,6 +1391,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   lsim->ctxts = NULL;
   lsim->xfer_id_ctr = 1;
   int sock; struct sockaddr_in addr;
+
+  sim_add_shutdown_hook(sim, shutdown_handler, lsim);
 
   ADD_HANDLER(AgentUpdate);
   ADD_HANDLER(StartPingCheck);
@@ -1410,8 +1420,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   addr.sin_port = htons(sim->udp_port);
   addr.sin_addr.s_addr=INADDR_ANY;
   bind(sock, (struct sockaddr*)&addr, sizeof(addr));
-  GIOChannel* gio_sock = g_io_channel_unix_new(sock);
-  g_io_add_watch(gio_sock, G_IO_IN, got_packet, lsim);
+  lsim->gio_sock = g_io_channel_unix_new(sock);
+  g_io_add_watch(lsim->gio_sock, G_IO_IN, got_packet, lsim);
   lsim->sock = sock;  
 
   g_timeout_add(100, texture_send_timer, lsim); // FIXME - check the timing on this

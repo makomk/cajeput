@@ -192,6 +192,15 @@ struct cajeput_physics_hooks {
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 
 			 void **priv, struct cajeput_physics_hooks *hooks);
 
+// ----------------- SIM HOOKS --------------------------
+
+typedef void(*sim_generic_cb)(simulator_ctx* sim, void* priv);
+
+void sim_add_shutdown_hook(struct simulator_ctx *sim,
+			   sim_generic_cb cb, void *priv);
+void sim_remove_shutdown_hook(struct simulator_ctx *sim,
+			      sim_generic_cb cb, void *priv);
+
 // ----- USER-RELATED STUFF ---------
 
 #define SL_NUM_THROTTLES 7
