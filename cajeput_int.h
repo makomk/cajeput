@@ -31,9 +31,10 @@
 #include <netinet/in.h>
 #include "sl_llsd.h"
 #include "cajeput_core.h"
-//#include "cajeput_udp.h"
 
 #define USER_CONNECTION_TIMEOUT 15
+
+#define CAJ_VERSION_STRING "Cajeput 0.001"
 
 struct cap_descrip;
 
