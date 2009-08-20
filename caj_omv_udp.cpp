@@ -497,48 +497,6 @@ static void handle_TeleportLandmarkRequest_msg(struct omuser_ctx* lctx, struct s
   user_teleport_landmark(lctx->u, info->LandmarkID);
 }
 
-static float sl_unpack_float(unsigned char *buf) {
-  float f;
-  // FIXME - need to swap byte order if necessary.
-  memcpy(&f,buf,sizeof(float));
-  return f;
-}
-
-void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
-			      int len) {
-  float throttles[SL_NUM_THROTTLES];
-
-  if(len < SL_NUM_THROTTLES*4) {
-    printf("Error: AgentThrottle with not enough data\n");
-    return;
-  }
-
-  printf("DEBUG: got new throttles:\n");
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    throttles[i] =  sl_unpack_float(data + 4*i);
-    printf("  throttle %s: %f\n", sl_throttle_names[i], throttles[i]);
-    user_set_throttles(ctx, throttles);
-  }
-}
-
-void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
-			      int len) {
-  float throttles[SL_NUM_THROTTLES];
-
-  if(len < SL_NUM_THROTTLES*4) {
-    printf("Error: AgentThrottle with not enough data\n");
-    return;
-  } else {
-    len =  SL_NUM_THROTTLES*4;
-  }
-
-  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    throttles[i] = ctx->throttles[i].rate;
-  }
-
-  // FIXME - endianness
-  memcpy(data, throttles, len);
-}
 
 
 static void handle_AgentThrottle_msg(struct omuser_ctx* lctx, struct sl_message* msg) {

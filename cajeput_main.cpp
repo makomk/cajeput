@@ -881,15 +881,57 @@ void user_set_wearable(struct user_ctx *ctx, int id,
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
 }
 
-
 void user_set_throttles(struct user_ctx *ctx, float rates[]) {
   double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
     ctx->throttles[i].time = time_now;
     ctx->throttles[i].level = 0.0f;
-    ctx->throttles[i].rate = rates[i];
+    ctx->throttles[i].rate = rates[i] / 8.0f;
     
   }
+}
+
+static float sl_unpack_float(unsigned char *buf) {
+  float f;
+  // FIXME - need to swap byte order if necessary.
+  memcpy(&f,buf,sizeof(float));
+  return f;
+}
+
+void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len) {
+  float throttles[SL_NUM_THROTTLES];
+
+  if(len < SL_NUM_THROTTLES*4) {
+    printf("Error: AgentThrottle with not enough data\n");
+    return;
+  }
+
+  printf("DEBUG: got new throttles:\n");
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    throttles[i] =  sl_unpack_float(data + 4*i);
+    printf("  throttle %s: %f\n", sl_throttle_names[i], throttles[i]);
+    user_set_throttles(ctx, throttles);
+  }
+}
+
+void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
+			      int len) {
+  float throttles[SL_NUM_THROTTLES];
+
+  if(len < SL_NUM_THROTTLES*4) {
+    printf("Error: AgentThrottle with not enough data\n");
+    return;
+  } else {
+    len =  SL_NUM_THROTTLES*4;
+  }
+
+  for(int i = 0; i < SL_NUM_THROTTLES; i++) {
+    throttles[i] = ctx->throttles[i].rate * 8.0f;
+  }
+
+  // FIXME - endianness
+  memcpy(data, throttles, len);
 }
 
 void user_reset_throttles(struct user_ctx *ctx) {

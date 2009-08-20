@@ -93,6 +93,7 @@ bool operator < (const caj_cb_entry<T> &e1, const caj_cb_entry<T> &e2) {
 template <class T>
 struct caj_callback {
 
+  // ideally, we'd typedef the iterator too, but C++ ain't that smart
   typedef std::set<caj_cb_entry<T> > cb_set;
 
   std::set<caj_cb_entry<T> > callbacks;
