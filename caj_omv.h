@@ -42,6 +42,12 @@ void sl_send_udp_throt(struct omuser_ctx* ctx, struct sl_message* msg, int throt
 typedef std::multimap<sl_message_tmpl*,sl_msg_handler> msg_handler_map;
 typedef std::multimap<sl_message_tmpl*,sl_msg_handler>::iterator msg_handler_map_iter;
 
+struct udp_resend_desc {
+  double time;
+  int ctr;
+  struct sl_message msg;
+};
+
 struct omuser_ctx {
   struct user_ctx *u;
   struct omuser_sim_ctx *lsim;
@@ -53,6 +59,9 @@ struct omuser_ctx {
 
   std::vector<uint32_t> pending_acks;
   std::set<uint32_t> seen_packets; // FIXME - clean this up
+
+  std::multimap<double,udp_resend_desc*> resend_sched;
+  std::map<uint32_t,udp_resend_desc*> resends;
 
   // icky Linden stuff
   std::map<uint64_t,asset_xfer*> xfers;

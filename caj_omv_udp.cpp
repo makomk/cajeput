@@ -33,6 +33,8 @@
 
 #define BUF_SIZE 2048
 
+#define RESEND_INTERVAL 1.0
+#define MAX_RESENDS 3
 
 // FIXME - resend lost packets
 void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int throt_id) {
@@ -52,11 +54,117 @@ void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int thro
   } else {
     printf("DEBUG: couldn't pack message, not sending\n");
   }
-  sl_free_msg(msg);
+  if(len > 0 && (msg->flags & MSG_RELIABLE)) {
+    // FIXME - remove acks on resend?
+    udp_resend_desc *resend = new udp_resend_desc();
+    resend->time = g_timer_elapsed(lctx->u->sim->timer, NULL) + RESEND_INTERVAL;
+    resend->ctr = 0;
+    resend->msg = *msg;
+    lctx->resends[msg->seqno] = resend;
+    lctx->resend_sched.insert(std::pair<double,udp_resend_desc*>(resend->time,resend));
+    printf("### DEBUG: scheduling resend for %u\n", msg->seqno);
+    msg->tmpl = NULL; msg->blocks = NULL; msg->acks = NULL;
+  } else {
+    sl_free_msg(msg);
+  }
 }
 
 void sl_send_udp(struct omuser_ctx* lctx, struct sl_message* msg) {
   sl_send_udp_throt(lctx, msg, -1);
+}
+
+static void free_resend_int(udp_resend_desc* resend) {
+  sl_free_msg(&resend->msg); delete resend;
+}
+
+static void handle_packet_ack(omuser_ctx* lctx, uint32_t seqno) {
+  std::map<uint32_t, udp_resend_desc*>::iterator iter
+    = lctx->resends.find(seqno);
+  if(iter == lctx->resends.end()) return;
+
+  printf("DEBUG: got ack for %u\n", seqno);
+
+  udp_resend_desc *resend = iter->second;
+  
+  std::pair<std::multimap<double,udp_resend_desc*>::iterator,
+    std::multimap<double,udp_resend_desc*>::iterator> iters =
+    lctx->resend_sched.equal_range(resend->time);
+  for(std::multimap<double,udp_resend_desc*>::iterator iter2 = iters.first; 
+      iter2 != iters.second; iter2++) {
+    if(iter2->second == resend) {
+      lctx->resend_sched.erase(iter2); break;
+    }
+  }
+
+  free_resend_int(resend);
+}
+
+// part of the user deletion code
+static void free_resend_data(omuser_ctx* lctx) {
+  for(std::multimap<double,udp_resend_desc*>::iterator iter =
+	lctx->resend_sched.begin(); iter != lctx->resend_sched.end(); iter++) {
+    free_resend_int(iter->second);
+  }
+}
+
+static gboolean resend_timer(gpointer data) {
+  struct omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
+  double time_now = g_timer_elapsed(lsim->sim->timer, NULL);
+
+  for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {    
+    // printf("DEBUG: *** resend timer ***\n");
+    
+    user_update_throttles(lctx->u);
+
+    while(lctx->u->throttles[SL_THROTTLE_RESEND].level > 0.0f) {
+      std::multimap<double,udp_resend_desc*>::iterator iter =
+	lctx->resend_sched.begin();
+      if(iter == lctx->resend_sched.end()) {
+	printf("DEBUG: no resends scheduled\n");
+	break;
+      } else if(iter->first > time_now) {
+	printf("DEBUG: resend of %u not due yet: due %f, now %f\n",
+	       iter->second->msg.seqno, iter->first, time_now);
+	break;
+      }
+      
+      udp_resend_desc* resend = iter->second;
+      lctx->resend_sched.erase(iter);
+
+      if(resend->ctr >= MAX_RESENDS) {
+	printf("!!! WARNING: max resends for packet %u exceeded\n",
+	       resend->msg.seqno);
+	lctx->resends.erase(resend->msg.seqno);
+	free_resend_int(resend);
+	continue;
+      }
+
+      printf("DEBUG: resending packet %i\n",resend->msg.seqno);
+
+      resend->ctr++;
+      resend->time = time_now + RESEND_INTERVAL;
+      lctx->resend_sched.insert(std::pair<double,udp_resend_desc*>
+				(resend->time,resend));
+
+      unsigned char buf[BUF_SIZE]; int ret, len;
+      resend->msg.flags |= MSG_RESENT;
+      len = sl_pack_message(&resend->msg,buf,BUF_SIZE);
+      if(len > 0) {
+	ret = sendto(lctx->sock,buf,len,0,
+		     (struct sockaddr*)&lctx->addr,sizeof(lctx->addr));
+	if(ret <= 0) {
+	  //int err = errno;
+	  //printf("DEBUG: couldn't send message\n");
+	  perror("sending UDP message");
+	}
+	lctx->u->throttles[SL_THROTTLE_RESEND].level -= len;
+      } else {
+	printf("DEBUG: couldn't pack resent message, not sending\n");
+      }
+    }
+  }
+
+  return TRUE;
 }
 
 // FIXME - split acks across multiple packets if necessary
@@ -391,7 +499,12 @@ static void handle_RegionHandshakeReply_msg(struct omuser_ctx* lctx, struct sl_m
 }
 
 static void handle_PacketAck_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
-  // FIXME FIXME FIXME
+  int cnt = SL_GETBLK(PacketAck, Packets, msg).count;
+  for(int i = 0; i < cnt; i++) {
+    SL_DECLBLK_ONLY(PacketAck, Packets, ack) =
+      SL_GETBLKI(PacketAck, Packets, msg, i);
+    handle_packet_ack(lctx, ack->ID);
+  }
 }
 
 static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1164,6 +1277,8 @@ static void remove_user(void *user_priv) {
 
   free_texture_sends(lctx);
 
+  free_resend_data(lctx);
+
   for(omuser_ctx** luser = &lctx->lsim->ctxts; *luser != NULL; ) {
     if(*luser == lctx) {
       *luser = lctx->next; break;
@@ -1286,8 +1401,14 @@ static gboolean got_packet(GIOChannel *source,
 	  std::set<uint32_t>::iterator iter = lctx->seen_packets.find(msg.seqno);
 	  if(iter == lctx->seen_packets.end()) {
 	    lctx->seen_packets.insert(msg.seqno);
-	    dispatch_msg(lctx, &msg); break;
+	    dispatch_msg(lctx, &msg);
 	  }
+
+	  for(int i = 0; i < msg.num_appended_acks; i++) {
+	    handle_packet_ack(lctx, msg.acks[i]);
+	  }
+	  
+	  break;
 	}
       }
     }
@@ -1349,4 +1470,5 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
 
   g_timeout_add(100, texture_send_timer, lsim); // FIXME - check the timing on this
   g_timeout_add(100, obj_update_timer, lsim);  
+  g_timeout_add(200, resend_timer, lsim);
 }

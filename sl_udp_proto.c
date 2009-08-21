@@ -313,7 +313,7 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
   int len = 0; unsigned char *rawmsg = data+6; int i,j,k, tmp;
   if(buflen < 10) return 0; buflen -= 6;
-  msg->flags &= ~MSG_ZEROCODED;
+  msg->flags &= ~MSG_ZEROCODED; // FIXME - handle zerocoding!
   data[0] = msg->flags;
   *(uint32_t*)(data+1) = htonl(msg->seqno);
   data[5] = 0;
