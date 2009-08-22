@@ -62,7 +62,6 @@ void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int thro
     resend->msg = *msg;
     lctx->resends[msg->seqno] = resend;
     lctx->resend_sched.insert(std::pair<double,udp_resend_desc*>(resend->time,resend));
-    printf("### DEBUG: scheduling resend for %u\n", msg->seqno);
     msg->tmpl = NULL; msg->blocks = NULL; msg->acks = NULL;
   } else {
     sl_free_msg(msg);
@@ -82,7 +81,7 @@ static void handle_packet_ack(omuser_ctx* lctx, uint32_t seqno) {
     = lctx->resends.find(seqno);
   if(iter == lctx->resends.end()) return;
 
-  printf("DEBUG: got ack for %u\n", seqno);
+  // printf("DEBUG: got ack for %u\n", seqno);
 
   udp_resend_desc *resend = iter->second;
   
@@ -112,19 +111,13 @@ static gboolean resend_timer(gpointer data) {
   double time_now = g_timer_elapsed(lsim->sim->timer, NULL);
 
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {    
-    // printf("DEBUG: *** resend timer ***\n");
     
     user_update_throttles(lctx->u);
 
     while(lctx->u->throttles[SL_THROTTLE_RESEND].level > 0.0f) {
       std::multimap<double,udp_resend_desc*>::iterator iter =
 	lctx->resend_sched.begin();
-      if(iter == lctx->resend_sched.end()) {
-	printf("DEBUG: no resends scheduled\n");
-	break;
-      } else if(iter->first > time_now) {
-	printf("DEBUG: resend of %u not due yet: due %f, now %f\n",
-	       iter->second->msg.seqno, iter->first, time_now);
+      if(iter == lctx->resend_sched.end() || iter->first > time_now) {
 	break;
       }
       
