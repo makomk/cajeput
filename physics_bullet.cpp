@@ -185,7 +185,12 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
   if(obj->phys == NULL)
     return;
   struct phys_obj *physobj = (struct phys_obj *)obj->phys;
-  physobj->is_flying = is_flying;
+
+  if(physobj->is_flying != is_flying) {
+    physobj->is_flying = is_flying;
+    physobj->body->applyCentralImpulse(btVector3(0.0f,-40.0f,0.0f)); // HACK
+    physobj->body->setActivationState(ACTIVE_TAG); // so we fall properly
+ }
 
   // FIXME - should make av buoyant
 }

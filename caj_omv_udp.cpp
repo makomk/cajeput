@@ -212,23 +212,23 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
     // FIXME - this is a horrid hack
     uint32_t control_flags = ad->ControlFlags;
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
-    sl_vector3 force; 
-    force.x = 0.0f; force.y = 0.0f; force.z = 0.0f;
+    sl_vector3 velocity; 
+    velocity.x = 0.0f; velocity.y = 0.0f; velocity.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
-      force.x = 4.0;
+      velocity.x = is_flying ? 6.0 : 3.0;
     if(control_flags & AGENT_CONTROL_AT_NEG)
-      force.x = -4.0;
+      velocity.x =  is_flying ? 4.0 : -2.0;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
-      force.y = -4.0;
+      velocity.y = -2.0;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
-      force.y = 4.0;
+      velocity.y = 2.0;
     if(control_flags & AGENT_CONTROL_UP_POS)
-      force.z = 4.0;
+      velocity.z = 4.0;
     if(control_flags & AGENT_CONTROL_UP_NEG)
-      force.z = -4.0;
-    sl_mult_vect3_quat(&force,&ctx->av->ob.rot,&force);
-    ctx->sim->physh.set_avatar_flying(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob, is_flying);
-    ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,force);
+      velocity.z = -4.0;
+    sl_mult_vect3_quat(&velocity,&ctx->av->ob.rot,&velocity);
+    ctx->sim->physh.set_avatar_flying(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,is_flying);
+    ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,velocity);
 
     // FIXME - iffy
     if(is_flying) {
