@@ -834,7 +834,21 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
     blocks[num_blocks].flags = val;
     if(!soup_value_hash_lookup(sim_info, "map-image-id", G_TYPE_STRING, &s))
       goto bad_block;
-    uuid_parse(s, blocks[num_blocks].map_image);
+    uuid_parse(s, blocks[num_blocks].map_image); // FIXME - check return value
+    if(!soup_value_hash_lookup(sim_info, "sim_ip", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].sim_ip = s;
+    if(!soup_value_hash_lookup(sim_info, "sim_port", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].sim_port = atoi(s);
+    if(!soup_value_hash_lookup(sim_info, "http_port", G_TYPE_STRING, &s))
+      goto bad_block;
+    blocks[num_blocks].http_port = atoi(s);
+    if(!soup_value_hash_lookup(sim_info, "uuid", G_TYPE_STRING, &s))
+      goto bad_block;
+    uuid_parse(s, blocks[num_blocks].region_id); // FIXME - check return value
+    
+    // FIXME - do something with regionhandle, sim_uri?
 
     printf("DEBUG: map block %i,%i is %s\n",
 	   blocks[num_blocks].x, blocks[num_blocks].y, blocks[num_blocks].name);
@@ -902,6 +916,7 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
 			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
 }
 
+#if 0
 struct os_region_info { // FIXME - merge with other region info desc.
   int x, y;
   char *name;
@@ -910,17 +925,18 @@ struct os_region_info { // FIXME - merge with other region info desc.
   uuid_t region_id;
   // FIXME - TODO
 };
+#endif
 
 struct region_info_state {
   simulator_ctx* sim;
-  void(*cb)(simulator_ctx* sim, void* cb_priv, os_region_info* info);
+  void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info);
   void *cb_priv;
 };
 
 
 static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct region_info_state *st = (region_info_state*)user_data;
-  struct os_region_info info;
+  struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
   GHashTable *hash = NULL;
   char *s; //uuid_t u;
@@ -960,8 +976,14 @@ static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer use
    if(!soup_value_hash_lookup(hash, "http_port", G_TYPE_STRING, &s))
     goto bad_block;
   info.http_port = atoi(s);
+  if(!soup_value_hash_lookup(hash, "region_UUID", G_TYPE_STRING, &s))
+    goto bad_block;
+  uuid_parse(s, info.region_id); // FIXME - check return value
 
-  // FIXME - use regionHandle, region_UUID, server_uri!
+  // NOTE! This doesn't fill out a bunch of stuff that it should, because the
+  // response doesn't contain the required information!
+
+  // FIXME - use regionHandle, server_uri!
  
   st->cb(st->sim, st->cb_priv, &info);
   g_hash_table_destroy(hash);
@@ -977,8 +999,11 @@ static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer use
   delete st;
 }
 
+// WARNING: while superficially, this looks like a map block request-type
+// function, it does NOT return enough information for such a purpose, and is
+// for INTERNAL USE ONLY.
 static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
-			    void(*cb)(simulator_ctx* sim, void* cb_priv, os_region_info* info),
+			    void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
 			    void *cb_priv) {
   GRID_PRIV_DEF(sim);
   char buf[40];
@@ -1009,6 +1034,144 @@ static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
   // FIXME - why SOUP_MESSAGE(foo)?
   sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
 			 got_region_info, st);
+
+}
+
+
+struct region_by_name_state {
+  simulator_ctx* sim;
+  void(*cb)(void* cb_priv, map_block_info* info, int count);
+  void *cb_priv;
+};
+
+static void got_region_by_name(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct region_by_name_state *st = (region_by_name_state*)user_data;
+  struct map_block_info *info; int count;
+  //GRID_PRIV_DEF(st->sim);
+  GHashTable *hash = NULL;
+  char *s; //uuid_t u;
+
+  sim_shutdown_release(st->sim);
+
+  if(msg->status_code != 200) {
+    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+  if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
+					 msg->response_body->length,
+					 NULL,
+					 G_TYPE_HASH_TABLE, &hash)) {
+    printf("Region info request failed: couldn't parse response\n");
+    goto out_fail;
+  }
+
+  printf("DEBUG: region by name response ~%s~\n", msg->response_body->data);
+
+  if(!soup_value_hash_lookup(hash, "numFound", G_TYPE_INT, &count))
+    goto bad_resp;
+  printf("DEBUG: region by name lookup returned %i items\n", count);
+  
+  if(count < 0) count = 0; 
+  if(count > 100) count = 100;
+  info = new map_block_info[count];
+
+  for(int i = 0; i < count && i >= 0; i++) {
+      char memb[40];
+      snprintf(memb,40,"region%i.region_locx",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].x = atoi(s);
+
+      snprintf(memb,40,"region%i.region_locy",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].y = atoi(s);
+
+      snprintf(memb,40,"region%i.region_name",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].name = s;
+
+      snprintf(memb,40,"region%i.sim_ip",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].sim_ip = s;
+
+      snprintf(memb,40,"region%i.sim_port",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].sim_port = atoi(s);
+
+      snprintf(memb,40,"region%i.http_port",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      info[i].http_port = atoi(s);
+
+      snprintf(memb,40,"region%i.region_UUID",i);
+      if(!soup_value_hash_lookup(hash, memb, G_TYPE_STRING, &s))
+	goto bad_block;
+      uuid_parse(s, info[i].region_id); // FIXME - check return value
+
+      // FIXME - the response doesn't have these details. Not needed?
+      info[i].num_agents = 0; info[i].water_height = 0;
+      info[i].flags = 0;
+
+      // FIXME FIXME - one part of the OpenSim code expects this, but the part
+      // that actually parses the response doesn't fill it in, and the response
+      // doesn't have it. Bug somewhere?
+      info[i].access = 0;
+      
+      // FIXME - use regionHandle, server_uri!
+    }
+
+ 
+  st->cb(st->cb_priv, info, count);
+  delete[] info;
+  g_hash_table_destroy(hash);
+  delete st;
+  return;
+
+ bad_block:
+  delete[] info;
+ bad_resp:
+  printf("ERROR: couldn't lookup expected values in region by name reply\n");
+  //out_free_fail:
+  g_hash_table_destroy(hash);
+ out_fail:
+  st->cb(st->cb_priv, NULL, 0);
+  delete st;
+}
+
+static void map_name_request(struct simulator_ctx* sim, const char* name,
+			    void(*cb)(void* cb_priv, map_block_info* info, int count),
+			    void *cb_priv) {
+  GRID_PRIV_DEF(sim);
+
+  GHashTable *hash;
+  //GError *error = NULL;
+  SoupMessage *msg;
+
+  hash = soup_value_hash_new();
+  soup_value_hash_insert(hash,"name",G_TYPE_STRING,name);
+  soup_value_hash_insert(hash,"maxNumber",G_TYPE_STRING,"20"); // FIXME
+
+  msg = soup_xmlrpc_request_new(grid->gridserver, "search_for_region_by_name",
+				G_TYPE_HASH_TABLE, hash,
+				G_TYPE_INVALID);
+  g_hash_table_destroy(hash);
+  if (!msg) {
+    fprintf(stderr, "Could not create search_for_region_by_name request\n");
+    cb(cb_priv, NULL, 0);
+    return;
+  }
+
+  region_by_name_state *st = new region_by_name_state();
+  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+
+  sim_shutdown_hold(sim);
+  // FIXME - why SOUP_MESSAGE(foo)?
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 got_region_by_name, st);
 
 }
 
@@ -1047,7 +1210,7 @@ static void do_teleport_resolve_cb(SoupAddress *addr,
 }
 
 static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv, 
-				 os_region_info *info) {
+				 map_block_info *info) {
   teleport_desc* tp = (teleport_desc*)priv;
   if(tp->ctx == NULL) {
     user_teleport_failed(tp, "cancelled");
@@ -1107,6 +1270,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_entered = user_entered;
   //hooks->fetch_user_inventory = fetch_user_inventory;
   hooks->map_block_request = map_block_request;
+  hooks->map_name_request = map_name_request;
   hooks->do_teleport = do_teleport;
   hooks->fetch_inventory_folder = fetch_inventory_folder;
 

@@ -29,7 +29,7 @@
 #include <libsoup/soup.h>
 #include "sl_types.h"
 
-#define CAJEPUT_API_VERSION 0x0004
+#define CAJEPUT_API_VERSION 0x0005
 
 #define WORLD_HEIGHT 4096
 
@@ -111,6 +111,11 @@ struct map_block_info {
   uint32_t flags;
   uuid_t map_image;
   // TODO
+
+  // not used by MapBlockRequest, but kinda handy for other stuff
+  char *sim_ip;
+  int sim_port, http_port;
+  uuid_t region_id;  
 };
 
 struct cajeput_grid_hooks {
@@ -143,6 +148,10 @@ struct cajeput_grid_hooks {
 			   void(*cb)(void *priv, struct map_block_info *blocks, 
 				     int count),
 			   void *cb_priv);
+  void(*map_name_request)(struct simulator_ctx* sim, const char* name,
+			  void(*cb)(void* cb_priv, struct map_block_info* blocks, 
+				    int count),
+			  void *cb_priv);
 
   // interesting interesting function...
   void(*fetch_inventory_folder)(simulator_ctx *sim, user_ctx *user,
