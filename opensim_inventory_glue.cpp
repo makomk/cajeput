@@ -404,7 +404,7 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 			    void(*cb)(struct inventory_contents* inv, 
 				      void* priv),
 			    void *cb_priv) {
-  uuid_t u; char tmp[40];
+  uuid_t u; char tmp[40]; char uri[256];
   GRID_PRIV_DEF(sim);
   USER_PRIV_DEF(user_priv);
   xmlTextWriterPtr writer;
@@ -444,8 +444,9 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
     printf("DEBUG: couldn't end XML document\n"); goto fail;
   }
 
-  // FIXME - don't hardcode this
-  msg = soup_message_new ("POST", "http://127.0.0.1:8003/GetFolderContent/");
+  // FIXME - don't use fixed-length buffer, and handle missing trailing /
+  snprintf(uri, 256, "%sGetFolderContent/", grid->inventoryserver);
+  msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
   soup_message_set_request (msg, "application/xml",
 			    SOUP_MEMORY_COPY, (char*)buf->content, 

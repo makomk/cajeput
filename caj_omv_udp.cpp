@@ -557,8 +557,6 @@ static void inventory_descendents_cb(struct inventory_contents* inv, void* priv)
 	  sl_string_set(&idata->Description, inv->items[i].description);
 	  idata->CreationDate = inv->items[i].creation_date;
 	  idata->CRC = caj_calc_inventory_crc(&inv->items[i]);
-	  
-	  // TODO
 	}
 	sl_send_udp(lctx, &invdesc); // FIXME - throttle this!
       }
