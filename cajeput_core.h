@@ -444,7 +444,7 @@ struct texture_desc {
 // Note: (a) you assign the UUID, (b) the sim owns and free()s the buffer
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local);
-void sim_texture_read_metadata(struct texture_desc *desc);
+void sim_texture_finished_load(texture_desc *desc);
 struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
 void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 

@@ -456,6 +456,31 @@ void sim_texture_read_metadata(struct texture_desc *desc) {
   }
 }
 
+static void save_texture(texture_desc *desc, const char* dirname) {
+  char asset_str[40], fname[80]; int fd;
+    uuid_unparse(desc->asset_id, asset_str);
+    snprintf(fname, 80, "%s/%s.jp2", dirname, asset_str);
+    fd = open(fname, O_WRONLY|O_CREAT|O_EXCL, 0644);
+    if(fd < 0) {
+      printf("Warning: couldn't open %s for temp texture save\n",
+	     fname);
+    } else {
+      int ret = write(fd, desc->data, desc->len);
+      if(ret != desc->len) {
+	if(ret < 0) perror("save local texture");
+	printf("Warning: couldn't write full texure to %s: %i/%i\n",
+	       fname, ret, desc->len);
+      }
+      close(fd);
+    }
+}
+
+void sim_texture_finished_load(texture_desc *desc) {
+  assert(desc->data != NULL);
+  sim_texture_read_metadata(desc);
+  save_texture(desc,"tex_cache");
+}
+
 // FIXME - actually clean up the textures we allocate
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local) {
@@ -470,22 +495,7 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
   sim->textures[asset_id] = desc;
 
   if(is_local) {
-    char asset_str[40], fname[80]; int fd;
-    uuid_unparse(asset_id, asset_str);
-    sprintf(fname, "temp_assets/%s.jpc", asset_str);
-    fd = open(fname, O_WRONLY|O_CREAT|O_EXCL, 0644);
-    if(fd < 0) {
-      printf("Warning: couldn't open %s for temp texture save\n",
-	     fname);
-    } else {
-      int ret = write(fd, data, len);
-      if(ret != len) {
-	if(ret < 0) perror("save local texture");
-	printf("Warning: couldn't write full texure to %s: %i/%i\n",
-	       fname, ret, len);
-      }
-      close(fd);
-    }
+    save_texture(desc, "temp_assets");
   }
 }
 
@@ -508,10 +518,49 @@ struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id)
   desc->refcnt++; return desc;
 }
 
+static const char* texture_dirs[] = {"temp_assets","tex_cache",NULL};
+
 void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
-  // FIXME - use disk-based cache
   if(desc->data == NULL && (desc->flags & 
 		     (CJP_TEXTURE_PENDING | CJP_TEXTURE_MISSING)) == 0) {
+    char asset_str[40], fname[80]; int fd; 
+    struct stat st;
+    uuid_unparse(desc->asset_id, asset_str);
+
+    // first, let's see if we've got a cached copy locally
+    for(int i = 0; texture_dirs[i] != NULL; i++) {
+      sprintf(fname, "%s/%s.jp2", texture_dirs[i], asset_str);
+      if(stat(fname, &st) != 0 || st.st_size == 0) continue;
+
+      printf("DEBUG: loading texture from %s, len %i\n",fname,st.st_size);
+
+      desc->len = st.st_size;
+      fd = open(fname, O_RDONLY);
+      if(fd < 0) {
+	printf("ERROR: couldn't open texture cache file\n");
+	break;
+      }
+      
+      unsigned char *data = (unsigned char*)malloc(desc->len);
+      int off;
+      for(off = 0; off < desc->len; ) {
+	int ret = read(fd, data+off, desc->len-off);
+	if(ret <= 0) break;
+	off += ret;
+      }
+      close(fd);
+
+      if(off < desc->len) {
+	printf("ERROR: Couldn't read texture from file\n");
+	free(data); break;
+      }
+
+      desc->data = data;
+      sim_texture_read_metadata(desc);
+      return;
+    }
+
+    // No cached copy, have to do a real fetch
     desc->flags |= CJP_TEXTURE_PENDING;
     sim->gridh.get_texture(sim, desc);
   }
@@ -1483,7 +1532,7 @@ static char *read_text_file(const char *name, int *lenout) {
   close(fd); *lenout = len; return data;
 }
 
-void load_terrain(struct simulator_ctx *sim, const char* file) {
+static void load_terrain(struct simulator_ctx *sim, const char* file) {
   unsigned char *dat = new unsigned char[13*256*256];
   int fd = open(file,O_RDONLY); int ret;
   if(fd < 0) return;
@@ -1497,10 +1546,16 @@ void load_terrain(struct simulator_ctx *sim, const char* file) {
   
 }
 
+static void create_cache_dirs(void) {
+  mkdir("temp_assets", 0700);
+  mkdir("tex_cache", 0700);
+}
+
 int main(void) {
   g_thread_init(NULL);
   g_type_init();
   terrain_init_compress(); // FIXME - move to omuser module
+  create_cache_dirs();
 
   char* sim_uuid, *sim_owner;
   struct simulator_ctx* sim = new simulator_ctx();
