@@ -21,8 +21,8 @@
  */
 
 #include "cajeput_core.h"
-#include "btBulletDynamicsCommon.h"
-#include "BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h"
+#include <btBulletDynamicsCommon.h>
+#include <BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h>
 #include <stdio.h> /* for debugging */
 #include <set>
 

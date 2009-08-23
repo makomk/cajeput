@@ -565,7 +565,6 @@ static void inventory_descendents_cb(struct inventory_contents* inv, void* priv)
   delete req;
 }
 
-// FIXME - TODO
 static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(FetchInventoryDescendents, AgentData, ad, msg);
   SL_DECLBLK_GET1(FetchInventoryDescendents, InventoryData, inv, msg);

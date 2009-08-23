@@ -39,6 +39,16 @@ struct user_grid_glue {
   char *enter_callback_uri; // callback for teleports
   std::map<uint64_t,std::string> child_seeds;
 };
+
+struct os_teleport_desc {
+  simulator_ctx *our_sim; // for internal use
+  char *sim_ip;
+  int sim_port, http_port;
+  teleport_desc* tp;
+  char *caps_path;
+};
+
+
 void user_grid_glue_ref(user_grid_glue *user_glue);
 void user_grid_glue_deref(user_grid_glue *user_glue);
 
@@ -51,4 +61,20 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 			    void(*cb)(struct inventory_contents* inv, 
 				      void* priv),
 			    void *cb_priv);
+
+void osglue_agent_rest_handler(SoupServer *server,
+			       SoupMessage *msg,
+			       const char *path,
+			       GHashTable *query,
+			       SoupClientContext *client,
+			       gpointer user_data);
+
+typedef void(*validate_session_cb)(void* state, int is_ok);
+void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
+			     const char *session_id, grid_glue_ctx* grid,
+			     validate_session_cb callback, void *priv);
+
+void osglue_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
+				os_teleport_desc *tp_priv);
+void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason);
 #endif
