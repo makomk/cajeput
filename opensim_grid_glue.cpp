@@ -2023,9 +2023,10 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_logoff = user_logoff;
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
-  hooks->fetch_user_inventory = fetch_user_inventory;
+  //hooks->fetch_user_inventory = fetch_user_inventory;
   hooks->map_block_request = map_block_request;
   hooks->do_teleport = do_teleport;
+  hooks->fetch_inventory_folder = fetch_inventory_folder;
 
   hooks->get_texture = get_texture;
   hooks->cleanup = cleanup;

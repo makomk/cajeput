@@ -118,8 +118,6 @@ struct cajeput_grid_hooks {
   void(*user_created)(struct simulator_ctx* sim,
 		      struct user_ctx* user,
 		      void **user_priv);
-  void(*fetch_user_inventory)(simulator_ctx *sim, user_ctx *user,
-			      void *user_priv);
 
   /* user entered the region */
   void(*user_entered)(simulator_ctx *sim, user_ctx *user,
@@ -145,6 +143,13 @@ struct cajeput_grid_hooks {
 			   void(*cb)(void *priv, struct map_block_info *blocks, 
 				     int count),
 			   void *cb_priv);
+
+  // interesting interesting function...
+  void(*fetch_inventory_folder)(simulator_ctx *sim, user_ctx *user,
+				void *user_priv, uuid_t folder_id,
+				void(*cb)(struct inventory_contents* inv, 
+					  void* priv),
+				void *cb_priv);
 };
 
 // void do_grid_login(struct simulator_ctx* sim);
@@ -350,6 +355,64 @@ void user_complete_teleport(struct teleport_desc* tp);
 void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
 				  uint32_t sim_ip, uint16_t sim_port,
 				  const char* seed_cap);
+
+// -------------------- INVENTORY STUFF ----------------------------------
+
+// Stuff for creating temporary descriptions of part of the inventory.
+// The sim doesn't store a copy of the inventory.
+
+struct inventory_folder {
+  char *name;
+  uuid_t folder_id, owner_id, parent_id;
+  int8_t inv_type;
+};
+
+struct inventory_item {
+  char *name;
+  uuid_t item_id, folder_id, owner_id;
+
+  char *creator_id;
+  uuid_t creator_as_uuid;
+  char *description;
+
+  uint32_t next_perms, current_perms, base_perms;
+  uint32_t everyone_perms, group_perms;
+
+  int8_t inv_type, asset_type;
+  uint8_t sale_type;
+  int8_t group_owned; // a boolean
+
+  uuid_t asset_id, group_id;
+
+  uint32_t flags;
+  int32_t sale_price;
+  int32_t creation_date;
+  // ...
+
+};
+
+// describes contents of an inventory folder
+struct inventory_contents {
+  uuid_t folder_id;
+  int32_t version, descendents;
+  
+  unsigned int num_subfolder, alloc_subfolder;
+  struct inventory_folder* subfolders;
+
+  unsigned int num_items, alloc_items;
+  struct inventory_item* items;
+};
+
+
+struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id);
+struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
+					    uuid_t folder_id, uuid_t owner_id,
+					    const char* name, int8_t inv_type);
+struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv, 
+					      const char* name, const char* desc,
+					      const char* creator);
+void caj_inv_free_contents_desc(struct inventory_contents* inv);
+uint32_t caj_calc_inventory_crc(struct inventory_item* item);
 
 // ----- MISC STUFF ---------
 

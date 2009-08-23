@@ -1211,8 +1211,8 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   for(int i = 0; i < 16; i++) ctx->dirty_terrain[i] = 0xffff;
 
-  // FIXME - where to put this?
-  sim->gridh.fetch_user_inventory(sim,ctx,ctx->grid_priv);
+  // FIXME - delete this!
+  // sim->gridh.fetch_user_inventory(sim,ctx,ctx->grid_priv);
 
   ctx->seed_cap = caps_new_capability_named(sim, seed_caps_callback, 
 					    ctx, NULL, uinfo->seed_cap);

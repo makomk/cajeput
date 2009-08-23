@@ -46,7 +46,9 @@ void user_grid_glue_deref(user_grid_glue *user_glue);
 #define USER_PRIV_DEF(priv) struct user_grid_glue* user_glue = (struct user_grid_glue*) (priv);
 #define USER_PRIV_DEF2(user) struct user_grid_glue* user_glue = (struct user_grid_glue*) user_get_grid_priv(user);
 
-void fetch_user_inventory(simulator_ctx *sim, user_ctx *user,
-			  void *user_priv);
-
+void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
+			    void *user_priv, uuid_t folder_id,
+			    void(*cb)(struct inventory_contents* inv, 
+				      void* priv),
+			    void *cb_priv);
 #endif

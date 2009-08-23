@@ -484,6 +484,107 @@ static void handle_AgentDataUpdateRequest_msg(struct omuser_ctx* lctx, struct sl
   send_agent_data_update(lctx);
 }
 
+struct fetch_inv_desc_req {
+  user_ctx *ctx;
+  int fetch_folders, fetch_items;
+};
+
+
+// FIXME - should choose num of blocks per packet dynamically!
+#define MAX_INV_PER_MSG 4
+
+static void inventory_descendents_cb(struct inventory_contents* inv, void* priv) {
+  fetch_inv_desc_req *req = (fetch_inv_desc_req*)priv;
+  if(req->ctx != NULL) {
+    omuser_ctx* lctx = (omuser_ctx*)req->ctx->user_priv;
+    user_del_self_pointer(&req->ctx);
+
+    if(inv == NULL) {
+      delete req; return;
+    }
+
+    // FIXME - TODO send folders!
+
+    if(req->fetch_items) {
+      // FIXME - OpenSim always sends a null terminating entry, should we too?
+      if(inv->num_items == 0) {
+	SL_DECLMSG(InventoryDescendents, invdesc);
+	SL_DECLBLK(InventoryDescendents, AgentData, ad, &invdesc);
+	uuid_copy(ad->AgentID, lctx->u->user_id);
+	uuid_copy(ad->FolderID, inv->folder_id);
+	uuid_copy(ad->OwnerID, lctx->u->user_id); // FIXME - is this always so?
+	ad->Version = 1; // FIXME FIXME FIXME!!!
+	ad->Descendents = inv->num_items + inv->num_subfolder;
+	
+	SL_DECLBLK(InventoryDescendents, ItemData, idata, &invdesc);
+	uuid_clear(idata->ItemID);
+	uuid_clear(idata->FolderID);
+	uuid_clear(idata->AssetID);
+	uuid_clear(idata->OwnerID);
+	idata->Type = -1;
+	sl_send_udp(lctx, &invdesc); // FIXME - throttle this!
+      }
+
+      for(unsigned int i = 0; i < inv->num_items; /**/) {
+	SL_DECLMSG(InventoryDescendents, invdesc);
+	SL_DECLBLK(InventoryDescendents, AgentData, ad, &invdesc);
+	uuid_copy(ad->AgentID, lctx->u->user_id);
+	uuid_copy(ad->FolderID, inv->folder_id);
+	uuid_copy(ad->OwnerID, lctx->u->user_id); // FIXME - is this always so?
+	ad->Version = 1; // FIXME FIXME FIXME!!!
+	ad->Descendents = inv->num_items + inv->num_subfolder;
+     
+	for(int j = 0; j < MAX_INV_PER_MSG && i < inv->num_items; i++, j++) {
+	  SL_DECLBLK(InventoryDescendents, ItemData, idata, &invdesc);
+	  uuid_copy(idata->ItemID, inv->items[i].item_id);
+	  uuid_copy(idata->FolderID, inv->items[i].folder_id);
+	  uuid_copy(idata->CreatorID, inv->items[i].creator_as_uuid);
+	  uuid_copy(idata->OwnerID, inv->items[i].owner_id);
+	  uuid_copy(idata->GroupID, inv->items[i].group_id);
+	  idata->BaseMask = inv->items[i].base_perms;
+	  idata->OwnerMask = inv->items[i].current_perms;
+	  idata->GroupMask = inv->items[i].group_perms;
+	  idata->EveryoneMask = inv->items[i].everyone_perms;
+	  idata->NextOwnerMask = inv->items[i].next_perms;
+	  idata->GroupOwned = inv->items[i].group_owned;
+	  uuid_copy(idata->AssetID, inv->items[i].asset_id);
+	  idata->Type = inv->items[i].asset_type;
+	  idata->InvType = inv->items[i].inv_type;
+	  idata->Flags = inv->items[i].flags;
+	  idata->SaleType = inv->items[i].sale_type;
+	  idata->SalePrice = inv->items[i].sale_price;
+	  sl_string_set(&idata->Name, inv->items[i].name);
+	  sl_string_set(&idata->Description, inv->items[i].description);
+	  idata->CreationDate = inv->items[i].creation_date;
+	  idata->CRC = caj_calc_inventory_crc(&inv->items[i]);
+	  
+	  // TODO
+	}
+	sl_send_udp(lctx, &invdesc); // FIXME - throttle this!
+      }
+    }
+  }
+  delete req;
+}
+
+// FIXME - TODO
+static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(FetchInventoryDescendents, AgentData, ad, msg);
+  SL_DECLBLK_GET1(FetchInventoryDescendents, InventoryData, inv, msg);
+  if(ad == NULL || inv == NULL || VALIDATE_SESSION(ad)) 
+    return;
+
+  printf("DEBUG: Got FetchInventoryDescendents, sending to inventory server!\n");
+
+  fetch_inv_desc_req *req = new fetch_inv_desc_req();
+  req->ctx = lctx->u;  user_add_self_pointer(&req->ctx);
+  req->fetch_folders = inv->FetchFolders;
+  req->fetch_items = inv->FetchItems;
+  lctx->u->sim->gridh.fetch_inventory_folder(lctx->u->sim, lctx->u, 
+					     lctx->u->grid_priv, inv->FolderID,
+					     inventory_descendents_cb, req);
+}
+
 static void handle_RegionHandshakeReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RegionHandshakeReply, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
@@ -1452,6 +1553,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(MapBlockRequest);
   ADD_HANDLER(TeleportLocationRequest);
   ADD_HANDLER(TeleportLandmarkRequest);
+  ADD_HANDLER(FetchInventoryDescendents);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;
