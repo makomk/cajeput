@@ -348,6 +348,7 @@ struct map_block_req_priv {
   user_ctx *ctx;
   uint32_t flags;
   char *name;
+  uint32_t x, y;
 };
 
 // we'll start running into trouble if a bunch of sims have names longer than
@@ -360,16 +361,15 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
     // FIXME - should we send an empty message if we have nothing?
     // For now, I'm guessing not
 
-    // FIXME - OpenSim has some special case re. clicking a map tile!
- 
     int send_count = count;
     if(req->name != NULL) send_count++;
+    else if((req->flags & 0x10000) != 0 && count == 0) send_count = 1;
 
     for(int i = 0; i < send_count; /*nothing*/) {
       SL_DECLMSG(MapBlockReply, reply);
       SL_DECLBLK(MapBlockReply, AgentData, ad, &reply);
       uuid_copy(ad->AgentID, req->ctx->user_id);
-      ad->Flags = req->flags;
+      ad->Flags = req->flags & ~0x10000; // just hardcode to 2?
       
       for(int j = 0; j < MAX_MAP_BLOCKS_PER_MSG && i < send_count; i++, j++) {
 	SL_DECLBLK(MapBlockReply, Data, dat, &reply);
@@ -390,10 +390,20 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
 	  dat->WaterHeight = 0;
 	  dat->Agents = 0;
 	  uuid_clear(dat->MapImageID);
+	} else if(req->flags & 0x10000) {
+	  // special magic to do with clicking map tiles
+	  dat->X = req->x; dat->Y = req->y;
+	  dat->Name.len = 0;
+	  dat->Access = 255; // NOT 254 - that's "region offline"!
+	  dat->RegionFlags = 0;
+	  dat->WaterHeight = 0;
+	  dat->Agents = 0;
+	  uuid_clear(dat->MapImageID);
 	}
       }
       
       reply.flags |= MSG_RELIABLE;
+      sl_dump_packet(&reply);
       sl_send_udp(req->lctx, &reply);
     }
     
@@ -411,8 +421,9 @@ static void handle_MapBlockRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   user_ctx *ctx = lctx->u;
   map_block_req_priv *priv = new map_block_req_priv();
   priv->ctx = ctx; priv->flags = ad->Flags; priv->lctx = lctx;
-  priv->name = NULL;
+  priv->name = NULL; priv->x = pos->MinX; priv->y = pos->MinY;
   user_add_self_pointer(&priv->ctx);
+  sl_dump_packet(msg);
   ctx->sim->gridh.map_block_request(ctx->sim, pos->MinX, pos->MaxX, pos->MinY, 
 				    pos->MaxY, map_block_req_cb, priv);
 }
@@ -429,7 +440,6 @@ static void handle_MapNameRequest_msg(struct omuser_ctx* lctx, struct sl_message
   user_add_self_pointer(&priv->ctx);
   ctx->sim->gridh.map_name_request(ctx->sim, priv->name, 
 				   map_block_req_cb, priv);
-  
 }
 
 
