@@ -446,6 +446,7 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 
   // FIXME - don't use fixed-length buffer, and handle missing trailing /
   snprintf(uri, 256, "%sGetFolderContent/", grid->inventoryserver);
+  printf("DEBUG: sending inventory request to %s\n", grid->inventoryserver);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
   soup_message_set_request (msg, "application/xml",
@@ -469,5 +470,6 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
   xmlBufferFree(buf);
  fail:
   printf("DEBUG: ran into issues sending inventory request\n");
+  cb(NULL, cb_priv);
   // FIXME - handle this
 }
