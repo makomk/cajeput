@@ -484,7 +484,7 @@ static void xmlrpc_handler (SoupServer *server,
     printf("DEBUG: request for unhandled path %s\n",
 	   path);
     if (msg->method == SOUP_METHOD_POST) {
-      printf("DEBUG: POST data is {{%s}}\n",
+      printf("DEBUG: POST data is ~%s~\n",
 	     msg->request_body->data);
     }
     soup_message_set_status(msg,404);
