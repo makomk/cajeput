@@ -95,6 +95,7 @@ static void handle_packet_ack(omuser_ctx* lctx, uint32_t seqno) {
     }
   }
 
+  lctx->resends.erase(iter);
   free_resend_int(resend);
 }
 
