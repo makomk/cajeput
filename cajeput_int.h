@@ -345,6 +345,8 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
 // takes ownership of the passed LLSD
 void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
 
+int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
+
 // --- this is messy --------------------
 
 #define CAJ_MULTI_UPD_POS 1
@@ -361,12 +363,14 @@ struct caj_multi_upd {
 void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			    const struct caj_multi_upd *upd);
 
+
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 
 #define UPDATE_LEVEL_FULL 255
-#define UPDATE_LEVEL_POSROT 1 // pos/rot/scale
+#define UPDATE_LEVEL_POSROT 1 // pos/rot
 #define UPDATE_LEVEL_NONE 0
 
+void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
 
 // --------- CAPS STUFF -----------------------------
 

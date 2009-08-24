@@ -56,6 +56,7 @@ struct world_obj {
 
 struct primitive_obj {
   struct world_obj ob; // must be first!
+  uint32_t crc_counter;
   uint8_t sale_type;
 
   uint8_t material, path_curve, profile_curve;

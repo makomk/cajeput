@@ -463,8 +463,14 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
     obj->scale = upd->scale;
   }
 
-  // FIXME - most of the time we only need a terse update!
-  mark_new_obj_for_updates(sim, obj);
+  // FIXME - do we really need a full update in the scale case?
+  world_mark_object_updated(sim, obj, (upd->flags & CAJ_MULTI_UPD_SCALE) ?
+			    UPDATE_LEVEL_FULL : UPDATE_LEVEL_POSROT);
+}
+
+int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {
+  if(obj->type != OBJ_TYPE_PRIM) return false;
+  return true; // FIXME!
 }
 
 void user_reset_timeout(struct user_ctx* ctx) {
@@ -693,6 +699,18 @@ static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
 
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL;
+  }
+}
+
+void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level) {
+  if(obj->type != OBJ_TYPE_PRIM) return;
+
+  primitive_obj *prim = (primitive_obj*)obj;
+  prim->crc_counter++;
+
+  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
+    // FIXME - use update level provided!
+    user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL; 
   }
 }
 
