@@ -112,6 +112,8 @@ static gboolean resend_timer(gpointer data) {
   double time_now = g_timer_elapsed(lsim->sim->timer, NULL);
 
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {    
+    if(lctx->u->flags & (AGENT_FLAG_IN_SLOW_REMOVAL|AGENT_FLAG_PURGE))
+      continue;
     
     user_update_throttles(lctx->u);
 
@@ -679,7 +681,7 @@ static void handle_LogoutRequest_msg(struct omuser_ctx* lctx, struct sl_message*
   uuid_copy(ad2->AgentID, ctx->user_id);
   uuid_copy(ad2->SessionID, ctx->session_id);
   sl_send_udp(lctx, &reply);
-  user_session_close(ctx);
+  user_session_close(ctx, false);
 }
 
 static void teleport_failed(struct user_ctx* ctx, const char* reason) {
@@ -940,6 +942,9 @@ static gboolean texture_send_timer(gpointer data) {
   struct omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
   send_err_throt++;
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
+    if(lctx->u->flags & (AGENT_FLAG_IN_SLOW_REMOVAL|AGENT_FLAG_PURGE))
+      continue;
+
     std::map<obj_uuid_t,image_request*>::iterator req_iter =
       lctx->image_reqs.begin(); // FIXME - do by priority
     user_update_throttles(lctx->u);

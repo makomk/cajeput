@@ -217,9 +217,9 @@ struct user_ctx {
 
   void *grid_priv;
 
-
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
 
+  int shutdown_ctr; // for slow user removal (AGENT_FLAG_IN_SLOW_REMOVAL)
 
   user_ctx(simulator_ctx* our_sim) : sim(our_sim), av(NULL) {
   }

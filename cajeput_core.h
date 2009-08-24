@@ -29,7 +29,7 @@
 #include <libsoup/soup.h>
 #include "sl_types.h"
 
-#define CAJEPUT_API_VERSION 0x0005
+#define CAJEPUT_API_VERSION 0x0006
 
 #define WORLD_HEIGHT 4096
 
@@ -265,6 +265,7 @@ static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 #define AGENT_FLAG_AV_FULL_UPD 0x200 // need to send full ObjectUpdate for this avatar
 
 #define AGENT_FLAG_TELEPORT_COMPLETE 0x400
+#define AGENT_FLAG_IN_SLOW_REMOVAL 0x800 // for teleports
 
 void *user_get_grid_priv(struct user_ctx *user);
 struct simulator_ctx* user_get_sim(struct user_ctx *user);
@@ -317,7 +318,7 @@ user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id);
 
 void user_send_message(struct user_ctx *user, const char* msg);
-void user_session_close(user_ctx* ctx);
+void user_session_close(user_ctx* ctx, int slowly);
 void user_reset_timeout(struct user_ctx* ctx);
 
 // used to ensure pointers to the user_ctx are NULLed correctly on removal

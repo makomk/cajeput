@@ -1359,6 +1359,7 @@ static void user_remove_int(user_ctx **user) {
     ctx->userh->disable_sim(ctx->user_priv); // FIXME
   } 
 
+  // mustn't do this in user_session_close; that'd break teleport
   user_int_event_queue_free(ctx);
 
   sim->gridh.user_deleted(ctx->sim,ctx,ctx->grid_priv);
@@ -1393,7 +1394,8 @@ static void user_remove_int(user_ctx **user) {
   delete ctx;
 }
 
-void user_session_close(user_ctx* ctx) {
+// FIXME - purge the texture sends here
+void user_session_close(user_ctx* ctx, int slowly) {
   simulator_ctx *sim = ctx->sim;
   if(ctx->av != NULL) {
     // FIXME - code duplication
@@ -1404,7 +1406,12 @@ void user_session_close(user_ctx* ctx) {
     }
     free(ctx->av); ctx->av = NULL;
   }
-  ctx->flags |= AGENT_FLAG_PURGE;
+  if(slowly) {
+    ctx->flags |= AGENT_FLAG_IN_SLOW_REMOVAL;
+    ctx->shutdown_ctr = 3; // 2-3 second delay.
+  } else {
+    ctx->flags |= AGENT_FLAG_PURGE;
+  }
 }
 
 /* This doesn't really belong here - it's OpenSim glue-specific */
@@ -1480,6 +1487,11 @@ static gboolean cleanup_timer(gpointer data) {
   }
 
   for(user_ctx** user = &sim->ctxts; *user != NULL; ) {
+    if((*user)->flags & AGENT_FLAG_IN_SLOW_REMOVAL) {
+      if(--((*user)->shutdown_ctr) <= 0)
+	(*user)->flags |= AGENT_FLAG_PURGE;
+    }
+
     if(time_now - (*user)->last_activity > USER_CONNECTION_TIMEOUT ||
        (*user)->flags & AGENT_FLAG_PURGE)
       user_remove_int(user);

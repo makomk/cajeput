@@ -462,10 +462,9 @@ static void agent_DELETE_release_handler(SoupServer *server,
     is_ok = 0; return;
   }
 
-  // FIXME - is this used for child agents too?
   if(user_get_flags(user) & AGENT_FLAG_TELEPORT_COMPLETE) {
     printf("DEBUG: releasing teleported user\n");
-    user_session_close(user); // FIXME - speed this up?
+    user_session_close(user, true); // needs the delay...
   } else {
     printf("ERROR: DELETE release for non-teleporting agent\n");
     is_ok = 0; goto out;
