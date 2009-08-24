@@ -36,6 +36,14 @@
 #define RESEND_INTERVAL 1.0
 #define MAX_RESENDS 3
 
+// fun stuff for talking to the SL viewer
+#define PCODE_PRIM 9
+#define PCODE_AV 47
+#define PCODE_GRASS 95
+#define PCODE_NEWTREE 111
+#define PCODE_PARTSYS 143 /* ??? */
+#define PCODE_TREE 255
+
 // FIXME - resend lost packets
 void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int throt_id) {
   // sends packet and updates throttle, but doesn't queue
@@ -759,6 +767,300 @@ static void handle_AgentThrottle_msg(struct omuser_ctx* lctx, struct sl_message*
 			   throt->Throttles.len);
 }
 
+static unsigned char* build_dummy_texture_entry(uuid_t texture, int *len) {
+  unsigned char* data = (unsigned char*)malloc(46);
+  float repeat_uv = 1.0f;
+  *len = 46;
+  memcpy(data,texture,16);
+  data[16] = 0;
+  memset(data+17,0,4); // colour
+  data[21] = 0;
+  memcpy(data+22,&repeat_uv,4); // repeat U. FIXME - endianness
+  data[26] = 0;
+  memcpy(data+27,&repeat_uv,4); // repeat V. FIXME - endianness
+  data[31] = 0;
+  memset(data+32,0,2); // offset U
+  data[34] = 0;
+  memset(data+35,0,2); // offset V
+  data[37] = 0;
+  memset(data+38,0,2); // rotation
+  data[39] = 0;
+  data[40] = 0; // material
+  data[41] = 0;
+  data[42] = 0; // media
+  data[43] = 0;
+  data[44] = 0; // glow
+  data[45] = 0; // FIXME - do we need this last terminating 0?
+  return data;
+}
+
+static void handle_ObjectAdd_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectAdd, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ObjectAdd, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad)) return;
+  
+  if(objd->PCode != PCODE_PRIM) {
+    // FIXME - support this!
+    user_send_message(lctx->u,"Sorry, creating non-prim objects not supported.");
+    return;
+  }
+
+  primitive_obj* prim = world_begin_new_prim(lctx->u->sim);
+  uuid_copy(prim->owner, lctx->u->user_id);
+  uuid_copy(prim->creator, prim->owner);
+  // FIXME - set group of object
+
+  prim->ob.pos = objd->RayEnd; // FIXME - do proper raycast
+
+  prim->material = objd->Material;
+  // FIXME - handle AddFlags
+  prim->path_curve = objd->PathCurve;
+  prim->profile_curve = objd->ProfileCurve;
+  prim->path_begin = objd->PathBegin;
+  prim->path_end = objd->PathEnd;
+  prim->path_scale_x = objd->PathScaleX;
+  prim->path_scale_y = objd->PathScaleY;
+  prim->path_shear_x = objd->PathShearX;
+  prim->path_shear_y = objd->PathShearY;
+  prim->path_twist = objd->PathTwist;
+  prim->path_twist_begin = objd->PathTwistBegin;
+  prim->path_radius_offset = objd->PathRadiusOffset;
+  prim->path_taper_x = objd->PathTaperX;
+  prim->path_taper_y = objd->PathTaperY;
+  prim->path_revolutions = objd->PathRevolutions;
+  prim->path_skew = objd->PathSkew;
+  prim->profile_begin = objd->ProfileBegin;
+  prim->profile_end = objd->ProfileEnd;
+  prim->profile_hollow = objd->ProfileHollow;
+  
+  prim->ob.scale = objd->Scale;
+  prim->ob.rot = objd->Rotation;
+
+  // FIXME - handle objd->State somehow
+
+  // FIXME - set texture (89556747-24cb-43ed-920b-47caed15465f)
+  uuid_t tex; 
+  assert(uuid_parse("89556747-24cb-43ed-920b-47caed15465f",tex) == 0);
+  prim->tex_entry.data = build_dummy_texture_entry(tex, &prim->tex_entry.len);
+  
+
+  // FIXME - TODO
+
+  world_insert_obj(lctx->u->sim, &prim->ob);
+}
+
+#define MULTI_UPDATE_POS 1
+#define MULTI_UPDATE_ROT 2
+#define MULTI_UPDATE_SCALE 4
+#define MULTI_UPDATE_LINKSET 8 // not sure what this does
+#define MULTI_UPDATE_16 16 // really not sure what this does!
+
+static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(MultipleObjectUpdate, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  int count = SL_GETBLK(ObjectSelect, ObjectData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(MultipleObjectUpdate, ObjectData, objd) =
+      SL_GETBLKI(MultipleObjectUpdate, ObjectData, msg, i);
+
+    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
+						    objd->ObjectLocalID);
+    if(obj == NULL) {
+      printf("ERROR: MultipleObjectUpdate for non-existent object");
+      continue;
+    } else if(obj->type != OBJ_TYPE_PRIM) {
+      printf("ERROR: MultipleObjectUpdate for non-prim object");
+      continue;
+    }
+    struct primitive_obj* prim = (primitive_obj*)obj;
+
+    if(objd->Type & 0xf0) {
+      printf("ERROR: MultipleObjectUpdate with unrecognised flags %i\n",
+	     (int)objd->Type);
+      continue;
+    }
+
+    unsigned char *dat = objd->Data.data;
+    int len = objd->Data.len;
+    struct caj_multi_upd upd;
+    upd.flags = 0;
+
+    // FIXME - handle LINSKET flag!
+
+    // FIXME - this is horribly endian-dependent code
+
+    if(objd->Type & MULTI_UPDATE_POS) {
+      if(len < 12) {
+	printf("ERROR: MultipleObjectUpdate too short for pos\n"); 
+	continue;
+      }
+      upd.flags |= CAJ_MULTI_UPD_POS;
+      memcpy(&upd.pos, dat, 12);
+      dat += 12; len -= 12;
+    }
+    if(objd->Type & MULTI_UPDATE_ROT) {
+      if(len < 16) {
+	printf("ERROR: MultipleObjectUpdate too short for rot\n"); 
+	continue;
+      }
+      upd.flags |= CAJ_MULTI_UPD_ROT;
+      memcpy(&upd.rot, dat, 16);
+      dat += 16; len -= 16;
+    }
+    if(objd->Type & MULTI_UPDATE_SCALE) {
+      if(len < 12) {
+	printf("ERROR: MultipleObjectUpdate too short for scale\n"); 
+	continue;
+      }
+      upd.flags |= CAJ_MULTI_UPD_SCALE;
+      memcpy(&upd.scale, dat, 12);
+      dat += 12; len -= 12;
+    }
+
+    // FIXME - TODO
+
+    world_multi_update_obj(lctx->u->sim, obj, &upd);
+  }
+}
+
+static void handle_RequestObjectPropertiesFamily_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RequestObjectPropertiesFamily, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RequestObjectPropertiesFamily, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad)) return;
+
+  struct world_obj* obj = world_object_by_id(lctx->u->sim, objd->ObjectID);
+  if(obj == NULL) {
+    printf("ERROR: RequestObjectPropertiesFamily for non-existent object");
+    return;
+  } else if(obj->type != OBJ_TYPE_PRIM) {
+    printf("ERROR: RequestObjectPropertiesFamily for non-prim object");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  SL_DECLMSG(ObjectPropertiesFamily, objprop);
+  SL_DECLBLK(ObjectPropertiesFamily, ObjectData, propdat, &objprop);
+  propdat->RequestFlags = objd->RequestFlags;
+  uuid_copy(propdat->ObjectID, obj->id);
+  uuid_copy(propdat->OwnerID, prim->owner);
+  uuid_clear(propdat->GroupID); // FIXME - send group ID once we have it!
+  propdat->BaseMask = prim->base_perms;
+  propdat->OwnerMask = prim->owner_perms;
+  propdat->GroupMask = prim->group_perms;
+  propdat->EveryoneMask = prim->everyone_perms;
+  propdat->NextOwnerMask = prim->next_perms;
+  propdat->OwnershipCost = 0; // ?? is this still used?
+  propdat->SaleType = prim->sale_type;
+  propdat->SalePrice = prim->sale_price;
+  propdat->Category = 0; // FIXME - what is this?
+  uuid_clear(propdat->LastOwnerID); // FIXME - what?
+  sl_string_set(&propdat->Name, prim->name);
+  sl_string_set(&propdat->Description, prim->description);
+  objprop.flags |= MSG_RELIABLE; // ???
+  sl_send_udp(lctx, &objprop);
+}
+
+// FIXME - (a) throttle responses, and (b) send multiple items per message
+static void send_object_properties(struct omuser_ctx* lctx, uint32_t localid) {
+  struct world_obj* obj = world_object_by_localid(lctx->u->sim, localid);
+  if(obj == NULL) {
+    printf("ERROR: wanted object properties for non-existent object");
+    return;
+  } else if(obj->type != OBJ_TYPE_PRIM) {
+    printf("ERROR: wanted object properties for non-prim object");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  SL_DECLMSG(ObjectProperties, objprop);
+  SL_DECLBLK(ObjectProperties, ObjectData, propdat, &objprop);
+  uuid_copy(propdat->ObjectID, obj->id);
+  uuid_copy(propdat->OwnerID, prim->owner);
+  uuid_copy(propdat->CreatorID, prim->creator);
+  uuid_clear(propdat->GroupID); // FIXME - send group ID once we have it!
+  propdat->CreationDate = 0; // FIXME!!!
+  propdat->BaseMask = prim->base_perms;
+  propdat->OwnerMask = prim->owner_perms;
+  propdat->GroupMask = prim->group_perms;
+  propdat->EveryoneMask = prim->everyone_perms;
+  propdat->NextOwnerMask = prim->next_perms;
+  propdat->OwnershipCost = 0; // ?? is this still used?
+  propdat->SaleType = prim->sale_type;
+  propdat->SalePrice = prim->sale_price;
+  propdat->AggregatePerms = 0; // FIXME FIXME FIXME
+  propdat->AggregatePermTextures = 0; // FIXME FIXME FIXME
+  propdat->AggregatePermTexturesOwner = 0; // FIXME FIXME FIXME
+  propdat->Category = 0; // FIXME - what is this?
+  uuid_clear(propdat->LastOwnerID); // FIXME - what?
+
+  // FIXME - what exactly are these?
+  propdat->InventorySerial = 0;
+  uuid_clear(propdat->ItemID);
+  uuid_clear(propdat->FolderID);
+  uuid_clear(propdat->FromTaskID);
+
+  sl_string_set(&propdat->Name, prim->name);
+  sl_string_set(&propdat->Description, prim->description);
+  sl_string_set(&propdat->TouchName, "");
+  sl_string_set(&propdat->SitName, "");
+  propdat->TextureID.len = 0; // FIXME - ?
+  objprop.flags |= MSG_RELIABLE; // ???
+  sl_send_udp(lctx, &objprop);
+}
+
+static void handle_ObjectSelect_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectSelect, AgentData, ad, msg);
+  
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+
+  int count = SL_GETBLK(ObjectSelect, ObjectData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectSelect, ObjectData, objd) =
+      SL_GETBLKI(ObjectSelect, ObjectData, msg, i);
+    send_object_properties(lctx, objd->ObjectLocalID);
+    // FIXME - actually track object selection state!
+  }
+
+  
+}
+
+static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
+			   void *priv) {
+  user_ctx **pctx = (user_ctx**)priv;
+  if(*pctx) {
+    user_ctx *ctx = *pctx; omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
+    user_del_self_pointer(pctx);
+    
+    if(first != NULL && last != NULL) {
+      printf("DEBUG: Sending UUIDNameReply for %s %s\n", first, last);
+      SL_DECLMSG(UUIDNameReply, reply);
+      SL_DECLBLK(UUIDNameReply, UUIDNameBlock, name, &reply);
+      uuid_copy(name->ID, uuid);
+      sl_string_set(&name->FirstName, first);
+      sl_string_set(&name->LastName, last);
+      reply.flags |= MSG_RELIABLE;
+      sl_send_udp(lctx, &reply);
+    } else {
+      printf("DEBUG: UUID name request FAILED!\n");
+    }
+  }
+  delete pctx;
+}
+
+static void handle_UUIDNameRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  
+  int count = SL_GETBLK(UUIDNameRequest,UUIDNameBlock,msg).count;
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(UUIDNameRequest,UUIDNameBlock,req) =
+      SL_GETBLKI(UUIDNameRequest,UUIDNameBlock,msg,i);
+    user_ctx **pctx = new user_ctx*(); *pctx = lctx->u;
+    user_add_self_pointer(pctx);
+    caj_uuid_to_name(lctx->u->sim, req->ID, uuid_name_resp, pctx);
+  }
+}
+
 struct asset_xfer {
   uint64_t id;
   uint32_t ctr;
@@ -1097,13 +1399,6 @@ static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* 
   }
 }
 
-#define PCODE_PRIM 9
-#define PCODE_AV 47
-#define PCODE_GRASS 95
-#define PCODE_NEWTREE 111
-#define PCODE_PARTSYS 143 /* ??? */
-#define PCODE_TREE 255
-
 
 // FIXME - incomplete
 static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
@@ -1295,7 +1590,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   sl_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0; // FIXME - todo
-  objd->UpdateFlags = 0; // TODO - FIXME
+  objd->UpdateFlags = 0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
 
   objd->PathCurve = prim->path_curve;
   objd->ProfileCurve = prim->profile_curve;
@@ -1314,7 +1609,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->ProfileEnd = prim->profile_end;
   objd->ProfileHollow = prim->profile_hollow;
 
-  objd->TextureEntry.len = 0;
+  sl_string_copy(&objd->TextureEntry, &prim->tex_entry);
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
   objd->Text.len = 0;
@@ -1598,6 +1893,11 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(TeleportLocationRequest);
   ADD_HANDLER(TeleportLandmarkRequest);
   ADD_HANDLER(FetchInventoryDescendents);
+  ADD_HANDLER(ObjectAdd);
+  ADD_HANDLER(RequestObjectPropertiesFamily);
+  ADD_HANDLER(UUIDNameRequest);
+  ADD_HANDLER(ObjectSelect);
+  ADD_HANDLER(MultipleObjectUpdate);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

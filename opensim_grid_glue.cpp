@@ -1243,6 +1243,133 @@ static void do_teleport(struct simulator_ctx* sim, struct teleport_desc* tp) {
   req_region_info(sim, tp->region_handle, do_teleport_rinfo_cb, tp);
 }
 
+struct user_profile {
+  uuid_t uuid;
+  char *first, *last;
+};
+
+struct user_by_id_state {
+  struct simulator_ctx *sim;
+  void(*cb)(user_profile* profile, void *priv);
+  void *cb_priv;
+  
+  user_by_id_state(simulator_ctx *sim_, void(*cb_)(user_profile* profile, void *priv),
+		   void *cb_priv_) : sim(sim_), cb(cb_), cb_priv(cb_priv_) { };
+};
+
+static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct user_by_id_state *st = (user_by_id_state*)user_data;
+  //GRID_PRIV_DEF(st->sim);
+  user_profile profile;
+  GHashTable *hash = NULL;
+
+  sim_shutdown_release(st->sim);
+
+  if(msg->status_code != 200) {
+    printf("User by ID req failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+
+  printf("DEBUG: user by ID response ~%s~\n", msg->response_body->data);
+
+  if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
+					 msg->response_body->length,
+					 NULL,
+					 G_TYPE_HASH_TABLE, &hash)) {
+    printf("User by ID req failed: couldn't parse response\n");
+    goto out_fail;
+  }
+
+  if(helper_soup_hash_get_uuid(hash, "uuid", profile.uuid))
+    goto bad_data;
+
+  if(!soup_value_hash_lookup(hash, "firstname", G_TYPE_STRING, &profile.first))
+    goto bad_data;
+  if(!soup_value_hash_lookup(hash, "lastname", G_TYPE_STRING, &profile.last))
+    goto bad_data;
+  
+  // FIXME - TODO parse rest of response
+
+  // FIXME - cache ID to username mapping!
+  
+  st->cb(&profile, st->cb_priv);
+
+  g_hash_table_destroy(hash); // must be after calling the callback
+  delete st;
+  return;
+
+ bad_data:
+  printf("ERROR: bad/missing data in user by ID response\n");
+ out_free_fail:
+  g_hash_table_destroy(hash);
+ out_fail:
+  st->cb(NULL, st->cb_priv);
+  delete st;
+}
+
+
+static void user_profile_by_id(struct simulator_ctx *sim, uuid_t id, 
+			       void(*cb)(user_profile* profile, void *priv),
+			       void *cb_priv) {
+  char buf[40];
+  GHashTable *hash;
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF(sim);
+
+  hash = soup_value_hash_new();
+  uuid_unparse(id, buf);
+  soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,buf);
+
+  msg = soup_xmlrpc_request_new(grid->userserver, "get_user_by_uuid",
+				G_TYPE_HASH_TABLE, hash,
+				G_TYPE_INVALID);
+  g_hash_table_destroy(hash);
+  if (!msg) {
+    fprintf(stderr, "Could not create get_user_by_uuid request\n");
+    cb(NULL, cb_priv);
+    return;
+  }
+
+  sim_shutdown_hold(sim);
+  // FIXME - why SOUP_MESSAGE(foo)?
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 got_user_by_id_resp, new user_by_id_state(sim,cb,cb_priv));
+}		       
+
+struct uuid_to_name_state {
+  uuid_t uuid;
+  void(*cb)(uuid_t uuid, const char* first, 
+	    const char* last, void *priv);
+  void *cb_priv;
+
+  uuid_to_name_state(void(*cb2)(uuid_t uuid, const char* first, 
+				const char* last, void *priv),
+		     void *cb_priv2, uuid_t uuid2) : cb(cb2), cb_priv(cb_priv2) {
+    uuid_copy(uuid, uuid2);
+  };
+};
+
+static void uuid_to_name_cb(user_profile* profile, void *priv) {
+  uuid_to_name_state* st = (uuid_to_name_state*)priv;
+  if(profile == NULL) {
+    st->cb(st->uuid,NULL,NULL,st->cb_priv);
+  } else {
+    st->cb(st->uuid,profile->first,profile->last,st->cb_priv);
+  }
+  delete st;
+}
+
+static void uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+			 void(*cb)(uuid_t uuid, const char* first, 
+				   const char* last, void *priv),
+			 void *cb_priv) {
+  // FIXME - use cached UUID->name mappings once we have some
+  user_profile_by_id(sim, id, uuid_to_name_cb, 
+		     new uuid_to_name_state(cb,cb_priv,id));
+  //cb(id, NULL, NULL, cb_priv); // FIXME!!!  
+}
+
 static void cleanup(struct simulator_ctx* sim) {
   GRID_PRIV_DEF(sim);
   g_free(grid->userserver);
@@ -1273,6 +1400,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->map_name_request = map_name_request;
   hooks->do_teleport = do_teleport;
   hooks->fetch_inventory_folder = fetch_inventory_folder;
+  hooks->uuid_to_name = uuid_to_name;
 
   hooks->get_texture = get_texture;
   hooks->cleanup = cleanup;

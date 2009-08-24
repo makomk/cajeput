@@ -254,6 +254,7 @@ struct obj_chat_listener {
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
 
+
 struct simulator_ctx {
   struct user_ctx* ctxts;
   char *name;
@@ -271,7 +272,6 @@ struct simulator_ctx {
   SoupSession *soup_session;
   GTimer *timer;
   GKeyFile *config;
-
 
   std::map<obj_uuid_t,texture_desc*> textures;
 
@@ -344,6 +344,22 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
 
 // takes ownership of the passed LLSD
 void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
+
+// --- this is messy --------------------
+
+#define CAJ_MULTI_UPD_POS 1
+#define CAJ_MULTI_UPD_ROT 2
+#define CAJ_MULTI_UPD_SCALE 4
+
+struct caj_multi_upd {
+  int flags;
+  sl_vector3 pos;
+  sl_quat rot;
+  sl_vector3 scale;
+};
+
+void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
+			    const struct caj_multi_upd *upd);
 
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 

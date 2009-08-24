@@ -55,7 +55,9 @@ struct world_obj {
 };
 
 struct primitive_obj {
-  struct world_obj ob;
+  struct world_obj ob; // must be first!
+  uint8_t sale_type;
+
   uint8_t material, path_curve, profile_curve;
   uint16_t path_begin, path_end; // FIXME - why 16 bits?
   uint8_t path_scale_x, path_scale_y, path_shear_x, path_shear_y;
@@ -65,7 +67,10 @@ struct primitive_obj {
   int8_t path_skew;
   uint16_t profile_begin, profile_end, profile_hollow; // again, why 16 bits?
   uuid_t creator, owner;
-  
+  uint32_t base_perms, owner_perms, group_perms, everyone_perms, next_perms;
+  int32_t sale_price;
+  char *name, *description;
+  sl_string tex_entry;
 };
 
 // --- START sim query code ---
@@ -159,6 +164,11 @@ struct cajeput_grid_hooks {
 				void(*cb)(struct inventory_contents* inv, 
 					  void* priv),
 				void *cb_priv);
+
+  void(*uuid_to_name)(struct simulator_ctx *sim, uuid_t id, 
+		      void(*cb)(uuid_t uuid, const char* first, 
+				const char* last, void *priv),
+		      void *cb_priv);
 };
 
 // void do_grid_login(struct simulator_ctx* sim);
@@ -325,6 +335,11 @@ void user_reset_timeout(struct user_ctx* ctx);
 void user_add_self_pointer(struct user_ctx** pctx);
 void user_del_self_pointer(struct user_ctx** pctx);
 
+void caj_uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+		      void(*cb)(uuid_t uuid, const char* first, 
+				const char* last, void *priv),
+		      void *cb_priv);
+
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much
 #define TELEPORT_FLAG_SET_LAST 0x2 // ???
@@ -432,6 +447,10 @@ void sim_shutdown_release(struct simulator_ctx *sim);
 // FIXME - should these be internal?
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob);
+
+struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
+struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
+struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 // FIXME - this should definitely be internal

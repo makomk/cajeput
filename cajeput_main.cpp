@@ -49,6 +49,7 @@ struct cap_descrip;
 
 
 static void user_remove_int(user_ctx **user);
+static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 
 // --- START sim query code ---
 
@@ -395,6 +396,8 @@ void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   sim->localid_map.insert(std::pair<uint32_t,world_obj*>(ob->local_id,ob));
   world_octree_insert(sim->world_tree, ob);
   sim->physh.add_object(sim,sim->phys_priv,ob);
+
+  mark_new_obj_for_updates(sim, ob);
 }
 
 void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
@@ -404,14 +407,39 @@ void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   delete ob->chat; ob->chat = NULL;
 }
 
-static void world_insert_demo_objects(struct simulator_ctx *sim) {
+struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id) {
+  std::map<obj_uuid_t,world_obj*>::iterator iter = sim->uuid_map.find(id);
+  if(iter == sim->uuid_map.end()) 
+    return NULL;
+  return iter->second;
+}
+
+
+struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id) {
+  std::map<uint32_t,world_obj*>::iterator iter = sim->localid_map.find(id);
+  if(iter == sim->localid_map.end()) 
+    return NULL;
+  return iter->second;
+}
+
+struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   struct primitive_obj *prim = new primitive_obj();
   memset(prim, 0, sizeof(struct primitive_obj));
+  uuid_generate(prim->ob.id);
   prim->ob.type = OBJ_TYPE_PRIM;
-  prim->ob.pos.x = 128.0f; prim->ob.pos.y = 128.0f; prim->ob.pos.z = 25.0f;
   prim->ob.scale.x = prim->ob.scale.y = prim->ob.scale.z = 1.0f;
   prim->profile_curve = PROFILE_SHAPE_SQUARE | PROFILE_HOLLOW_DEFAULT;
-  prim->path_scale_x = 100; prim->path_scale_y = 100;
+  prim->path_scale_x = 100; prim->path_scale_y = 100;  
+  prim->name = strdup("Object");
+  prim->description = strdup("");
+  prim->next_perms = prim->owner_perms = prim->base_perms = 0x7fffffff;
+  prim->group_perms = prim->everyone_perms = 0;
+  return prim;
+}
+
+static void world_insert_demo_objects(struct simulator_ctx *sim) {
+  struct primitive_obj *prim = world_begin_new_prim(sim);
+  prim->ob.pos.x = 128.0f; prim->ob.pos.y = 128.0f; prim->ob.pos.z = 25.0f;
   world_insert_obj(sim, &prim->ob);
 }
 
@@ -419,6 +447,24 @@ void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			const sl_vector3 &new_pos) {
   world_octree_move(sim->world_tree, ob, new_pos);
   ob->pos = new_pos;
+}
+
+// FIXME - validate position, rotation, scale!
+// FIXME - handle the LINKSET flag correctly.
+void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
+			    const struct caj_multi_upd *upd) {
+  if(upd->flags & CAJ_MULTI_UPD_POS) {
+    world_move_obj_int(sim, obj, upd->pos);
+  }
+  if(upd->flags & CAJ_MULTI_UPD_ROT) {
+    obj->rot = upd->rot;
+  }
+  if(upd->flags & CAJ_MULTI_UPD_SCALE) {
+    obj->scale = upd->scale;
+  }
+
+  // FIXME - most of the time we only need a terse update!
+  mark_new_obj_for_updates(sim, obj);
 }
 
 void user_reset_timeout(struct user_ctx* ctx) {
@@ -642,6 +688,14 @@ static void init_obj_updates_for_user(user_ctx *ctx) {
   }
 }
 
+static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
+  if(obj->type != OBJ_TYPE_PRIM) return;
+
+  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
+    user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL;
+  }
+}
+
 // -- START of caps code --
 
 // Note - length of this is hardcoded places
@@ -813,6 +867,13 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
 
 // -- END of caps code --
 
+
+void caj_uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+		      void(*cb)(uuid_t uuid, const char* first, 
+				const char* last, void *priv),
+		      void *cb_priv) {
+  sim->gridh.uuid_to_name(sim, id, cb, cb_priv);
+}
 
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id) {
