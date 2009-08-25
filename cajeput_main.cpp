@@ -28,6 +28,7 @@
 #include "cajeput_prim.h"
 #include "cajeput_anims.h"
 #include "terrain_compress.h"
+#include "caj_parse_nini.h"
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -1169,6 +1170,21 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
+void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user, 
+				 uuid_t folder_id,
+				  void(*cb)(struct inventory_contents* inv, 
+					    void* priv),
+				  void *cb_priv) {
+  std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+       sim->inv_lib.find(folder_id);
+  if(iter == sim->inv_lib.end()) {
+    sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
+				      folder_id,cb,cb_priv);
+  } else {
+    cb(iter->second, cb_priv);
+  }
+}
+
 static teleport_desc* begin_teleport(struct user_ctx* ctx) {
   if(ctx->tp_out != NULL) {
     printf("!!! ERROR: can't teleport while teleporting!\n");
@@ -1539,6 +1555,11 @@ static gboolean shutdown_timer(gpointer data) {
     struct texture_desc *desc = iter->second;
     free(desc->data); delete[] desc->discard_levels; delete desc;
   }
+
+  for(std::map<obj_uuid_t,inventory_contents*>::iterator iter = sim->inv_lib.begin();
+      iter != sim->inv_lib.end(); iter++) {
+    caj_inv_free_contents_desc(iter->second);
+  }
   
   world_octree_destroy(sim->world_tree);
   g_timer_destroy(sim->timer);
@@ -1637,6 +1658,157 @@ static void load_terrain(struct simulator_ctx *sim, const char* file) {
   
 }
 
+// --------------- INVENTORY LIBRARY STUFF ----------------------------
+
+// In a perfect world, this would be handled by the inventory server.
+// Unfortunately, it isn't, so we have to hardcode it here!
+// Oh, and our local copy of the inventory library has to be the same as what 
+// the rest of the grid has, or things don't work right. Ick.
+
+#define LIBRARY_OWNER "11111111-1111-0000-0000-000100bba000"
+
+#define LIBRARY_ROOT "00000112-000f-0000-0000-000100bba000"
+
+
+static void load_inv_folders(struct simulator_ctx *sim, const char* filename) {
+  char path[256];
+  snprintf(path,256,"inventory/%s",filename);
+
+ GKeyFile *config = caj_parse_nini_xml(path);
+ if(config == NULL) {
+   printf("WARNING: couldn't load inventory file %s\n", filename);
+   return;
+ }
+
+ gchar** sect_list = g_key_file_get_groups(config, NULL);
+
+ for(int i = 0; sect_list[i] != NULL; i++) {
+   gchar *folder_id, *parent_id, *name, *type_str;
+   uuid_t folder_uuid, parent_uuid;
+   folder_id = g_key_file_get_value(config, sect_list[i], "folderID", NULL);
+   parent_id = g_key_file_get_value(config, sect_list[i], "parentFolderID", NULL);
+   name = g_key_file_get_value(config, sect_list[i], "name", NULL);
+   type_str = g_key_file_get_value(config, sect_list[i], "type", NULL);
+
+   if(folder_id == NULL || parent_id == NULL || name == NULL ||
+      type_str == NULL || uuid_parse(folder_id,folder_uuid) || 
+      uuid_parse(parent_id, parent_uuid)) {
+     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+   } else {
+     // FIXME - this leaks memory if we have more than one folder with 
+     // the same UUID
+     sim->inv_lib[folder_uuid] = caj_inv_new_contents_desc(folder_uuid);
+
+     // FIXME - add folders to their parent folders
+   }
+   
+   g_free(folder_id); g_free(parent_id); g_free(name); g_free(type_str);
+ }
+
+ g_strfreev(sect_list);
+ g_key_file_free(config);
+}
+
+static void load_inv_items(struct simulator_ctx *sim, const char* filename) {
+  char path[256];
+  snprintf(path,256,"inventory/%s",filename);
+
+ GKeyFile *config = caj_parse_nini_xml(path);
+ if(config == NULL) {
+   printf("WARNING: couldn't load inventory file %s\n", filename);
+   return;
+ }
+
+ gchar** sect_list = g_key_file_get_groups(config, NULL);
+
+ for(int i = 0; sect_list[i] != NULL; i++) {
+   gchar *folder_id, *asset_id, *inv_id, *name, *descr;
+   gchar *asset_type, *inv_type;
+   uuid_t folder_uuid, asset_uuid, inv_uuid;
+   folder_id = g_key_file_get_value(config, sect_list[i], "folderID", NULL);
+   asset_id = g_key_file_get_value(config, sect_list[i], "assetID", NULL);
+   inv_id = g_key_file_get_value(config, sect_list[i], "inventoryID", NULL);
+   name = g_key_file_get_value(config, sect_list[i], "name", NULL);
+   descr = g_key_file_get_value(config, sect_list[i], "description", NULL);
+   asset_type = g_key_file_get_value(config, sect_list[i], "assetType", NULL);
+   inv_type = g_key_file_get_value(config, sect_list[i], "inventoryType", NULL);
+
+   if(folder_id == NULL || asset_id == NULL || inv_id == NULL ||
+      name == NULL || descr == NULL || asset_type == NULL ||
+      inv_type == NULL || uuid_parse(folder_id,folder_uuid) || 
+      uuid_parse(asset_id, asset_uuid) || uuid_parse(inv_id, inv_uuid)) {
+     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+   } else {
+     std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+       sim->inv_lib.find(folder_uuid);
+     if(iter == sim->inv_lib.end()) {
+       printf("ERROR: library item %s without parent folder %s\n",
+	      name, folder_id);
+     } else {
+       inventory_contents* folder = iter->second;
+
+       inventory_item* item = caj_add_inventory_item(folder, name, descr,
+			      LIBRARY_OWNER);
+       uuid_copy(item->item_id, inv_uuid);
+       uuid_copy(item->asset_id, asset_uuid);
+       uuid_parse(LIBRARY_OWNER, item->creator_as_uuid);
+       uuid_parse(LIBRARY_OWNER, item->owner_id);
+       item->asset_type = atoi(asset_type);
+       item->inv_type = atoi(inv_type);
+       item->base_perms = item->current_perms  = 0x7fffffff;
+       item->next_perms = item->everyone_perms = 0x7fffffff;
+       item->group_perms = 0;
+       item->sale_type = 0; item->group_owned = 0;
+       uuid_clear(item->group_id);
+       item->flags = 0; item->sale_price = 0;
+       item->creation_date = 0;
+       
+       // FIXME - have we filled everything in?
+     }
+   }
+   
+   g_free(folder_id); g_free(asset_id); g_free(inv_id); g_free(name); 
+   g_free(descr); g_free(asset_type); g_free(inv_type);
+ }
+
+ g_strfreev(sect_list);
+ g_key_file_free(config);
+}
+
+
+static void load_inv_library(struct simulator_ctx *sim) {
+  GKeyFile *lib = caj_parse_nini_xml("inventory/Libraries.xml");
+  if(lib == NULL) {
+    printf("WARNING: couldn't load inventory library\n");
+    return;
+  }
+  
+  // add hardcoded library root folder. Ugly.
+  uuid_t root_uuid;
+  uuid_parse(LIBRARY_ROOT, root_uuid);
+  sim->inv_lib[root_uuid] = caj_inv_new_contents_desc(root_uuid);
+
+  gchar** sect_list = g_key_file_get_groups(lib, NULL);
+
+  for(int i = 0; sect_list[i] != NULL; i++) {
+    gchar* folders_file = g_key_file_get_value(lib, sect_list[i], "foldersFile", NULL);
+    gchar* items_file = g_key_file_get_value(lib, sect_list[i], "itemsFile", NULL);
+
+    if(folders_file == NULL || items_file == NULL) {
+      printf("ERROR: bad section %s in inventory/Libraries.xml", sect_list[i]);
+    } else {
+      load_inv_folders(sim, folders_file);
+      load_inv_items(sim, items_file);
+    }
+    g_free(folders_file); g_free(items_file);
+  }
+
+  g_strfreev(sect_list);
+  g_key_file_free(lib);
+}
+
+// -------------- END INVENTORY LIBRARY STUFF ------------------------------
+
 static void create_cache_dirs(void) {
   mkdir("temp_assets", 0700);
   mkdir("tex_cache", 0700);
@@ -1711,6 +1883,8 @@ int main(void) {
     g_free(sim_owner);
   }
 
+  load_inv_library(sim);
+  
   sim->world_tree = world_octree_create();
   sim->ctxts = NULL;
   sim->soup_session = soup_session_async_new();

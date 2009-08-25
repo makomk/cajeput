@@ -150,6 +150,12 @@ void caj_uuid_to_name(struct simulator_ctx *sim, uuid_t id,
 				const char* last, void *priv),
 		      void *cb_priv);
 
+void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user, 
+				 uuid_t folder_id,
+				 void(*cb)(struct inventory_contents* inv, 
+					   void* priv),
+				 void *cb_priv);
+
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much
 #define TELEPORT_FLAG_SET_LAST 0x2 // ???

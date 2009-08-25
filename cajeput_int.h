@@ -275,6 +275,8 @@ struct simulator_ctx {
   GTimer *timer;
   GKeyFile *config;
 
+  std::map<obj_uuid_t,inventory_contents*> inv_lib;
+
   std::map<obj_uuid_t,texture_desc*> textures;
 
   char *release_notes;

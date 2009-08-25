@@ -628,9 +628,9 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
   req->ctx = lctx->u;  user_add_self_pointer(&req->ctx);
   req->fetch_folders = inv->FetchFolders;
   req->fetch_items = inv->FetchItems;
-  lctx->u->sim->gridh.fetch_inventory_folder(lctx->u->sim, lctx->u, 
-					     lctx->u->grid_priv, inv->FolderID,
-					     inventory_descendents_cb, req);
+  
+  user_fetch_inventory_folder(lctx->u->sim, lctx->u, inv->FolderID,
+			      inventory_descendents_cb, req);
 }
 
 static void handle_RegionHandshakeReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {

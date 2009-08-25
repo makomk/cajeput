@@ -34,11 +34,9 @@ static void grow_array(unsigned int *num_items, unsigned int* alloc_items,
 		       T** items) {
   if(*alloc_items == 0) {
     *alloc_items = 4; *items = (T*)malloc(4*sizeof(T));
-    printf("DEBUG: grow_array starting at %u items\n", *alloc_items);
   } else if(*num_items >= *alloc_items) {
     *alloc_items *= 2;
     *items = (T*)realloc(*items, (size_t)*alloc_items * sizeof(T));
-    printf("DEBUG: grow_array expanding to %u items\n", *alloc_items);
   }
   if(*items == NULL) abort();
 }
@@ -106,7 +104,7 @@ struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv,
   item->name = strdup(name == NULL ? "" : name);
   item->description = strdup(desc == NULL ? "" : desc);
   item->creator_id = strdup(creator == NULL ? "" : creator);
-  uuid_copy(item->folder_id, inv->folder_id);// FIXME - remove this?
+  uuid_copy(item->folder_id, inv->folder_id);// FIXME - remove item->folder_id?
 
   return item;
 }
