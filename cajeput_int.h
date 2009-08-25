@@ -31,6 +31,8 @@
 #include <netinet/in.h>
 #include "sl_llsd.h"
 #include "cajeput_core.h"
+#include "cajeput_world.h"
+#include "cajeput_user.h"
 
 #define USER_CONNECTION_TIMEOUT 15
 

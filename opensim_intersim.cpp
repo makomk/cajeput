@@ -21,6 +21,7 @@
  */
 
 #include "cajeput_core.h"
+#include "cajeput_user.h"
 #include <libsoup/soup.h>
 #include "sl_types.h"
 #include <uuid/uuid.h>

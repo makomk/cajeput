@@ -20,7 +20,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cajeput_core.h"
+#include "cajeput_core.h" // for sim_get_heightfield
+#include "cajeput_world.h"
 #include <btBulletDynamicsCommon.h>
 #include <BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h>
 #include <stdio.h> /* for debugging */
