@@ -1576,6 +1576,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->State = 0;
   uuid_copy(objd->FullID, av->ob.id);
   objd->PCode = PCODE_AV;
+  objd->Material = MATERIAL_FLESH; // discrimination against robots?
   objd->Scale.x = 1.0f; objd->Scale.y = 1.0f; objd->Scale.z = 1.0f;
 
   // FIXME - endianness issues
@@ -1608,8 +1609,6 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->ProfileCurve = 1;
   objd->PathScaleX = 100;
   objd->PathScaleY = 100;
-  objd->ParentID = 0;
-  objd->Material = 4;
   // END FIXME
   
   name[0] = 0;

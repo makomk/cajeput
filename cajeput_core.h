@@ -54,6 +54,15 @@ struct world_obj {
   struct obj_chat_listener *chat;
 };
 
+#define MATERIAL_STONE   0
+#define MATERIAL_METAL   1
+#define MATERIAL_GLASS   2
+#define MATERIAL_WOOD    3
+#define MATERIAL_FLESH   4
+#define MATERIAL_PLASTIC 5
+#define MATERIAL_RUBBER  6
+#define MATERIAL_LIGHT   7 // ???
+
 struct primitive_obj {
   struct world_obj ob; // must be first!
   uint32_t crc_counter;
