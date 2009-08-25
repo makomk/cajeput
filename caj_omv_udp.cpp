@@ -849,6 +849,29 @@ static void handle_ObjectAdd_msg(struct omuser_ctx* lctx, struct sl_message* msg
   world_insert_obj(lctx->u->sim, &prim->ob);
 }
 
+static world_obj* get_obj_for_update(struct omuser_ctx* lctx, uint32_t localid) {
+  struct world_obj* obj = world_object_by_localid(lctx->u->sim, localid);
+  if(obj == NULL) {
+    printf("ERROR: attempt to modify non-existent object\n");
+    return NULL;
+  } else if(!user_can_modify_object(lctx->u, obj)) {
+    printf("ERROR: attempt to modify non-permitted object\n");
+    return NULL; // FIXME - send update to originating client.
+  }
+
+  return obj;
+}
+
+static primitive_obj* get_prim_for_update(struct omuser_ctx* lctx, uint32_t localid) {
+  struct world_obj* obj = get_obj_for_update(lctx, localid);
+  if(obj == NULL) return NULL;
+
+  if(obj->type != OBJ_TYPE_PRIM) {
+      printf("ERROR: attempt to modify non-prim object\n");
+      return NULL;
+  }
+  return (primitive_obj*)obj;
+}
 
 #define MULTI_UPDATE_POS 1
 #define MULTI_UPDATE_ROT 2
@@ -865,15 +888,10 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
     SL_DECLBLK_ONLY(MultipleObjectUpdate, ObjectData, objd) =
       SL_GETBLKI(MultipleObjectUpdate, ObjectData, msg, i);
 
-    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
-						    objd->ObjectLocalID);
-    if(obj == NULL) {
-      printf("ERROR: MultipleObjectUpdate for non-existent object\n");
+    struct world_obj* obj = get_obj_for_update(lctx, 
+					       objd->ObjectLocalID);
+    if(obj == NULL)
       continue;
-    } else if(!user_can_modify_object(lctx->u, obj)) {
-      printf("ERROR: MultipleObjectUpdate for non-permitted object\n");
-      continue; // FIXME - send update to originating client.
-    }
 
     if(objd->Type & 0xf0) {
       printf("ERROR: MultipleObjectUpdate with unrecognised flags %i\n",
@@ -940,30 +958,78 @@ static void handle_ObjectImage_msg(struct omuser_ctx* lctx, struct sl_message* m
     SL_DECLBLK_ONLY(ObjectImage, ObjectData, objd) =
       SL_GETBLKI(ObjectImage, ObjectData, msg, i);
 
-    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
-						    objd->ObjectLocalID);
-    if(obj == NULL) {
-      printf("ERROR: ObjectImage for non-existent object\n");
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->ObjectLocalID);
+    if(prim == NULL)
       continue;
-    } else if(!user_can_modify_object(lctx->u, obj)) {
-      printf("ERROR: ObjectImage for non-permitted object\n");
-      continue; // FIXME - send update to originating client.
-    } else if(obj->type != OBJ_TYPE_PRIM) {
-      printf("ERROR: ObjectImage for non-prim\n");
-      continue; // FIXME - send update to originating client.
-    }
-    struct primitive_obj* prim = (primitive_obj*)obj;
 
     sl_string_free(&prim->tex_entry);
     sl_string_copy(&prim->tex_entry, &objd->TextureEntry);
 
-    world_mark_object_updated(lctx->u->sim, obj, UPDATE_LEVEL_FULL);
+    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
   }
 }
 
-// TODO - ObjectMaterial
+static void handle_ObjectMaterial_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectMaterial, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  int count = SL_GETBLK(ObjectMaterial, ObjectData, msg).count;
 
-// TODO - ObjectShape
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectMaterial, ObjectData, objd) =
+      SL_GETBLKI(ObjectMaterial, ObjectData, msg, i);
+
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->ObjectLocalID);
+    if(prim == NULL)
+      continue;
+
+    prim->material = objd->Material;
+
+    // seems a tad wasteful...
+    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+  }
+}
+
+
+static void handle_ObjectShape_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectShape, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  int count = SL_GETBLK(ObjectShape, ObjectData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectShape, ObjectData, objd) =
+      SL_GETBLKI(ObjectShape, ObjectData, msg, i);
+
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->ObjectLocalID);
+    if(prim == NULL)
+      continue;
+
+    // FIXME - validate/constrain these!
+    prim->path_curve = objd->PathCurve;
+    prim->profile_curve = objd->ProfileCurve;
+    prim->path_begin = objd->PathBegin;
+    prim->path_end = objd->PathEnd;
+    prim->path_scale_x = objd->PathScaleX;
+    prim->path_scale_y = objd->PathScaleY;
+    prim->path_shear_x = objd->PathShearX;
+    prim->path_shear_y = objd->PathShearY;
+    prim->path_twist = objd->PathTwist;
+    prim->path_twist_begin = objd->PathTwistBegin;
+    prim->path_radius_offset = objd->PathRadiusOffset;
+    prim->path_taper_x = objd->PathTaperX;
+    prim->path_taper_y = objd->PathTaperY;
+    prim->path_revolutions = objd->PathRevolutions;
+    prim->path_skew = objd->PathSkew;
+    prim->profile_begin = objd->ProfileBegin;
+    prim->profile_end = objd->ProfileEnd;
+    prim->profile_hollow = objd->ProfileHollow;   
+
+    // this *does* really require the full update, I think.
+    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+  }
+}
 
 // TODO - ObjectExtraParams
 
@@ -986,19 +1052,10 @@ static void handle_ObjectName_msg(struct omuser_ctx* lctx, struct sl_message* ms
     SL_DECLBLK_ONLY(ObjectName, ObjectData, objd) =
       SL_GETBLKI(ObjectName, ObjectData, msg, i);
 
-    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
-						    objd->LocalID);
-    if(obj == NULL) {
-      printf("ERROR: ObjectName for non-existent object\n");
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->LocalID);
+    if(prim == NULL)
       continue;
-    } else if(!user_can_modify_object(lctx->u, obj)) {
-      printf("ERROR: ObjectName for non-permitted object\n");
-      continue; 
-    } else if(obj->type != OBJ_TYPE_PRIM) {
-      printf("ERROR: ObjectName for non-prim\n");
-      continue;
-    }
-    struct primitive_obj* prim = (primitive_obj*)obj;
 
     free(prim->name);
     prim->name = strdup((char*)objd->Name.data);
@@ -1015,19 +1072,10 @@ static void handle_ObjectDescription_msg(struct omuser_ctx* lctx, struct sl_mess
     SL_DECLBLK_ONLY(ObjectDescription, ObjectData, objd) =
       SL_GETBLKI(ObjectDescription, ObjectData, msg, i);
 
-    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
-						    objd->LocalID);
-    if(obj == NULL) {
-      printf("ERROR: ObjectDescription for non-existent object\n");
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->LocalID);
+    if(prim == NULL)
       continue;
-    } else if(!user_can_modify_object(lctx->u, obj)) {
-      printf("ERROR: ObjectDescription for non-permitted object\n");
-      continue; 
-    } else if(obj->type != OBJ_TYPE_PRIM) {
-      printf("ERROR: ObjectDescription for non-prim\n");
-      continue;
-    }
-    struct primitive_obj* prim = (primitive_obj*)obj;
 
     free(prim->description);
     prim->description = strdup((char*)objd->Description.data);
@@ -2011,8 +2059,11 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(UUIDNameRequest);
   ADD_HANDLER(ObjectSelect);
   ADD_HANDLER(MultipleObjectUpdate);
+  ADD_HANDLER(ObjectImage);
   ADD_HANDLER(ObjectName);
   ADD_HANDLER(ObjectDescription);
+  ADD_HANDLER(ObjectMaterial);
+  ADD_HANDLER(ObjectShape);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;
