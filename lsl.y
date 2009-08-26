@@ -7,10 +7,10 @@ void yyerror (char const *);
 int yydebug;
 
 typedef struct expr_node {
-  int node_type;
+  int node_type; uint8_t vtype;
   union {
     struct expr_node* child[2];
-    int i; char* s;
+    int i; float f; char* s;
   } u;
 } expr_node;
 
@@ -41,12 +41,14 @@ typedef struct expr_node {
    function *func; // FIXME
  } lsl_program;
 
-#define NODE_INT 1
+#define NODE_CONST 1
 #define NODE_IDENT 2
 #define NODE_ADD 3
 #define NODE_SUB 4
 #define NODE_MUL 5
 #define NODE_DIV 6
+#define NODE_MOD 7
+#define NODE_ASSIGN 8
 
  /* FIXME - types should be in a shared header */
 #define VM_TYPE_NONE  0
@@ -59,21 +61,32 @@ typedef struct expr_node {
 
  const char* type_names[] = {"void","int","float","str","key","vect","rot"};
 
-struct expr_node * enode_make_num(int i) {
-   struct expr_node *enode = malloc(sizeof(struct expr_node));
-   enode->node_type = NODE_INT;
-   enode->u.i = i;
-    return enode;
+static expr_node * enode_make_int(char *s) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->u.i = strtol(s, NULL, 0); // do we really want octal? Hmmm...
+  enode->node_type = NODE_CONST;
+  enode->vtype = VM_TYPE_INT;
+  free(s);
+  return enode;
 }
 
-struct expr_node * enode_make_id(char *s) {
+static expr_node * enode_make_float(char *s) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->u.f = strtof(s, NULL);
+  enode->node_type = NODE_CONST;
+  enode->vtype = VM_TYPE_FLOAT;
+  free(s);
+  return enode;
+}
+
+static expr_node * enode_make_id(char *s) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    enode->node_type = NODE_IDENT;
    enode->u.s = s;
     return enode;
 }
 
- expr_node * enode_binop(expr_node *l, expr_node *r, int node_type) {
+static  expr_node * enode_binop(expr_node *l, expr_node *r, int node_type) {
     expr_node *enode = malloc(sizeof(expr_node));
     enode->node_type = node_type;
     enode->u.child[0] = l; enode->u.child[1] = r; 
@@ -83,7 +96,8 @@ struct expr_node * enode_make_id(char *s) {
  struct lsl_program global_prog; // FIXME - remove this
 
 %}
-/* %debug */
+%locations
+%debug
 %error-verbose
 %union {
   struct expr_node *enode;
@@ -95,25 +109,48 @@ struct expr_node * enode_make_id(char *s) {
   uint8_t vtype;
 }
 %token IF ELSE WHILE FOR STATE DEFAULT
+%token INCR DECR SHLEFT SHRIGHT /* ++ -- << >> */
+%token L_AND L_OR EQUAL NEQUAL /* && || == != */
+%token LEQUAL GEQUAL /* <= >= */
 %token <str> IDENTIFIER
-%token <str> NUMBER
+%token <str> NUMBER REAL STR
 %token <vtype> INTEGER FLOAT STRING KEY VECTOR ROTATION /* LSL types */
+%left '=' // FIXME - add other assignment ops
+%left L_OR
+%left L_AND /* FIXME - the LSL wiki is contradictory as to the precidence of && and || */
+%left '|'
+%left '^'
+%left '&'
+%left EQUAL NEQUAL
+%left '<' LEQUAL '>' GEQUAL
+%left SHLEFT SHRIGHT
 %left '-' '+'
-%left '*' '/'
+%left '*' '/' '%'
+%left '!' '~' INCR DECR
 %type <str> state_id;
-%type <enode> expr statement;
-%type <bblock> statements function_body;
-%type <func> function program
+%type <enode> expr statement
+%type <bblock> statements function_body
+%type <func> function program functions
 %type <arg> arguments arglist argument
-%type <vtype> type ret_type
+%type <vtype> type 
+%type <str> variable /* FIXME - will have to change this! */
 %%
-program : globals function states { $$ = $2; global_prog.func = $2; }; 
-globals : ;
-function : ret_type IDENTIFIER '(' arguments ')' function_body {
+program : functions states { $$ = $1; global_prog.func = $1; }; 
+/* the obvious approach would be a seperate globals non-terminal followed by 
+   a functions non-terminal, but that causes fatal shift/reduce conflicts */
+global : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
+functions : /* nowt */ { $$ = NULL } | functions function { $$=$2; } | functions global ;
+function : type IDENTIFIER '(' arguments ')' function_body {
   $$ = malloc(sizeof(function));
   $$->ret_type = $1;
   $$->name = $2; $$->args = $4; $$->code = $6;
-} ;
+}     | IDENTIFIER '(' arguments ')' function_body {
+  /* ideally, we'd define "ret_type : | type" and avoid the code duplication,
+     but this causes a fatal shift/reduce conflict with the def. of global */
+  $$ = malloc(sizeof(function));
+  $$->ret_type = VM_TYPE_NONE;
+  $$->name = $1; $$->args = $3; $$->code = $5;
+  } ;
 states : /* nothing */ | states state_id '{' state_funcs '}';
 state_id : DEFAULT { $$ = NULL; }
          | STATE IDENTIFIER { $$ = $2; } ;
@@ -136,17 +173,31 @@ statements : /* nothing */ { $$ = malloc(sizeof(basic_block)); $$->first = NULL;
   *($1->add_here) = statem; $1->add_here = &statem->next;
   $$ = $1;
 } ;
+if_stmt : IF '(' expr ')' '{' statements '}'
+        | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}';
 statement : /*nothing*/ { $$ = NULL; }
         | expr { $$ = $1; } ;
-expr : NUMBER { $$ = enode_make_num(atoi($1)); }
-       | IDENTIFIER { $$ = enode_make_id($1); }
+variable: IDENTIFIER | IDENTIFIER '.' IDENTIFIER; /* FIXME - handle .x right */
+call_args : /* nowt */ | expr | call_args ',' expr  ;
+call : IDENTIFIER '(' call_args ')'
+expr : NUMBER { $$ = enode_make_int($1); }
+       | REAL { $$ = enode_make_float($1); }
+       | STR { $$ = NULL; /* FIXME */ }
+       | call { $$ = NULL; } // FIXME
+       | variable { $$ = enode_make_id($1); }
+       | variable '=' expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGN); }
        | expr '+' expr { $$ = enode_binop($1,$3,NODE_ADD); }
        | expr '-' expr { $$ = enode_binop($1,$3,NODE_SUB); }
        | expr '*' expr { $$ = enode_binop($1,$3,NODE_MUL); }
        | expr '/' expr { $$ = enode_binop($1,$3,NODE_DIV); }
        | '(' expr ')' { $$ = $2; }
+| expr INCR  /* FIXME */
+| expr DECR  /* FIXME */
+| INCR expr { $$ = $2; }  /* FIXME */
+| DECR expr { $$ = $2; }  /* FIXME */
+| '(' type ')' expr { $$ = $4 } /* FIXME */ /* FIXME - operator precidence? */ /* FIXME - shift/reduce conflicts */
+       
    ;
-ret_type : /* nothing */ { $$ = VM_TYPE_NONE; } | type ;
 type : INTEGER { $$ = VM_TYPE_INT; } 
      | FLOAT { $$ = VM_TYPE_FLOAT; } 
      | STRING { $$ = VM_TYPE_STR; } 
@@ -161,8 +212,16 @@ type : INTEGER { $$ = VM_TYPE_INT; }
 
 static void print_expr(expr_node *enode) {
   switch(enode->node_type) {
-  case NODE_INT:
-    printf("%i ", enode->u.i); break;
+  case NODE_CONST:
+    switch(enode->vtype) {
+    case VM_TYPE_INT:
+      printf("%i ", enode->u.i); break;
+    case VM_TYPE_FLOAT:
+      printf("%f ", (double)enode->u.f); break;
+    default:
+      printf("<unknown const> "); break;
+    }
+    break;
   case NODE_IDENT:
     printf("%s ", enode->u.s); break;
   case NODE_ADD:
@@ -220,6 +279,6 @@ int main(int argc, char** argv) {
 }
 
 void yyerror(char const *error) { 
-   printf("%s\n", error);
+  printf("Line %i: %s\n", yylloc.first_line, error);
 }
 
