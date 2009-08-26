@@ -97,6 +97,10 @@
 #define VM_TYPE_VECT  5
 #define VM_TYPE_ROT   6
 
+#define VM_TYPE_MAX   6
+// now for the internal types
+#define VM_TYPE_RET_ADDR 100
+
 struct insn_info {
   uint8_t special, arg1, arg2, ret;
 };
@@ -142,22 +146,7 @@ const insn_info vm_insns[NUM_INSNS] = {
   { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // POP_I4 - FIXME!  
   { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_NONE }, // PRINT_I
   { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_NONE, VM_TYPE_NONE }, // PRINT_F
-  
-#if 0
-#define INSN_EQ_II  23 // ==
-#define INSN_NEQ_II 24 // !=
-#define INSN_GR_II  25 // >
-#define INSN_LES_II 26 // <
-#define INSN_GEQ_II 27 // >=
-#define INSN_LEQ_II 28 // <=
-#define INSN_POP_I 29 
-// #define INSN_POP_P 30
-// #define INSN_POP_I3 31 // POP_I*3
-// #define INSN_POP_I4 32 // POP_I*4
-#define INSN_PRINT_I 33
-#define INSN_PRINT_F 34
-#define INSN_PRINT_STR 35
-#endif
+  { IVERIFY_NORMAL, VM_TYPE_STR, VM_TYPE_NONE, VM_TYPE_NONE }, // PRINT_STR
 };
 
 struct script_state {
