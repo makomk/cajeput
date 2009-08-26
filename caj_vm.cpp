@@ -80,10 +80,14 @@
 // #define INSN_POP_P 30
 // #define INSN_POP_I3 31 // POP_I*3
 // #define INSN_POP_I4 32 // POP_I*4
+#define INSN_PRINT_I 33
+#define INSN_PRINT_F 34
+#define INSN_PRINT_STR 35
+
+#define NUM_INSNS 36
+
 #define INSN_QUIT 0xff0
-#define INSN_PRINT_I 0xff1
-#define INSN_PRINT_F 0xff2
-#define INSN_PRINT_STR 0xff3
+
 
 #define VM_TYPE_NONE  0
 #define VM_TYPE_INT   1
@@ -92,6 +96,69 @@
 #define VM_TYPE_KEY   4
 #define VM_TYPE_VECT  5
 #define VM_TYPE_ROT   6
+
+struct insn_info {
+  uint8_t special, arg1, arg2, ret;
+};
+
+#define IVERIFY_INVALID 0
+#define IVERIFY_NORMAL 1
+#define IVERIFY_COND 2
+#define IVERIFY_RET 3
+
+insn_info vm_insns[NUM_INSNS] = {
+  { IVERIFY_NORMAL, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // NOOP
+  { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // ABORT
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // ADD_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // SUB_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // MUL_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // DIV_II
+  { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_FLOAT, VM_TYPE_FLOAT }, // ADD_FF
+  { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_FLOAT, VM_TYPE_FLOAT }, // SUB_FF
+  { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_FLOAT, VM_TYPE_FLOAT }, // MUL_FF
+  { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_FLOAT, VM_TYPE_FLOAT }, // DIV_FF
+  { IVERIFY_RET, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // RET
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // MOD_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // AND_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // OR_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // XOR_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_INT }, // NOT_I
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // SHR
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // SHL  
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // AND_L
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // OR_L
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_INT }, // NOT_L
+  { IVERIFY_COND, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_NONE }, // COND
+  { IVERIFY_COND, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_NONE }, // NCOND
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // EQ_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // NEQ_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // GR_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // LES_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // GEQ_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // LEQ_II
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_NONE }, // POP_I
+  { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // POP_P - FIXME!
+  { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // POP_I3 - FIXME!
+  { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // POP_I4 - FIXME!  
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_NONE }, // PRINT_I
+  { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_NONE, VM_TYPE_NONE }, // PRINT_F
+  
+#if 0
+#define INSN_EQ_II  23 // ==
+#define INSN_NEQ_II 24 // !=
+#define INSN_GR_II  25 // >
+#define INSN_LES_II 26 // <
+#define INSN_GEQ_II 27 // >=
+#define INSN_LEQ_II 28 // <=
+#define INSN_POP_I 29 
+// #define INSN_POP_P 30
+// #define INSN_POP_I3 31 // POP_I*3
+// #define INSN_POP_I4 32 // POP_I*4
+#define INSN_PRINT_I 33
+#define INSN_PRINT_F 34
+#define INSN_PRINT_STR 35
+#endif
+};
 
 struct script_state {
   uint32_t ip;
@@ -279,6 +346,37 @@ public:
   loc_atom(const loc_atom &src) : val(src.val) { };
 };
 
+struct asm_verify {
+  std::vector<uint8_t> stack_types;
+
+  asm_verify* dup(void) {
+    asm_verify *verify = new asm_verify();
+    verify->stack_types = stack_types;
+    return verify;
+  }
+};
+
+// 
+// BIG FAT WARNING!
+// Due to the way the code verification is done, the first call to any code
+// section must come from BEFORE the code section in question
+//
+// OK:
+//   label foo:
+//      ...
+//   if something goto baz
+//      ...
+//   label baz;
+//      ...
+//   goto foo;
+//
+// NOT OK:
+//    goto foo
+//  label baz
+//    <some code>
+//  label foo:
+//    goto baz
+
 class vm_asm {
 private:
   struct jump_fixup {
@@ -288,11 +386,21 @@ private:
 
   uint32_t func_start;
   const char* err;
+  asm_verify* verify;
+  int cond_flag;
+
   std::vector<uint16_t> bytecode;
   std::vector<int32_t> globals;
+  std::vector<uint8_t> global_types;
   std::map<int32_t,uint16_t> consts;
   std::vector<uint32_t> loc_map;
+  std::vector<asm_verify*> loc_verify;
   std::vector<jump_fixup> fixups;
+
+  int check_types(uint8_t stype, uint8_t vtype) {
+    return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
+			      (vtype != VM_TYPE_INT && vtype != VM_TYPE_FLOAT));
+  }
 
 private:
   void do_fixup(const jump_fixup &fixup) {
@@ -310,15 +418,53 @@ private:
     }
   }
 
+  void combine_verify(asm_verify *v1, asm_verify *v2) {
+    if(err != NULL) return;
+    if(v1->stack_types.size() != v2->stack_types.size()) {
+      err = "Stack mismatch"; return;
+    }
+    for(int i = 0; i < v1->stack_types.size(); i++) {
+      if(check_types(v1->stack_types[i], v2->stack_types[i])) {
+	err = "Stack mismatch"; return;
+      }
+    }
+  }
+
+  void pop_val(uint8_t vtype) {
+    if(err != NULL || vtype == VM_TYPE_NONE) return;
+    if(verify->stack_types.empty()) {
+      err = "Pop on empty stack"; return;
+    }
+    uint8_t stype = verify->stack_types.back();
+    verify->stack_types.pop_back();
+    if(check_types(stype, vtype)) {
+      err = "Type mismatch on stack"; return;
+    }
+  }
+
+  void push_val(uint8_t vtype) {
+    if(err != NULL || vtype == VM_TYPE_NONE) return;
+    verify->stack_types.push_back(vtype);
+  }
+
 public:
-  vm_asm() : func_start(0), err(NULL) {
+  vm_asm() : func_start(0), err(NULL), verify(NULL), cond_flag(0) {
     bytecode.push_back(INSN_QUIT);
+  }
+
+  ~vm_asm() {
+    for(std::vector<asm_verify*>::iterator iter = loc_verify.begin();
+	iter != loc_verify.end(); iter++) {
+      delete *iter;
+    }
+    delete verify;
   }
 
   void begin_func(void) {
     if(err != NULL) return;
     if(func_start != 0) { err = "func_start in func"; return; }
     func_start = bytecode.size();
+    verify = new asm_verify();
   }
 
   loc_atom make_loc(void) {
@@ -328,10 +474,12 @@ public:
     }
     int pos = loc_map.size();
     loc_map.push_back(0);
+    loc_verify.push_back(NULL);
     return loc_atom(pos);
   }
 
   void do_label(loc_atom loc) {
+    // FIXME - need to handle jumps properly in verification
     if(err != NULL) return;
     if(func_start == 0) { err = "do_label outside of func"; return; }
     if(loc.val < 0 || loc.val >= loc_map.size()) { 
@@ -341,11 +489,21 @@ public:
       err = "duplicate do_label for atom"; return; 
     }
     loc_map[loc.val] = bytecode.size();
+    if(verify == NULL) {
+      if(loc_verify[loc.val] != NULL) 
+	verify = loc_verify[loc.val]->dup();
+    } else if(loc_verify[loc.val] == NULL)  {
+      loc_verify[loc.val] = verify->dup();
+    } else {
+      combine_verify(loc_verify[loc.val], verify);
+    }
   }
 
   void do_jump(loc_atom loc) {
+    // FIXME - need to handle jumps properly in verification
     if(err != NULL) return;
-    if(func_start == 0) { err = "do_jump outside of func"; return; }    
+    if(func_start == 0) { err = "do_jump outside of func"; return; } 
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
     jump_fixup fixup;
     fixup.dest_loc = loc.val; fixup.insn_pos = bytecode.size();
     bytecode.push_back(INSN_QUIT); // replaced later
@@ -354,23 +512,112 @@ public:
     } else {
       fixups.push_back(fixup);
     }
+    if(loc_verify[fixup.dest_loc] != NULL) {
+      combine_verify(loc_verify[fixup.dest_loc], verify);
+      if(!cond_flag) {
+	delete verify; verify = NULL;
+      }
+    } else if(cond_flag) {
+      loc_verify[fixup.dest_loc] = verify->dup();
+    } else {
+      loc_verify[fixup.dest_loc] = verify;
+      verify = NULL;
+    }
+    cond_flag = 0;
+  }
+
+  uint16_t add_global(int32_t val, uint8_t vtype) {
+    uint16_t ret = globals.size();
+    globals.push_back(val);
+    global_types.push_back(vtype);
+    return ret;
   }
 
   uint16_t add_const(int32_t val) {
     std::map<int32_t,uint16_t>::iterator iter = consts.find(val);
     if(iter == consts.end()) {
-      uint16_t ret = globals.size();
-      globals.push_back(val);
+      uint16_t ret = add_global(val, VM_TYPE_INT);
       consts[val] = ret; return ret;
     } else {
       return iter->second;
     }
   }
 
+public:
   void insn(uint16_t val) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Instruction outside of func"; return; }
+    if(cond_flag) { err = "Non-jump instruction after cond"; return; }
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    switch(GET_ICLASS(val)) {
+    case ICLASS_NORMAL:
+      {
+	int16_t ival = GET_IVAL(val);
+	if(ival >= NUM_INSNS) { err = "Invalid instruction"; return; }
+	insn_info info = vm_insns[ival];
+	pop_val(info.arg1); pop_val(info.arg2);
+	push_val(info.ret);
+	
+	if(err != NULL) return;
+
+	switch(info.special) {
+	case IVERIFY_INVALID:
+	  err = "Invalid instruction"; return;
+	case IVERIFY_NORMAL: 
+	  break;
+	case IVERIFY_COND:
+	  cond_flag = 1; break;
+	case IVERIFY_RET:
+	  if(verify->stack_types.size() != 0) {
+	    err = "Stack not cleared before RET"; return;
+	  }
+	  delete verify; verify = NULL;
+	  break; 
+	}
+      }
+      break;
+    case ICLASS_RDG_I:
+      // TODO - verify this!
+      push_val(VM_TYPE_INT);
+      break;
+    case ICLASS_RDL_I:
+      // not verified fully - use rd_local_int wrapper
+      push_val(VM_TYPE_INT);
+      break;
+    case ICLASS_WRL_I:
+      // not verified fully - use wr_local_int wrapper
+      pop_val(VM_TYPE_INT);
+      break;
+    default:
+      err = "Unknown instruction class"; return;
+    }
     bytecode.push_back(val);
+  }
+
+  void rd_local_int(int offset) {
+    if(err != NULL) return;
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    if(offset < 0 || offset >= verify->stack_types.size()) {
+      err = "Local variable out of bounds"; return;
+    }
+    if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
+      err = "Local variable of wrong type"; return;
+    }
+    offset = verify->stack_types.size()-offset;
+    insn(MAKE_INSN(ICLASS_RDL_I, offset));
+  }
+
+  void wr_local_int(int offset) {
+    if(err != NULL) return;
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    if(offset < 0 || offset >= verify->stack_types.size()-1) {
+      err = "Local variable out of bounds"; return;
+    }
+    if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
+      err = "Local variable of wrong type"; return;
+    }
+    offset = verify->stack_types.size()-1-offset;
+    insn(MAKE_INSN(ICLASS_WRL_I, offset));
   }
 
   void const_int(int32_t val) {
@@ -387,15 +634,22 @@ public:
     // FIXME - could do more verification here
     if(err != NULL) return;
     if(func_start == 0) { err = "end_func outside of func"; return; }
+    if(verify != NULL) { err = "end_func not at end of code"; return; }
 
     for(std::vector<jump_fixup>::iterator iter = fixups.begin();
 	iter != fixups.end(); iter++) {
       do_fixup(*iter);
     }
+
+    for(std::vector<asm_verify*>::iterator iter = loc_verify.begin();
+	iter != loc_verify.end(); iter++) {
+      delete *iter;
+    }
+
     func_start = 0; 
     fixups.clear(); 
     loc_map.clear(); // FIXME - add atom start offset to detect cross-func jump
-    
+    loc_verify.clear();
   }
 
   script_state* finish(void) {
@@ -421,6 +675,7 @@ public:
 };
 
 int main(void) {
+#if 1
   // Test function - calculates the GCD of 1071 and 462
 
   vm_asm vasm;
@@ -431,24 +686,39 @@ int main(void) {
   vasm.const_int(462); // b
   vasm.do_label(start_lab); // label start
   // Right now, stack looks like [TOP] b a
-  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // b
+  vasm.rd_local_int(1); // b
   vasm.insn(INSN_NCOND);
   vasm.do_jump(ret_lab); // if b != 0 goto ret
-  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 2)); // a
-  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 2)); // b
+  vasm.rd_local_int(0); // a
+  vasm.rd_local_int(1); // b
   vasm.insn(INSN_MOD_II);
   // stack: [TOP] t=a%b b a
-  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 2)); // b
+  vasm.rd_local_int(1); // b
   // stack: [TOP] b t=a%b b a
-  vasm.insn(MAKE_INSN(ICLASS_WRL_I, 3)); // a = b
+  vasm.wr_local_int(0);
   // stack: [TOP] t b a
-  vasm.insn(MAKE_INSN(ICLASS_WRL_I, 1)); // b = t
+  vasm.wr_local_int(1);
   vasm.do_jump(start_lab); // goto start
   vasm.do_label(ret_lab); // label ret
   vasm.insn(INSN_POP_I);
   vasm.insn(INSN_PRINT_I);
   vasm.insn(INSN_RET);
   vasm.end_func();
+#else
+  vm_asm vasm;
+  vasm.begin_func();
+  loc_atom lab1 = vasm.make_loc();
+  loc_atom lab2 = vasm.make_loc();  
+  vasm.const_real(2.0f);
+  vasm.do_jump(lab1);
+  vasm.const_real(2.0f);
+  vasm.do_label(lab1);
+  vasm.const_real(2.0f);
+  vasm.insn(INSN_ADD_FF);
+  vasm.insn(INSN_PRINT_F);
+  vasm.insn(INSN_RET); 
+  vasm.end_func();
+#endif
 
   script_state *st = vasm.finish();
   if(st == NULL) {
@@ -460,4 +730,6 @@ int main(void) {
   st->frame = st->stack_top = stack+126;
   st->ip = 1;
   step_script(st, 100);
+  delete[] st->bytecode; delete[] st->globals;
+  delete st;
 }
