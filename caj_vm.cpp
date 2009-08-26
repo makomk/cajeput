@@ -490,8 +490,12 @@ public:
     }
     loc_map[loc.val] = bytecode.size();
     if(verify == NULL) {
-      if(loc_verify[loc.val] != NULL) 
+      if(loc_verify[loc.val] != NULL) {
 	verify = loc_verify[loc.val]->dup();
+      } else {
+	
+	err = "Unverifiable label placement"; return;
+      }
     } else if(loc_verify[loc.val] == NULL)  {
       loc_verify[loc.val] = verify->dup();
     } else {
