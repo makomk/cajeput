@@ -5,6 +5,7 @@
 %}
 %%
 state {return STATE; }
+default {return DEFAULT; }
 integer { return INTEGER; }
 float { return FLOAT; }
 string { return STRING; }
