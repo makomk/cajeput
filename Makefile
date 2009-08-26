@@ -1,7 +1,7 @@
 CXXFLAGS=-Wall -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/include/libsoup-2.4 -I /usr/lib64/glib-2.0/include -I /usr/include/bullet -I /usr/include/json-glib-1.0 -ggdb -DDEBUG
 CFLAGS=-Wall -ggdb -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/lib64/glib-2.0/include
 
-all: cajeput_sim  sl_llsd_test cajeput_j2k_test
+all: cajeput_sim  sl_llsd_test cajeput_j2k_test cajeput_vm_test
 
 .PHONY: all clean depend
 
@@ -15,6 +15,9 @@ FORCE:
 
 libopenjpeg/openjpeg.a: FORCE
 	cd libopenjpeg && make
+
+cajeput_vm_test: caj_vm.o
+	$(CXX) $(CFLAGS) -o cajeput_vm_test caj_vm.o
 
 cajeput_j2k_test: cajeput_j2k_test.c cajeput_j2k.h cajeput_j2k.o libopenjpeg/openjpeg.a
 	$(CC) $(CFLAGS) -o cajeput_j2k_test cajeput_j2k_test.c cajeput_j2k.o libopenjpeg/openjpeg.a -lm

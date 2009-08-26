@@ -10,6 +10,7 @@ cajeput_main.o: cajeput_main.cpp sl_messages.h sl_types.h sl_llsd.h \
 caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h sl_types.h sl_udp_proto.h \
   cajeput_core.h cajeput_int.h sl_llsd.h cajeput_world.h cajeput_user.h \
   cajeput_anims.h caj_omv.h terrain_compress.h
+caj_vm.o: caj_vm.cpp
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h sl_types.h \
   cajeput_user.h opensim_grid_glue.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h sl_types.h \
