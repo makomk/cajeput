@@ -106,7 +106,7 @@ struct insn_info {
 #define IVERIFY_COND 2
 #define IVERIFY_RET 3
 
-insn_info vm_insns[NUM_INSNS] = {
+const insn_info vm_insns[NUM_INSNS] = {
   { IVERIFY_NORMAL, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // NOOP
   { IVERIFY_INVALID, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_NONE }, // ABORT
   { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_INT }, // ADD_II
@@ -460,11 +460,14 @@ public:
     delete verify;
   }
 
-  void begin_func(void) {
+  void begin_func(uint8_t *arg_types, int arg_count) {
     if(err != NULL) return;
     if(func_start != 0) { err = "func_start in func"; return; }
     func_start = bytecode.size();
     verify = new asm_verify();
+    for(int i = 0; i < arg_count; i++) {
+      push_val(arg_types[i]);
+    }
   }
 
   loc_atom make_loc(void) {
@@ -547,7 +550,6 @@ public:
     }
   }
 
-public:
   void insn(uint16_t val) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Instruction outside of func"; return; }
@@ -681,13 +683,15 @@ public:
 int main(void) {
 #if 1
   // Test function - calculates the GCD of 1071 and 462
-
+  
+  uint8_t arg_types[2]; 
+  arg_types[0] = VM_TYPE_INT;
+  arg_types[1] = VM_TYPE_INT;
+  
   vm_asm vasm;
-  vasm.begin_func();
+  vasm.begin_func(arg_types, 2);
   loc_atom start_lab = vasm.make_loc();
   loc_atom ret_lab = vasm.make_loc();
-  vasm.const_int(1071); // a
-  vasm.const_int(462); // b
   vasm.do_label(start_lab); // label start
   // Right now, stack looks like [TOP] b a
   vasm.rd_local_int(1); // b
@@ -731,7 +735,9 @@ int main(void) {
   }
   int32_t stack[128];
   stack[127] = 0;
-  st->frame = st->stack_top = stack+126;
+  stack[126] = 1071;
+  stack[125] = 462;
+  st->frame = st->stack_top = stack+124;
   st->ip = 1;
   step_script(st, 100);
   delete[] st->bytecode; delete[] st->globals;
