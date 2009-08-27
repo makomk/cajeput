@@ -16,8 +16,34 @@ struct lsl_compile_state {
   int error;
   statement *func_code; 
   std::map<std::string, var_desc> vars;
+  std::map<std::string, const vm_function*> funcs;
   std::vector<uint8_t> stack_vars;
 };
+
+static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
+			    func_arg *args) {
+  for( ; args != NULL; args = args->next) {
+    if(st.vars.count(args->name)) {
+      printf("ERROR: duplicate function argument %s\n",args->name);
+      st.error = 1; return;
+    } else {
+      var_desc var; var.type = args->vtype; 
+      var.offset = st.stack_vars.size();
+      switch(args->vtype) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+	st.stack_vars.push_back(args->vtype);
+	break;
+      default:
+	printf("ERROR: func argument '%s' has unhandled type '%s'\n",
+	       args->name, type_names[args->vtype]);
+	st.error = 1; return;
+      // FIXME - handle this
+      }
+      st.vars[args->name] = var;
+    }
+  }
+}
 
 static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st) {
   for(statement *statem = st.func_code; statem != NULL; statem = statem->next) {
@@ -480,7 +506,9 @@ static void clear_stack(vm_asm &vasm, lsl_compile_state &st) {
   }
 }
 
+
 int main(int argc, char** argv) {
+  int num_funcs = 0; int func_no;
   vm_asm vasm;
   lsl_program *prog;
   lsl_compile_state st;
@@ -496,17 +524,52 @@ int main(int argc, char** argv) {
     printf(" *** Compile failed.\n"); return 1;
   }
 
+  // TODO - handle globals
+
+  for(function *func = prog->funcs; func != NULL; func = func->next)
+    num_funcs++;
+  const vm_function ** funcs = new const vm_function*[num_funcs]; // FIXME - use std::vector
+  func_no = 0;
   for(function *func = prog->funcs; func != NULL; func = func->next) {
+    if(st.funcs.count(func->name)) {
+      printf("ERROR: duplicate definition of func %s\n", func->name);
+      st.error = 1; return 1;
+    }
+
+    int num_args, j = 0;
+    for(func_arg* arg = func->args; arg != NULL; arg = arg->next) num_args++;
+    uint8_t *args = new uint8_t[num_args];
+    for(func_arg* arg = func->args; arg != NULL; arg = arg->next) 
+      args[j++] = arg->vtype;
+
+    // FIXME - we need to map the args to local variable names somehow
+    // FIXME FIXME - we also need to modify the way local variable names
+    // are assigned!!!! Things will implode horribly as they are now
+    st.funcs[func->name] = funcs[func_no++] = 
+      vasm.add_func(func->ret_type, args, num_args, func->name);
+  }
+
+  func_no = 0;
+  for(function *func = prog->funcs; func != NULL; func = func->next, func_no++) {
     printf("DEBUG: assembling function %s\n", func->name);
-    vasm.begin_func(NULL, 0); // FIXME
-    st.func_code = func->code->first;
+
+    
+    vasm.begin_func(funcs[func_no]);
+    st.func_code = NULL; // FIXME - not used anymore, remove
+
+    handle_arg_vars(vasm, st, func->args);
+     if(st.error) return 1;
+
     extract_local_vars(vasm, st);
     if(st.error) return 1;
+
     produce_code(vasm, st, st.func_code);
     if(st.error) return 1;
+
     clear_stack(vasm,st);
     vasm.insn(INSN_RET);
     vasm.end_func();
+
     if(vasm.get_error() != NULL) {
       printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
       st.error = 1; return 1;

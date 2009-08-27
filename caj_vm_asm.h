@@ -23,6 +23,9 @@
 #ifndef CAJ_VM_ASM_H
 #define CAJ_VM_ASM_H
 
+#include <cassert>
+#include <vector>
+#include <map>
 
 class loc_atom {
   friend class vm_asm;
@@ -42,6 +45,15 @@ struct asm_verify {
     verify->stack_types = stack_types;
     return verify;
   }
+};
+
+struct vm_function {
+  const char* name;
+  uint8_t ret_type;
+  uint32_t func_num; // FIXME - is this bigger than we want?
+  uint32_t insn_ptr; 
+  int arg_count;
+  const uint8_t* arg_types;
 };
 
 // 
@@ -84,6 +96,7 @@ private:
   std::vector<uint32_t> loc_map;
   std::vector<asm_verify*> loc_verify;
   std::vector<jump_fixup> fixups;
+  std::vector<vm_function*> funcs;
 
   int check_types(uint8_t stype, uint8_t vtype) {
     return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
@@ -148,13 +161,34 @@ public:
     delete verify;
   }
 
-  void begin_func(uint8_t *arg_types, int arg_count) {
+  // note - it's up to you to make sure the argument types and function name
+  // don't get freed before we're done with them.
+  const vm_function *add_func(uint8_t ret_type, uint8_t *arg_types, int arg_count,
+			const char *name) {
+    vm_function *func = new vm_function();
+    func->name = name;
+    func->ret_type = ret_type; // FIXME - not handled yet
+    func->arg_types = arg_types;
+    func->func_num = funcs.size();
+    func->insn_ptr = 0;
+    func->arg_count = arg_count;
+    funcs.push_back(func);
+    return func;
+  }
+
+  void begin_func(const vm_function *cfunc) {
     if(err != NULL) return;
     if(func_start != 0) { err = "func_start in func"; return; }
-    func_start = bytecode.size();
+
+    // if this fails, someone's done something *really* stupid
+    assert(cfunc->func_num < funcs.size());
+    assert(funcs[cfunc->func_num] == cfunc);
+
+    vm_function *func = funcs[cfunc->func_num];
+    func->insn_ptr = func_start = bytecode.size();
     verify = new asm_verify();
-    for(int i = 0; i < arg_count; i++) {
-      push_val(arg_types[i]);
+    for(int i = 0; i < func->arg_count; i++) {
+      push_val(func->arg_types[i]);
     }
   }
 
