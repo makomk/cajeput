@@ -32,6 +32,11 @@
 // #define ICLASS_WRG_V  7
 #define ICLASS_RDL_I 8
 #define ICLASS_WRL_I 9
+// #define ICLASS_RDL_P  10
+// #define ICLASS_WRL_P  11
+// #define ICLASS_RDL_V  12
+// #define ICLASS_WRL_V  13
+#define ICLASS_CALL 14
 
 #define GET_ICLASS(insn) (((insn) >> 12) &0xf)
 #define GET_IVAL(insn) ((insn) & 0xfff)
@@ -85,14 +90,13 @@
 #define INSN_PRINT_I 33
 #define INSN_PRINT_F 34
 #define INSN_PRINT_STR 35
-
-// TODO - need to implement these
 #define INSN_CAST_I2F 36
 #define INSN_CAST_F2I 37
 #define INSN_CAST_I2S 38
 #define INSN_CAST_F2S 39
+#define INSN_BEGIN_CALL 40 // magic. Move somewhere saner?
 
-#define NUM_INSNS 40
+#define NUM_INSNS 41
 
 #define INSN_QUIT 0xff0
 
@@ -160,6 +164,7 @@ static const insn_info vm_insns[NUM_INSNS] = {
   { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_NONE, VM_TYPE_INT }, // CAST_F2I
   { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_STR }, // CAST_I2S
   { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_NONE, VM_TYPE_STR }, // CAST_F2S
+  { IVERIFY_NORMAL, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_RET_ADDR }, // BEGIN_CALL
 };
 
 struct script_state {

@@ -50,7 +50,7 @@ struct asm_verify {
 struct vm_function {
   const char* name;
   uint8_t ret_type;
-  uint32_t func_num; // FIXME - is this bigger than we want?
+  uint16_t func_num;
   uint32_t insn_ptr; 
   int arg_count;
   const uint8_t* arg_types;
@@ -253,6 +253,28 @@ public:
       verify = NULL;
     }
     cond_flag = 0;
+  }
+
+  void do_call(const vm_function *func) {
+    if(err != NULL) return;
+    if(func_start == 0) { err = "Call outside of func"; return; }
+    if(cond_flag) { err = "Non-jump instruction after cond"; return; }
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }    
+
+    // again, if this fails, someone's done something *really* stupid
+    assert(func->func_num < funcs.size());
+    assert(funcs[func->func_num] == func);
+
+    // arguments are pushed on left-to-right
+    for(int i = func->arg_count - 1; i >= 0; i--) {
+      pop_val(func->arg_types[i]); 
+    }
+    pop_val(VM_TYPE_RET_ADDR);
+
+    // FIXME - need to handle return value somehow!
+
+    if(err != NULL) return;
+    bytecode.push_back(MAKE_INSN(ICLASS_CALL, func->func_num));
   }
 
   uint16_t add_global(int32_t val, uint8_t vtype) {

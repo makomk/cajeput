@@ -148,6 +148,10 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_CAST_F2I:
 	stack_top[1] = ((float*)stack_top)[1];
 	break;
+	/* FIXME - implement other casts */
+      case INSN_BEGIN_CALL:
+	--stack_top; // the magic is in the verifier.
+	break;
       default:
 	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
 	goto abort_exec;

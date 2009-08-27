@@ -14,7 +14,6 @@ struct var_desc {
 
 struct lsl_compile_state {
   int error;
-  statement *func_code; 
   std::map<std::string, var_desc> vars;
   std::map<std::string, const vm_function*> funcs;
   std::vector<uint8_t> stack_vars;
@@ -45,8 +44,9 @@ static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
   }
 }
 
-static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st) {
-  for(statement *statem = st.func_code; statem != NULL; statem = statem->next) {
+static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
+			       statement *statem) {
+  for( ; statem != NULL; statem = statem->next) {
     if(statem->stype != STMT_DECL) continue;
     assert(statem->expr[0] != NULL && statem->expr[0]->node_type == NODE_IDENT);
     char* name = statem->expr[0]->u.s; uint8_t vtype = statem->expr[0]->vtype;
@@ -71,6 +71,7 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st) {
 	st.error = 1; return;
       // FIXME - handle this
       }
+      printf("Adding local var %s %s\n", type_names[vtype], name);
       st.vars[name] = var;
     }
   }
@@ -396,8 +397,23 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	st.error = 1; return;
       }	
     } else {
-      printf("ERROR: procedure calls not done yet\n");
+      std::map<std::string, const vm_function*>::iterator iter =
+	st.funcs.find(expr->u.call.name);
+      if(iter == st.funcs.end()) {
+	printf("ERROR: call to unknown function %s\n", expr->u.call.name);
 	st.error = 1; return;
+      }
+      printf("DEBUG: beginning call to %s\n", expr->u.call.name);
+      vasm.insn(INSN_BEGIN_CALL);
+      for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
+	printf("DEBUG: assembling an argument %p\n", lnode);
+	assemble_expr(vasm, st, lnode->expr);
+	if(st.error != 0) return;
+	if(lnode->next == NULL) { printf("DEBUG: last argument\n"); }
+	else { printf("DEBUG: next argument %p\n", lnode); }
+      }
+      printf("DEBUG: doing call to %s\n", expr->u.call.name);
+      vasm.do_call(iter->second);
     }
     break;
   case NODE_CAST:
@@ -555,15 +571,14 @@ int main(int argc, char** argv) {
 
     
     vasm.begin_func(funcs[func_no]);
-    st.func_code = NULL; // FIXME - not used anymore, remove
 
     handle_arg_vars(vasm, st, func->args);
      if(st.error) return 1;
 
-    extract_local_vars(vasm, st);
+     extract_local_vars(vasm, st, func->code->first);
     if(st.error) return 1;
 
-    produce_code(vasm, st, st.func_code);
+    produce_code(vasm, st, func->code->first);
     if(st.error) return 1;
 
     clear_stack(vasm,st);
