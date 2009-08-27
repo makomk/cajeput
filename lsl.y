@@ -216,9 +216,7 @@ argument: type IDENTIFIER {
   $$ = malloc(sizeof(func_arg)); $$->vtype = $1; 
   $$->name = $2; $$->next = NULL;
 }
-decls : | decls decl ;
-decl : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
-function_body : '{' decls statements '}' { $$ = $3 };
+function_body : '{' statements '}' { $$ = $2 };
 statements : /* nothing */ { $$ = malloc(sizeof(basic_block)); $$->first = NULL;
                              $$->add_here = &($$->first) }
 | statements ';' { $$ = $1 }
