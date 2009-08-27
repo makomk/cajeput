@@ -1,6 +1,7 @@
 #include "caj_lsl_parse.h"
 #include "caj_vm.h"
 #include "caj_vm_asm.h"
+#include "caj_vm_exec.h" // FOR DEBUGGING
 
 #include <map>
 #include <string>
@@ -128,6 +129,16 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_SUB:
   case NODE_MUL:
   case NODE_DIV:
+  case NODE_MOD:
+  case NODE_EQUAL:
+  case NODE_NEQUAL:
+  case NODE_LEQUAL:
+  case NODE_GEQUAL:
+  case NODE_LESS:
+  case NODE_GREATER:
+  case NODE_OR:
+  case NODE_AND:
+  case NODE_XOR:
     propagate_types(st, expr->u.child[0]);
     if(st.error != 0) return;
     propagate_types(st, expr->u.child[1]);
@@ -170,19 +181,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     }
   }
 #if 0
-#define NODE_MUL 5
-#define NODE_DIV 6
-#define NODE_MOD 7
 #define NODE_ASSIGN 8
-#define NODE_EQUAL 9
-#define NODE_NEQUAL 10
-#define NODE_LEQUAL 11
-#define NODE_GEQUAL 12
-#define NODE_LESS 13
-#define NODE_GREATER 14
-#define NODE_OR 15
-#define NODE_AND 16
-#define NODE_XOR 17
 #define NODE_L_OR 18
 #define NODE_L_AND 19
 #define NODE_SHR 20
@@ -238,6 +237,16 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_SUB:
   case NODE_MUL:
   case NODE_DIV:
+  case NODE_MOD:
+  case NODE_EQUAL:
+  case NODE_NEQUAL:
+  case NODE_LEQUAL:
+  case NODE_GEQUAL:
+  case NODE_LESS:
+  case NODE_GREATER:
+  case NODE_OR:
+  case NODE_AND:
+  case NODE_XOR:
     insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
 			  expr->u.child[1]->vtype);
     if(insn == 0) {
@@ -366,6 +375,14 @@ int main(int argc, char** argv) {
       st.error = 1; return 1;
     }
   }
+
+  script_state *scr = vasm.finish();
+  if(scr == NULL) {
+    printf("Error assembling: %s\n", vasm.get_error());
+    return 1;
+  }
+  printf("DEBUG: testing code execution\n");
+  caj_vm_test(scr); // FIXME - HACK HACK HACK
   
   return 0;
 }

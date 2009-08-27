@@ -22,13 +22,14 @@
 
 #include "caj_vm.h"
 #include "caj_vm_asm.h"
+#include "caj_vm_exec.h"
 
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
   int32_t* stack_top = st->stack_top;
   uint32_t ip = st->ip;
   for( ; num_steps > 0 && ip != 0; num_steps--) {
-    // printf("DEBUG: executing at %u\n", ip);
+    //printf("DEBUG: executing at %u: 0x%04x\n", ip, (int)bytecode[ip]);
     uint16_t insn = bytecode[ip++];
     int ival;
     switch(GET_ICLASS(insn)) {
@@ -141,7 +142,14 @@ static void step_script(script_state* st, int num_steps) {
 	  printf("DEBUG: string '%s'\n", buf);
 	  st->heap[tmp]--;
 	}
+      case INSN_CAST_I2F:
+	((float*)stack_top)[1] = stack_top[1];
+	break;
+      case INSN_CAST_F2I:
+	stack_top[1] = ((float*)stack_top)[1];
+	break;
       default:
+	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
 	goto abort_exec;
       }
       break;
@@ -178,6 +186,7 @@ static void step_script(script_state* st, int num_steps) {
       stack_top[GET_IVAL(insn)] = *stack_top;
       break;
     default:
+      printf("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
       goto abort_exec;
     }
   }
@@ -186,9 +195,20 @@ static void step_script(script_state* st, int num_steps) {
   st->ip = ip;
   return; // FIXME;
  abort_exec:
+  printf("DEBUG: abborting code execution\n");
   st->ip = 0; st->scram_flag = 1;
 }
 
+void caj_vm_test(script_state *st) {
+  int32_t stack[128];
+  stack[127] = 0;
+  st->frame = st->stack_top = stack+126;
+  st->ip = 1;
+  step_script(st, 100);
+}
+
+
+#if 0
 int main(void) {
 #if 1
   // Test function - calculates the GCD of 1071 and 462
@@ -252,3 +272,4 @@ int main(void) {
   delete[] st->bytecode; delete[] st->globals;
   delete st;
 }
+#endif
