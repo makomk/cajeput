@@ -552,7 +552,7 @@ int main(int argc, char** argv) {
       st.error = 1; return 1;
     }
 
-    int num_args, j = 0;
+    int num_args = 0, j = 0;
     for(func_arg* arg = func->args; arg != NULL; arg = arg->next) num_args++;
     uint8_t *args = new uint8_t[num_args];
     for(func_arg* arg = func->args; arg != NULL; arg = arg->next) 

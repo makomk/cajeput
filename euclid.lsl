@@ -1,7 +1,10 @@
 
 testfunc () {
-	integer a; integer b; integer t;
-	a = 1071; b = 462;
+	 euclid(1071, 462);
+}
+
+euclid (integer a, integer b) {
+	integer t;
 	while(b != 0) {
 	   t = b; b = a % b; a = t;
         }

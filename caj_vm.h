@@ -167,6 +167,11 @@ static const insn_info vm_insns[NUM_INSNS] = {
   { IVERIFY_NORMAL, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_RET_ADDR }, // BEGIN_CALL
 };
 
+struct script_func { // temporary placeholder
+  uint32_t ip;
+  int frame_sz;
+};
+
 struct script_state {
   uint32_t ip;
   uint16_t* bytecode;
@@ -174,6 +179,7 @@ struct script_state {
   int32_t* frame;
   int32_t* globals;
   uint32_t* heap;
+  script_func *funcs;
   int scram_flag;
 };
 

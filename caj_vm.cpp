@@ -21,8 +21,9 @@
  */
 
 #include "caj_vm.h"
-#include "caj_vm_asm.h"
+// #include "caj_vm_asm.h"
 #include "caj_vm_exec.h"
+#include <cassert>
 
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
@@ -31,7 +32,6 @@ static void step_script(script_state* st, int num_steps) {
   for( ; num_steps > 0 && ip != 0; num_steps--) {
     //printf("DEBUG: executing at %u: 0x%04x\n", ip, (int)bytecode[ip]);
     uint16_t insn = bytecode[ip++];
-    int ival;
     switch(GET_ICLASS(insn)) {
     case ICLASS_NORMAL:
       switch(GET_IVAL(insn)) {
@@ -150,7 +150,8 @@ static void step_script(script_state* st, int num_steps) {
 	break;
 	/* FIXME - implement other casts */
       case INSN_BEGIN_CALL:
-	--stack_top; // the magic is in the verifier.
+	// --stack_top; // the magic is in the verifier.
+	*(stack_top--) = 0x1231234; // for debugging
 	break;
       default:
 	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
@@ -165,6 +166,14 @@ static void step_script(script_state* st, int num_steps) {
 	} else {
 	  ip += ival;
 	}
+      }
+      break;
+    case ICLASS_CALL:
+      {
+	int16_t ival = GET_IVAL(insn);
+	assert(stack_top[st->funcs[ival].frame_sz] == 0x1231234);
+	stack_top[st->funcs[ival].frame_sz] = ip;
+	ip = st->funcs[ival].ip;
       }
       break;
     case ICLASS_RDG_I:

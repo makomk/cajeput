@@ -26,6 +26,7 @@
 #include <cassert>
 #include <vector>
 #include <map>
+#include <stdlib.h>
 
 class loc_atom {
   friend class vm_asm;
@@ -171,6 +172,7 @@ public:
     func->arg_types = arg_types;
     func->func_num = funcs.size();
     func->insn_ptr = 0;
+    assert(arg_count < 255); // FIXME !
     func->arg_count = arg_count;
     funcs.push_back(func);
     return func;
@@ -416,6 +418,30 @@ public:
     st->globals = new int32_t[globals.size()];
     for(int i = 0; i < globals.size(); i++)
       st->globals[i] = globals[i];
+
+    st->funcs = new script_func[funcs.size()];
+    for(int i = 0; i < funcs.size(); i++) {
+      st->funcs[i].ip = funcs[i]->insn_ptr;
+      st->funcs[i].frame_sz = 1;
+      for(int j = 0; j < funcs[i]->arg_count; j++) {
+	switch(funcs[i]->arg_types[j]) {
+	case VM_TYPE_INT:
+	case VM_TYPE_FLOAT:
+	case VM_TYPE_STR:
+	case VM_TYPE_KEY:
+	case VM_TYPE_LIST:
+	  st->funcs[i].frame_sz++;
+	  break;
+	case VM_TYPE_VECT:
+	  st->funcs[i].frame_sz += 3;
+	  break;
+	case VM_TYPE_ROT:
+	  st->funcs[i].frame_sz += 4;
+	  break;
+	default: abort();
+	}
+      }
+    }
     return st;
   }
   
