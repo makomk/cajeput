@@ -22,7 +22,7 @@ struct expr_node {
   int node_type; uint8_t vtype;
   union {
     expr_node* child[4];
-    int i; float f; char* s;
+    int i; float f; char* s; list_node *list;
     struct { char* name; list_node* args; } call;
   } u;
 };
@@ -104,6 +104,7 @@ struct expr_node {
 #define NODE_CALL 34 /* procedure call */
 #define NODE_VECTOR 35 
 #define NODE_ROTATION 36
+#define NODE_LIST 37
 
  /* FIXME - types should be in a shared header */
 #define VM_TYPE_NONE  0
@@ -161,6 +162,15 @@ static expr_node * enode_make_str(char *s) {
   enode->u.child[2] = x; enode->u.child[3] = w;
   return enode;
 }
+
+static expr_node * enode_make_list(list_node *list) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->u.list = list;
+  enode->node_type = NODE_LIST;
+  enode->vtype = VM_TYPE_NONE; // FIXME - list type?
+  return enode;
+}
+
 
 static expr_node * enode_make_id(char *s) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
@@ -348,7 +358,7 @@ ret_stmt : RETURN | RETURN expr ;
 variable: IDENTIFIER { $$ = enode_make_id($1); }
 | IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1); } /* FIXME - handle .x right */
    ; 
-call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first); }
+call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first); free($3); }
 list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->first; }
        | expr { 
 	 $$ = malloc(sizeof(list_head)); $$->first = make_list_entry($1);
@@ -394,7 +404,7 @@ expr : NUMBER { $$ = enode_make_int($1); }
        | '(' expr ')' { $$ = $2; }
 | '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8); } 
 | '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6); } 
-| '[' list ']' // FIXME
+| '[' list ']' { $$ = enode_make_list($2->first); free($2); }
 | expr INCR { $$ = enode_monop($1, NODE_POSTINC); } 
 | expr DECR { $$ = enode_monop($1, NODE_POSTDEC); } 
 | INCR expr { $$ = enode_monop($2, NODE_PREINC); }
@@ -474,6 +484,12 @@ static void print_expr(expr_node *enode) {
   case NODE_ROTATION:
     printf("(rotation ");
     for(i = 0; i < 4; i++) print_expr(enode->u.child[i]); 
+    printf(") ");
+    break;
+  case NODE_LIST:
+    printf("(list ");
+    for(lnode = enode->u.list; lnode != NULL; lnode = lnode->next)
+      print_expr(lnode->expr);
     printf(") ");
     break;
   default:
