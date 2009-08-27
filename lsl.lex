@@ -11,8 +11,10 @@ integer {yylloc.first_line = yylineno; return INTEGER; }
 float {yylloc.first_line = yylineno; return FLOAT; }
 string {yylloc.first_line = yylineno; return STRING; }
 key { return KEY; }
+list { return LIST; }
 vector { return VECTOR; }
 rotation { return ROTATION; }
+return { return RETURN; }
 if { return IF; }
 else { return ELSE; }
 \+\+ { return INCR; }
@@ -25,11 +27,16 @@ else { return ELSE; }
 != { return NEQUAL; }
 \<= { return LEQUAL; }
 \>= { return GEQUAL; }
+\+= { return ASSIGNADD; }
+-= { return ASSIGNSUB; }
+\*= { return ASSIGNMUL; }
+\/= { return ASSIGNDIV; }
+%= { return ASSIGNMOD; }
 
 [0-9]+[.][0-9]* { yylloc.first_line = yylineno; yylval.str = strdup(yytext); return REAL; } /* FIXME - handle exponent */
 [0-9]+ {yylloc.first_line = yylineno; yylval.str = strdup(yytext); return NUMBER; }
 [a-zA-Z][a-zA-Z0-9_]* {yylloc.first_line = yylineno; yylval.str = strdup(yytext); return IDENTIFIER; }
-\"[^\n\r\"]*\" {yylloc.first_line = yylineno; yylval.str = strdup(yytext); return STR; }
+\"([^\n\r\"\\]|\\.)*\" {yylloc.first_line = yylineno; yylval.str = strdup(yytext); return STR; }
 [ \t\n\r]+
 \/\/[^\n\r]*
 . { yylloc.first_line = yylineno; return yytext[0]; }

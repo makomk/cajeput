@@ -20,7 +20,7 @@ lsl-lex.c: lsl.lex
 	flex -o lsl-lex.c lsl.lex
 
 lsl.tab.c lsl.tab.h: lsl.y
-	bison -d lsl.y
+	bison -d -v lsl.y
 
 lsl.tab.o: lsl.tab.c lsl.tab.h
 
