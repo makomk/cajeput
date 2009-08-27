@@ -99,6 +99,18 @@ static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
       /* case VM_TYPE_VECTOR: TODO - dot product */
     default: return 0;
     }
+  case NODE_LESS:
+    if(ltype != rtype) return 0;
+    switch(ltype) {
+    case VM_TYPE_INT: return INSN_LES_II;
+    default: return 0;
+    }
+  case NODE_GREATER:
+    if(ltype != rtype) return 0;
+    switch(ltype) {
+    case VM_TYPE_INT: return INSN_GR_II;
+    default: return 0;
+    }
   /* TODO - comparison operators */
   case NODE_AND:
     if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_AND_II;
@@ -375,8 +387,8 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   }
 }
 
-static void produce_code(vm_asm &vasm, lsl_compile_state &st) {
-  for(statement *statem = st.func_code; statem != NULL; statem = statem->next) {
+static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem) {
+  for( ; statem != NULL; statem = statem->next) {
     switch(statem->stype) {
     case STMT_DECL:
       break; // FIXME!
@@ -385,6 +397,32 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st) {
       if(st.error) return;
       // FIXME - need to cast expression to void!
       assemble_expr(vasm, st, statem->expr[0]);
+      break;
+    case STMT_WHILE:
+      {
+	loc_atom loop_start = vasm.make_loc();
+	loc_atom loop_end = vasm.make_loc();
+	vasm.do_label(loop_start);
+	propagate_types(st, statem->expr[0]);
+	if(st.error) return;
+	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
+	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	vasm.insn(INSN_NCOND);
+	vasm.do_jump(loop_end);
+	if(vasm.get_error() != NULL) {
+	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  st.error = 1; return;
+	}
+	// FIXME - TODO 
+	produce_code(vasm, st, statem->child[0]);
+	if(st.error) return;
+	vasm.do_jump(loop_start);
+	vasm.do_label(loop_end);
+      }
+      break;
+    case STMT_BLOCK:
+      produce_code(vasm, st, statem->child[0]);
       break;
     default:
       printf("ERROR: unhandled statement type %i\n", statem->stype);
@@ -427,7 +465,7 @@ int main(int argc, char** argv) {
     st.func_code = func->code->first;
     extract_local_vars(vasm, st);
     if(st.error) return 1;
-    produce_code(vasm, st);
+    produce_code(vasm, st, st.func_code);
     if(st.error) return 1;
     clear_stack(vasm,st);
     vasm.insn(INSN_RET);

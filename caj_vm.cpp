@@ -204,7 +204,7 @@ void caj_vm_test(script_state *st) {
   stack[127] = 0;
   st->frame = st->stack_top = stack+126;
   st->ip = 1;
-  step_script(st, 100);
+  step_script(st, 1000);
 }
 
 
