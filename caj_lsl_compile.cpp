@@ -188,9 +188,9 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     if(st.error != 0) return;
     propagate_types(st, expr->u.child[1]);
     if(st.error != 0) return;
-    expr->vtype = expr->u.child[0]->vtype;
+    expr->vtype = VM_TYPE_NONE /* expr->u.child[0]->vtype */; // FIXME
     // FIXME - do we really always want to auto-cast?
-    expr->u.child[1] = enode_cast(expr->u.child[1], expr->vtype);
+    expr->u.child[1] = enode_cast(expr->u.child[1], expr->u.child[0]->vtype);
     break;
   case NODE_ADD:
   case NODE_SUB:
@@ -274,6 +274,8 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
 
 static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   switch(TYPE_PAIR(from_type, to_type)) {
+  case TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_POP_I;
+  case TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_POP_I;
   case TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   /* FIXME - fill out the rest of these */
@@ -324,24 +326,24 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     {
       uint16_t var_id;
       assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
-      assert(expr->vtype == expr->u.child[1]->vtype); // ensured by type propagation
+      uint8_t vtype = expr->u.child[1]->vtype; // FIXME - use child[0]?
       std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.child[0]->u.s);
       if(iter == st.vars.end()) {
 	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
 	st.error = 1; return;
       }
-      assert(iter->second.type == expr->vtype);
+      assert(iter->second.type == vtype);
       var_id = iter->second.offset;
       assemble_expr(vasm, st, expr->u.child[1]);
       if(st.error != 0) return;
-      switch(expr->vtype) {
+      switch(vtype) {
       case VM_TYPE_INT:
       case VM_TYPE_FLOAT:
 	vasm.wr_local_int(var_id);
 	break;
       default:
 	printf("FIXME: can't handle assignment to vars of type %s \n", 
-	       type_names[expr->vtype]);
+	       type_names[vtype]);
 	st.error = 1; return;
       }
     }
@@ -441,6 +443,11 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   }
 }
 
+static expr_node *cast_to_void(expr_node *expr) {
+  // we're going to need magic here for assignments later, but for now...
+  return enode_cast(expr, VM_TYPE_NONE);
+}
+
 static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem) {
   for( ; statem != NULL; statem = statem->next) {
     switch(statem->stype) {
@@ -449,7 +456,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
     case STMT_EXPR:
       propagate_types(st, statem->expr[0]);
       if(st.error) return;
-      // FIXME - need to cast expression to void!
+      statem->expr[0] = cast_to_void(statem->expr[0]);
       assemble_expr(vasm, st, statem->expr[0]);
       break;
     case STMT_IF:

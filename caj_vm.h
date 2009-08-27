@@ -83,7 +83,7 @@
 #define INSN_LES_II 26 // <
 #define INSN_GEQ_II 27 // >=
 #define INSN_LEQ_II 28 // <=
-#define INSN_POP_I 29 
+#define INSN_POP_I 29  // FIXME - dubious mnemonic
 // #define INSN_POP_P 30
 // #define INSN_POP_I3 31 // POP_I*3
 // #define INSN_POP_I4 32 // POP_I*4

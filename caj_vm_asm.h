@@ -350,6 +350,8 @@ public:
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
     if(offset < 0 || offset >= verify->stack_types.size()) {
+      printf("DEBUG: rd var out of bounds @ %i, stack size %i\n",
+	     offset, verify->stack_types.size());
       err = "Local variable out of bounds"; return;
     }
     if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
@@ -363,6 +365,8 @@ public:
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
     if(offset < 0 || offset >= verify->stack_types.size()-1) {
+      printf("DEBUG: wr var out of bounds @ %i, stack size %i\n",
+	     offset, verify->stack_types.size());
       err = "Local variable out of bounds"; return;
     }
     if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
