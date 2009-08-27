@@ -17,10 +17,15 @@ typedef struct expr_node {
 #define STMT_EXPR 1
 #define STMT_IF 2
 #define STMT_RET 3
+#define STMT_WHILE 4
+#define STMT_DO 5
+#define STMT_FOR 6
+#define STMT_DECL 7 /* variable declaration */
 
  typedef struct statement {
    int stype; /* STMT_* */
-   expr_node *expr;
+   expr_node *expr[3];
+   struct statement *child[2];
    struct statement *next;
  } statement;
 
@@ -73,10 +78,17 @@ typedef struct expr_node {
 #define NODE_ASSIGNSUB 23
 #define NODE_ASSIGNMUL 24
 #define NODE_ASSIGNDIV 25
+#define NODE_ASSIGNMOD 26
  /* mono ops */
-#define NODE_NEGATE 26
-#define NODE_NOT 27 /* ~ - bitwise not */
-#define NODE_L_NOT 28 /* ! - logical not */
+#define NODE_NEGATE 27
+#define NODE_NOT 28 /* ~ - bitwise not */
+#define NODE_L_NOT 29 /* ! - logical not */
+#define NODE_PREINC 30 /* ++foo */
+#define NODE_POSTINC 31 /* foo++ */
+#define NODE_PREDEC 32 /* --foo */
+#define NODE_POSTDEC 33 /* foo-- */
+
+#define NODE_CALL 34 /* procedure call */
 
  /* FIXME - types should be in a shared header */
 #define VM_TYPE_NONE  0
@@ -107,12 +119,35 @@ static expr_node * enode_make_float(char *s) {
   return enode;
 }
 
+/* FIXME - need to remove quotes either here or in lexer */
+static expr_node * enode_make_str(char *s) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->u.s = s;
+  enode->node_type = NODE_CONST;
+  enode->vtype = VM_TYPE_STR;
+  return enode;
+}
+
+
 static expr_node * enode_make_id(char *s) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    enode->node_type = NODE_IDENT;
    enode->u.s = s;
     return enode;
 }
+
+ static expr_node * enode_make_id_type(char *s, uint8_t vtype) {
+   struct expr_node *enode = malloc(sizeof(struct expr_node));
+   enode->node_type = NODE_IDENT; enode->vtype = vtype;
+   enode->u.s = s;
+   return enode;
+}
+
+ static expr_node *enode_make_call(void) { // FIXME!!!!!!!
+   struct expr_node *enode = malloc(sizeof(struct expr_node));
+   enode->node_type = NODE_CALL;
+   return enode;
+ }
 
 static  expr_node * enode_binop(expr_node *l, expr_node *r, int node_type) {
     expr_node *enode = malloc(sizeof(expr_node));
@@ -143,6 +178,11 @@ static expr_node *enode_negate(expr_node *expr) {
   return enode_monop(expr, NODE_NEGATE);
 }
 
+ static statement* new_statement(void) {
+  statement *statem = malloc(sizeof(statement));
+  statem->next = NULL; 
+  return statem;
+}
 
  struct lsl_program global_prog; // FIXME - remove this
 
@@ -159,7 +199,7 @@ static expr_node *enode_negate(expr_node *expr) {
   char *str;
   uint8_t vtype;
 }
-%token IF ELSE WHILE FOR STATE DEFAULT RETURN
+%token IF ELSE WHILE FOR DO STATE DEFAULT RETURN JUMP
 %token INCR DECR SHLEFT SHRIGHT /* ++ -- << >> */
 %token L_AND L_OR EQUAL NEQUAL /* && || == != */
 %token LEQUAL GEQUAL /* <= >= */
@@ -182,12 +222,13 @@ static expr_node *enode_negate(expr_node *expr) {
 %left CAST /* FIXME - where does this go? */
 %left '!' '~' INCR DECR
 %type <str> state_id;
-%type <enode> expr
+%type <enode> expr num_const variable call
 %type <bblock> statements function_body
+%type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local 
+%type <stat> jump_stmt label_stmt
 %type <func> function program functions
 %type <arg> arguments arglist argument
 %type <vtype> type 
-%type <str> variable /* FIXME - will have to change this! */
 %%
 program : functions states { $$ = $1; global_prog.func = $1; }; 
 global : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
@@ -219,38 +260,75 @@ argument: type IDENTIFIER {
 function_body : '{' statements '}' { $$ = $2 };
 statements : /* nothing */ { $$ = malloc(sizeof(basic_block)); $$->first = NULL;
                              $$->add_here = &($$->first) }
-| statements ';' { $$ = $1 }
-| statements expr ';' { 
-  statement *statem = malloc(sizeof(statement));
-  statem->expr = $2; statem->next = NULL; statem->stype = STMT_EXPR;
-  *($1->add_here) = statem; $1->add_here = &statem->next;
+| statements statement { 
+  if($2 != NULL) { *($1->add_here) = $2; $1->add_here = &$2->next; }
   $$ = $1;
-} 
-| statements if_stmt ; // FIXME 
-| statements ret_stmt ';' ; // FIXME
-| statements local ';' ;
-local : type IDENTIFIER | type IDENTIFIER '=' expr ; 
-if_stmt : IF '(' expr ')' '{' statements '}'
+ } ;
+statement : ';' { $$ = NULL } |  expr ';' { 
+  $$ = new_statement();
+  $$->stype = STMT_EXPR; $$->expr[0] = $1; 
+ } 
+            | if_stmt ; // FIXME 
+            | do_stmt 
+	    | while_stmt
+	    | for_stmt
+	    | ret_stmt ';' ; // FIXME
+            | local ';' ;
+            | jump_stmt ;
+            | label_stmt ;
+	    | '{' statements '}' ;
+local : type IDENTIFIER {
+  $$ = new_statement(); $$->stype = STMT_DECL; 
+  $$->expr[0] = enode_make_id_type($2,$1); $$->expr[1] = NULL;
+ }
+    | type IDENTIFIER '=' expr {
+  $$ = new_statement(); $$->stype = STMT_DECL; 
+  $$->expr[0] = enode_make_id_type($2,$1); $$->expr[1] = $4;
+ }; 
+if_stmt : IF '(' expr ')' '{' statements '}' {
+  $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
+  $$->child[0] = NULL; $$->child[1] = NULL; /* FIXME */
+ }
         | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}';
+while_stmt : WHILE '(' expr ')' statement {
+  $$ = new_statement(); $$->stype = STMT_WHILE; 
+  $$->expr[0] = $3; $$->child[0] = $5;
+ };
+do_stmt : DO statement WHILE '(' expr ')' {
+  $$ = new_statement(); $$->stype = STMT_DO; 
+  $$->child[0] = $2; $$->expr[0] = $5;
+ };
+for_stmt : FOR '(' opt_expr ';' opt_expr ';' opt_expr ')'  statement ;
+jump_stmt : JUMP IDENTIFIER ';';
+label_stmt : '@' IDENTIFIER ';';
+opt_expr : | expr ;
 ret_stmt : RETURN | RETURN expr ;
-variable: IDENTIFIER | IDENTIFIER '.' IDENTIFIER; /* FIXME - handle .x right */
+variable: IDENTIFIER { $$ = enode_make_id($1); }
+| IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1); } /* FIXME - handle .x right */
+   ; 
 call_args : /* nowt */ | expr | call_args ',' expr  ;
-call : IDENTIFIER '(' call_args ')'
+call : IDENTIFIER '(' call_args ')' { $$ = enode_make_call(); } // FIXME!!!!
 list : | expr | list ',' expr ; // FIXME. Also, merge with argument list?
+num_const : NUMBER { $$ = enode_make_int($1); }
+       | REAL { $$ = enode_make_float($1); }
+       | IDENTIFIER  { $$ = enode_make_id($1); }
+       | '-' num_const { $$ = enode_negate($2); } ;
 expr : NUMBER { $$ = enode_make_int($1); }
        | REAL { $$ = enode_make_float($1); }
-       | STR { $$ = NULL; /* FIXME */ }
-       | call { $$ = NULL; } // FIXME
-       | variable { $$ = enode_make_id($1); }
-       | variable '=' expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGN); }
-       | variable ASSIGNADD expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGNADD); }
-       | variable ASSIGNSUB expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGNSUB); }
-       | variable ASSIGNMUL expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGNMUL); }
-       | variable ASSIGNDIV expr { $$ = enode_binop(enode_make_id($1),$3,NODE_ASSIGNDIV); }
+       | STR { $$ = enode_make_str($1); }
+       | call { $$ = $1; } 
+       | variable { $$ = $1; }
+       | variable '=' expr { $$ = enode_binop($1,$3,NODE_ASSIGN); }
+       | variable ASSIGNADD expr { $$ = enode_binop($1,$3,NODE_ASSIGNADD); }
+       | variable ASSIGNSUB expr { $$ = enode_binop($1,$3,NODE_ASSIGNSUB); }
+       | variable ASSIGNMUL expr { $$ = enode_binop($1,$3,NODE_ASSIGNMUL); }
+       | variable ASSIGNDIV expr { $$ = enode_binop($1,$3,NODE_ASSIGNDIV); }
+       | variable ASSIGNMOD expr { $$ = enode_binop($1,$3,NODE_ASSIGNMOD); }
        | expr '+' expr { $$ = enode_binop($1,$3,NODE_ADD); }
        | expr '-' expr { $$ = enode_binop($1,$3,NODE_SUB); }
        | expr '*' expr { $$ = enode_binop($1,$3,NODE_MUL); }
        | expr '/' expr { $$ = enode_binop($1,$3,NODE_DIV); }
+       | expr '%' expr { $$ = enode_binop($1,$3,NODE_MOD); }
        | expr EQUAL expr { $$ = enode_binop($1,$3,NODE_EQUAL); }
        | expr NEQUAL expr { $$ = enode_binop($1,$3,NODE_NEQUAL); }
        | expr LEQUAL expr { $$ = enode_binop($1,$3,NODE_LEQUAL); }
@@ -265,13 +343,13 @@ expr : NUMBER { $$ = enode_make_int($1); }
        | expr SHLEFT expr { $$ = enode_binop($1,$3,NODE_SHL); }
        | expr SHRIGHT expr { $$ = enode_binop($1,$3,NODE_SHR); }
        | '(' expr ')' { $$ = $2; }
-| '<' expr ',' expr ',' expr ',' expr '>' // FIXME - horribly broken
-| '<' expr ',' expr ',' expr '>' // FIXME
+| '<' num_const ',' num_const  ',' num_const ',' num_const '>' // FIXME - horribly broken
+| '<' num_const ',' num_const  ',' num_const '>' // FIXME
 | '[' list ']' // FIXME
-| expr INCR  /* FIXME */
-| expr DECR  /* FIXME */
-| INCR expr { $$ = $2; }  /* FIXME */
-| DECR expr { $$ = $2; }  /* FIXME */
+| expr INCR { $$ = enode_monop($1, NODE_POSTINC); } 
+| expr DECR { $$ = enode_monop($1, NODE_POSTDEC); } 
+| INCR expr { $$ = enode_monop($2, NODE_PREINC); }
+| DECR expr { $$ = enode_monop($2, NODE_PREDEC); } 
 | '!' expr { $$ = enode_monop($2, NODE_L_NOT); } 
 | '~' expr { $$ = enode_monop($2, NODE_NOT); }
 | '-' expr { $$ = enode_negate($2); } 
@@ -299,6 +377,8 @@ static void print_expr(expr_node *enode) {
       printf("%i ", enode->u.i); break;
     case VM_TYPE_FLOAT:
       printf("%f ", (double)enode->u.f); break;
+    case VM_TYPE_STR:
+      printf("\"%s\" ", enode->u.s); break;
     default:
       printf("<unknown const> "); break;
     }
@@ -320,6 +400,9 @@ static void print_expr(expr_node *enode) {
   case NODE_DIV:
     printf("(div "); print_expr(enode->u.child[0]); 
     print_expr(enode->u.child[1]); printf(") ");
+    break;
+  default:
+    printf("<unknown expr %i>",enode->node_type);
     break;
   }
 }
@@ -343,7 +426,14 @@ int main(int argc, char** argv) {
      statem = global_prog.func->code->first;
      for( ; statem != NULL; statem = statem->next) {
        printf("  statement ");
-       print_expr(statem->expr);
+       switch(statem->stype) {
+       case STMT_EXPR:
+	 print_expr(statem->expr[0]);
+	 break;
+       default:
+	 printf("<unknown statement type %i>", statem->stype);
+	 break;
+       }
        printf("\n");
      }
      printf("}\n");
