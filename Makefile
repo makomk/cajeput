@@ -22,12 +22,12 @@ lsl-lex.c: lsl.lex
 lsl.tab.c lsl.tab.h: lsl.y
 	bison -d -v lsl.y
 
-lsl.tab.o: lsl.tab.c lsl.tab.h
+lsl.tab.o: lsl.tab.c lsl.tab.h caj_lsl_parse.h
 
 lsl-lex.o: lsl-lex.c lsl.tab.h
 
-lsl_compile: lsl.tab.o lsl-lex.o
-	$(CC) -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o -lfl
+lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o
+	$(CXX) -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o -lfl
 
 cajeput_vm_test: caj_vm.o
 	$(CXX) $(CFLAGS) -o cajeput_vm_test caj_vm.o

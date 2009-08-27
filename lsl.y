@@ -1,131 +1,41 @@
+/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *    * Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *    * Redistributions in binary form must reproduce the above copyright
+ *      notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY AIDAN THORNTON ''AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL AIDAN THORNTON BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF 
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 %{
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <assert.h>
+#include "caj_lsl_parse.h"
 int yylex (void);
 void yyerror (char const *);
 int yydebug;
-
- typedef struct expr_node expr_node;
-
- typedef struct list_node {
-   expr_node *expr;
-   struct list_node* next;
- } list_node;
 
  typedef struct list_head {
    struct list_node* first;
    struct list_node** add_here;
  } list_head;
 
-struct expr_node {
-  int node_type; uint8_t vtype;
-  union {
-    expr_node* child[4];
-    int i; float f; char* s; list_node *list;
-    struct { char* name; list_node* args; } call;
-  } u;
-};
 
-#define STMT_EXPR 1
-#define STMT_IF 2
-#define STMT_RET 3
-#define STMT_WHILE 4
-#define STMT_DO 5
-#define STMT_FOR 6
-#define STMT_DECL 7 /* variable declaration */
-#define STMT_BLOCK 8 /* { foo; bar; } block */
-#define STMT_JUMP 9
-#define STMT_LABEL 10
-
- typedef struct statement {
-   int stype; /* STMT_* */
-   expr_node *expr[3];
-   struct statement *child[2];
-   struct statement *next;
-   char *s; /* only used for labels */
- } statement;
-
- typedef struct basic_block {
-   statement *first;
-   statement **add_here;
- } basic_block;
-
- typedef struct func_arg {
-   uint8_t vtype;
-   char *name;
-   struct func_arg *next;
- } func_arg;
-
- typedef struct function {
-   char *name;
-   func_arg *args;
-   basic_block *code;
-   uint8_t ret_type;
-   struct function *next;
- } function;
-
- typedef struct lsl_globals {
-   function *funcs;
-   function **add_func;
- } lsl_globals;
-
- typedef struct lsl_program {
-   function *funcs; // FIXME
- } lsl_program;
-
- /* constants/variables */
-#define NODE_CONST 1
-#define NODE_IDENT 2
- /* binary operations */
-#define NODE_ADD 3
-#define NODE_SUB 4
-#define NODE_MUL 5
-#define NODE_DIV 6
-#define NODE_MOD 7
-#define NODE_ASSIGN 8
-#define NODE_EQUAL 9
-#define NODE_NEQUAL 10
-#define NODE_LEQUAL 11
-#define NODE_GEQUAL 12
-#define NODE_LESS 13
-#define NODE_GREATER 14
-#define NODE_OR 15
-#define NODE_AND 16
-#define NODE_XOR 17
-#define NODE_L_OR 18
-#define NODE_L_AND 19
-#define NODE_SHR 20
-#define NODE_SHL 21
-#define NODE_ASSIGNADD 22
-#define NODE_ASSIGNSUB 23
-#define NODE_ASSIGNMUL 24
-#define NODE_ASSIGNDIV 25
-#define NODE_ASSIGNMOD 26
- /* mono ops */
-#define NODE_NEGATE 27
-#define NODE_NOT 28 /* ~ - bitwise not */
-#define NODE_L_NOT 29 /* ! - logical not */
-#define NODE_PREINC 30 /* ++foo */
-#define NODE_POSTINC 31 /* foo++ */
-#define NODE_PREDEC 32 /* --foo */
-#define NODE_POSTDEC 33 /* foo-- */
-
-#define NODE_CALL 34 /* procedure call */
-#define NODE_VECTOR 35 
-#define NODE_ROTATION 36
-#define NODE_LIST 37
-
- /* FIXME - types should be in a shared header */
-#define VM_TYPE_NONE  0
-#define VM_TYPE_INT   1
-#define VM_TYPE_FLOAT 2
-#define VM_TYPE_STR   3
-#define VM_TYPE_KEY   4
-#define VM_TYPE_VECT  5
-#define VM_TYPE_ROT   6
-
- const char* type_names[] = {"void","int","float","str","key","vect","rot"};
 
 static expr_node * enode_make_int(char *s) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
@@ -177,7 +87,7 @@ static expr_node * enode_make_list(list_node *list) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
   enode->u.list = list;
   enode->node_type = NODE_LIST;
-  enode->vtype = VM_TYPE_NONE; // FIXME - list type?
+  enode->vtype = VM_TYPE_LIST;
   return enode;
 }
 
@@ -210,11 +120,29 @@ static  expr_node * enode_binop(expr_node *l, expr_node *r, int node_type) {
     return enode;
 }
 
-static  expr_node * enode_monop(expr_node *expr, int node_type) {
+static  expr_node * enode_unaryop(expr_node *expr, int node_type) {
     expr_node *enode = malloc(sizeof(expr_node));
     enode->node_type = node_type; enode->vtype = expr->vtype;
     enode->u.child[0] = expr;
     return enode;
+}
+
+expr_node *enode_cast(expr_node *expr, uint8_t vtype) {
+  expr_node *new_node;
+
+  if(vtype == expr->vtype) return expr;
+  if(expr->node_type == NODE_CONST) {
+    switch(expr->vtype) {
+    case VM_TYPE_INT:
+      switch(vtype) {
+      case VM_TYPE_FLOAT:
+	expr->vtype = vtype; expr->u.f = expr->u.i;
+	return expr;
+      }
+    }
+  }
+  new_node = enode_unaryop(expr, NODE_CAST);
+  new_node->vtype = vtype; return new_node;
 }
 
 static expr_node *enode_negate(expr_node *expr) {
@@ -229,7 +157,7 @@ static expr_node *enode_negate(expr_node *expr) {
     default: break;
     }
   }
-  return enode_monop(expr, NODE_NEGATE);
+  return enode_unaryop(expr, NODE_NEGATE);
 }
 
  static statement* new_statement(void) {
@@ -360,11 +288,11 @@ local : type IDENTIFIER {
  }; 
 if_stmt : IF '(' expr ')' '{' statements '}' {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
-  $$->child[0] = NULL; $$->child[1] = NULL; /* FIXME */
+  $$->child[0] = $6->first; $$->child[1] = NULL; /* FIXME */
  }
         | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}' {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
-  $$->child[0] = NULL; $$->child[1] = NULL; /* FIXME */
+  $$->child[0] = $6->first; $$->child[1] = $10->first; 
  }   ;
 while_stmt : WHILE '(' expr ')' statement {
   $$ = new_statement(); $$->stype = STMT_WHILE; 
@@ -439,12 +367,12 @@ expr : NUMBER { $$ = enode_make_int($1); }
 | '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8); } 
 | '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6); } 
 | '[' list ']' { $$ = enode_make_list($2->first); free($2); }
-| expr INCR { $$ = enode_monop($1, NODE_POSTINC); } 
-| expr DECR { $$ = enode_monop($1, NODE_POSTDEC); } 
-| INCR expr { $$ = enode_monop($2, NODE_PREINC); }
-| DECR expr { $$ = enode_monop($2, NODE_PREDEC); } 
-| '!' expr { $$ = enode_monop($2, NODE_L_NOT); } 
-| '~' expr { $$ = enode_monop($2, NODE_NOT); }
+| expr INCR { $$ = enode_unaryop($1, NODE_POSTINC); } 
+| expr DECR { $$ = enode_unaryop($1, NODE_POSTDEC); } 
+| INCR expr { $$ = enode_unaryop($2, NODE_PREINC); }
+| DECR expr { $$ = enode_unaryop($2, NODE_PREDEC); } 
+| '!' expr { $$ = enode_unaryop($2, NODE_L_NOT); } 
+| '~' expr { $$ = enode_unaryop($2, NODE_NOT); }
 | '-' expr { $$ = enode_negate($2); } 
 | '(' type ')' expr %prec CAST { $$ = $4 } /* FIXME */ /* FIXME - operator precidence? */ /* FIXME - shift/reduce conflicts */
        
@@ -455,7 +383,7 @@ type : INTEGER { $$ = VM_TYPE_INT; }
      | KEY { $$ = VM_TYPE_KEY; } 
      | VECTOR { $$ = VM_TYPE_VECT; } 
      | ROTATION { $$ = VM_TYPE_ROT; } 
-     | LIST { $$ = VM_TYPE_NONE; /* FIXME FIXME */ } 
+     | LIST { $$ = VM_TYPE_LIST; } 
   ;
 %%
 #include <stdio.h>
@@ -475,7 +403,7 @@ static void print_expr(expr_node *enode) {
     case VM_TYPE_STR:
       printf("\"%s\" ", enode->u.s); break;
     default:
-      printf("<unknown const> "); break;
+      printf("<unknown const %i> ", (int)enode->vtype); break;
     }
     break;
   case NODE_IDENT:
@@ -497,18 +425,102 @@ static void print_expr(expr_node *enode) {
     print_expr(enode->u.child[1]); printf(") ");
     break;
   case NODE_MOD:
-    printf("(div "); print_expr(enode->u.child[0]); 
+    printf("(mod "); print_expr(enode->u.child[0]); 
     print_expr(enode->u.child[1]); printf(") ");
     break;
   case NODE_ASSIGN:
     printf("(assign "); print_expr(enode->u.child[0]); 
     print_expr(enode->u.child[1]); printf(") ");
     break;
+  case NODE_EQUAL:
+    printf("(== "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_NEQUAL:
+    printf("(!= "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_LEQUAL:
+    printf("(<= "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_GEQUAL:
+    printf("(>= "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_LESS:
+    printf("(< "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_GREATER:
+    printf("(> "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_OR:
+    printf("(bit_or "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_AND:
+    printf("(bit_and "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_XOR:
+    printf("(bit_xor "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_NOT:
+    printf("(bit_not "); print_expr(enode->u.child[0]); 
+    printf(") ");
+    break;
+  case NODE_L_OR:
+    printf("(log_or "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_L_AND:
+    printf("(log_and "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_L_NOT:
+    printf("(log_not "); print_expr(enode->u.child[0]); 
+    printf(") ");
+    break;
   case NODE_CALL:
     printf("(call %s ", enode->u.call.name);
     for(lnode = enode->u.call.args; lnode != NULL; lnode = lnode->next)
       print_expr(lnode->expr);
     printf(") ");
+    break;
+  case NODE_ASSIGNADD:
+    printf("(assignadd "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_ASSIGNSUB:
+    printf("(assignsub "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_ASSIGNMUL:
+    printf("(assignmul "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_ASSIGNDIV:
+    printf("(assigndiv "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_ASSIGNMOD:
+    printf("(assignmod "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_PREINC:
+    printf("(preinc "); print_expr(enode->u.child[0]); printf(") ");
+    break;
+  case NODE_POSTINC:
+    printf("(postinc "); print_expr(enode->u.child[0]); printf(") ");
+    break;
+  case NODE_PREDEC:
+    printf("(predec "); print_expr(enode->u.child[0]); printf(") ");
+    break;
+  case NODE_POSTDEC:
+    printf("(postdec "); print_expr(enode->u.child[0]); printf(") ");
     break;
   case NODE_VECTOR:
     printf("(vector ");
@@ -527,55 +539,83 @@ static void print_expr(expr_node *enode) {
     printf(") ");
     break;
   default:
-    printf("<unknown expr %i>",enode->node_type);
+    printf("<unknown expr %i> ",enode->node_type);
     break;
   }
 }
 
-int main(int argc, char** argv) {
-  extern FILE *yyin; function *func;
-   yyin = fopen(argv[1],"r");
-   yydebug = 1;
-   //errors = 0;
-#if 1
-   global_prog.funcs = NULL;
-   yyparse();
-   for(func = global_prog.funcs; func != NULL; func = func->next) {
-     statement* statem; func_arg *arg;
-     printf("%s %s(", type_names[func->ret_type],
-	    func->name);
-     for(arg = func->args; arg != NULL; arg = arg->next) {
-       printf("%s %s, ", type_names[arg->vtype], arg->name);
-     }
-     printf(") {\n");
-     statem = func->code->first;
-     for( ; statem != NULL; statem = statem->next) {
-       printf("  statement ");
-       switch(statem->stype) {
-       case STMT_EXPR:
-	 print_expr(statem->expr[0]);
-	 break;
-       case STMT_RET:
-	 printf("return "); print_expr(statem->expr[0]);
-	 break;
-       default:
-	 printf("<unknown statement type %i>", statem->stype);
-	 break;
-       }
-       printf("\n");
-     }
-     printf("}\n");
-   }
-#else
-   int i;
-   for(;;) {
-     i = yylex(); printf(" %i ", i);
-     if(i == 0) break;
-   }
-#endif
-   
-   return 0;
+static void print_stmts(statement *statem, int indent) {
+  int i;
+  for( ; statem != NULL; statem = statem->next) {
+    for(i = 0; i < indent; i++) printf("  ");
+    switch(statem->stype) {
+    case STMT_EXPR:
+      printf("expression ");
+      print_expr(statem->expr[0]);
+      break;
+    case STMT_IF:
+      printf("if "); print_expr(statem->expr[0]); printf("\n");
+      print_stmts(statem->child[0], indent+1);
+      if(statem->child[1] != NULL) {
+	for(i = 0; i < indent; i++) printf("  ");
+	printf("else\n");
+	print_stmts(statem->child[1], indent+1);
+      }
+      for(i = 0; i < indent; i++) printf("  ");
+      printf("end if");
+      break;
+    case STMT_RET:
+      printf("return "); print_expr(statem->expr[0]);
+      break;
+    case STMT_WHILE:
+      printf("while "); print_expr(statem->expr[0]); printf("\n");
+      print_stmts(statem->child[0], indent+1);
+      for(i = 0; i < indent; i++) printf("  ");
+      printf("loop");
+      break;
+    case STMT_DO:
+      printf("do\n");
+      print_stmts(statem->child[0], indent+1);
+      for(i = 0; i < indent; i++) printf("  ");
+      printf("while "); print_expr(statem->expr[0]); 
+      break;
+    case STMT_FOR:
+      printf("for "); print_expr(statem->expr[0]); printf("; ");
+      print_expr(statem->expr[1]); printf("; ");
+      print_expr(statem->expr[2]); printf("\n");
+      for(i = 0; i < indent; i++) printf("  ");
+      printf("end for");
+      break;
+      /* TODO */
+    case STMT_DECL:
+      assert(statem->expr[0]->node_type == NODE_IDENT);
+      printf("decl %s %s", type_names[statem->expr[0]->vtype], 
+	     statem->expr[0]->u.s);
+      if(statem->expr[1] != NULL) {
+	printf(" = "); print_expr(statem->expr[1]); 
+      }
+      break;
+    default:
+      printf("<unknown statement type %i>", statem->stype);
+      break;
+    }
+    printf("\n");
+  }
 }
+
+lsl_program *caj_parse_lsl(const char* fname) {
+  extern FILE *yyin; function *func;
+  yyin = fopen(fname,"r");
+  if(yyin == NULL) {
+    printf("ERROR: file not found\n");
+    return NULL;
+  }
+  global_prog.funcs = NULL;
+  yyparse();
+  if(global_prog.funcs == NULL) return NULL;
+  return &global_prog;
+}
+
 
 void yyerror(char const *error) { 
   printf("Line %i: %s\n", yylloc.first_line, error);
