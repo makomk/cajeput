@@ -595,6 +595,12 @@ static void print_stmts(statement *statem, int indent) {
 	printf(" = "); print_expr(statem->expr[1]); 
       }
       break;
+    case STMT_BLOCK:
+      printf("{\n");
+      print_stmts(statem->child[0], indent+1);
+      for(i = 0; i < indent; i++) printf("  ");
+      printf("}");
+      break;
     default:
       printf("<unknown statement type %i>", statem->stype);
       break;

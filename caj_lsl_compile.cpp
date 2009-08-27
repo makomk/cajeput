@@ -99,6 +99,18 @@ static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
       /* case VM_TYPE_VECTOR: TODO - dot product */
     default: return 0;
     }
+  case NODE_EQUAL:
+    if(ltype != rtype) return 0;
+    switch(ltype) {
+    case VM_TYPE_INT: return INSN_EQ_II;
+    default: return 0;
+    }
+  case NODE_NEQUAL:
+    if(ltype != rtype) return 0;
+    switch(ltype) {
+    case VM_TYPE_INT: return INSN_NEQ_II;
+    default: return 0;
+    }
   case NODE_LESS:
     if(ltype != rtype) return 0;
     switch(ltype) {
@@ -111,7 +123,7 @@ static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
     case VM_TYPE_INT: return INSN_GR_II;
     default: return 0;
     }
-  /* TODO - comparison operators */
+  /* TODO - other comparison operators */
   case NODE_AND:
     if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_AND_II;
     else return 0;
