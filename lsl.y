@@ -6,13 +6,26 @@ int yylex (void);
 void yyerror (char const *);
 int yydebug;
 
-typedef struct expr_node {
+ typedef struct expr_node expr_node;
+
+ typedef struct list_node {
+   expr_node *expr;
+   struct list_node* next;
+ } list_node;
+
+ typedef struct list_head {
+   struct list_node* first;
+   struct list_node** add_here;
+ } list_head;
+
+struct expr_node {
   int node_type; uint8_t vtype;
   union {
-    struct expr_node* child[2];
+    expr_node* child[4];
     int i; float f; char* s;
+    struct { char* name; list_node* args; } call;
   } u;
-} expr_node;
+};
 
 #define STMT_EXPR 1
 #define STMT_IF 2
@@ -89,6 +102,8 @@ typedef struct expr_node {
 #define NODE_POSTDEC 33 /* foo-- */
 
 #define NODE_CALL 34 /* procedure call */
+#define NODE_VECTOR 35 
+#define NODE_ROTATION 36
 
  /* FIXME - types should be in a shared header */
 #define VM_TYPE_NONE  0
@@ -128,6 +143,24 @@ static expr_node * enode_make_str(char *s) {
   return enode;
 }
 
+/* FIXME - propagate constants down to this node? */
+ static expr_node * enode_make_vect(expr_node *x, expr_node *y, expr_node *z) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->node_type = NODE_VECTOR;
+  enode->vtype = VM_TYPE_VECT;
+  enode->u.child[0] = x; enode->u.child[1] = y; enode->u.child[2] = x;
+  return enode;
+}
+
+ static expr_node * enode_make_rot(expr_node *x, expr_node *y, 
+				   expr_node *z, expr_node *w) {
+  struct expr_node *enode = malloc(sizeof(struct expr_node));
+  enode->node_type = NODE_ROTATION;
+  enode->vtype = VM_TYPE_ROT;
+  enode->u.child[0] = x; enode->u.child[1] = y; 
+  enode->u.child[2] = x; enode->u.child[3] = w;
+  return enode;
+}
 
 static expr_node * enode_make_id(char *s) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
@@ -143,9 +176,10 @@ static expr_node * enode_make_id(char *s) {
    return enode;
 }
 
- static expr_node *enode_make_call(void) { // FIXME!!!!!!!
+ static expr_node *enode_make_call(char* name, list_node* args) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
-   enode->node_type = NODE_CALL;
+   enode->node_type = NODE_CALL; enode->u.call.name = name;
+   enode->u.call.args = args;
    return enode;
  }
 
@@ -184,11 +218,17 @@ static expr_node *enode_negate(expr_node *expr) {
   return statem;
 }
 
+ static list_node* make_list_entry(expr_node *expr) {
+   list_node* lnode = malloc(sizeof(list_node));
+   lnode->expr = expr; lnode->next = NULL;
+   return lnode;
+ }
+
  struct lsl_program global_prog; // FIXME - remove this
 
 %}
 %locations
-%debug
+ /* %debug */
 %error-verbose
 %union {
   struct expr_node *enode;
@@ -196,6 +236,7 @@ static expr_node *enode_negate(expr_node *expr) {
   struct basic_block *bblock;
   struct func_arg *arg;
   struct function *func;
+  struct list_head *list;
   char *str;
   uint8_t vtype;
 }
@@ -222,13 +263,14 @@ static expr_node *enode_negate(expr_node *expr) {
 %left CAST /* FIXME - where does this go? */
 %left '!' '~' INCR DECR
 %type <str> state_id;
-%type <enode> expr num_const variable call
+%type <enode> expr opt_expr num_const variable call
 %type <bblock> statements function_body
 %type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local 
 %type <stat> jump_stmt label_stmt
 %type <func> function program functions
 %type <arg> arguments arglist argument
 %type <vtype> type 
+%type <list> list
 %%
 program : functions states { $$ = $1; global_prog.func = $1; }; 
 global : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
@@ -301,14 +343,21 @@ do_stmt : DO statement WHILE '(' expr ')' {
 for_stmt : FOR '(' opt_expr ';' opt_expr ';' opt_expr ')'  statement ;
 jump_stmt : JUMP IDENTIFIER ';';
 label_stmt : '@' IDENTIFIER ';';
-opt_expr : | expr ;
+opt_expr : /* nothing */ { $$ = NULL } | expr ;
 ret_stmt : RETURN | RETURN expr ;
 variable: IDENTIFIER { $$ = enode_make_id($1); }
 | IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1); } /* FIXME - handle .x right */
    ; 
-call_args : /* nowt */ | expr | call_args ',' expr  ;
-call : IDENTIFIER '(' call_args ')' { $$ = enode_make_call(); } // FIXME!!!!
-list : | expr | list ',' expr ; // FIXME. Also, merge with argument list?
+call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first); }
+list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->first; }
+       | expr { 
+	 $$ = malloc(sizeof(list_head)); $$->first = make_list_entry($1);
+	 $$->add_here = &($$->first->next);
+	 }
+       | list ',' expr { 
+	 list_node *lnode = make_list_entry($3);
+	 *($1->add_here) = lnode; $1->add_here = &lnode->next; $$ = $1;
+      } ;
 num_const : NUMBER { $$ = enode_make_int($1); }
        | REAL { $$ = enode_make_float($1); }
        | IDENTIFIER  { $$ = enode_make_id($1); }
@@ -343,8 +392,8 @@ expr : NUMBER { $$ = enode_make_int($1); }
        | expr SHLEFT expr { $$ = enode_binop($1,$3,NODE_SHL); }
        | expr SHRIGHT expr { $$ = enode_binop($1,$3,NODE_SHR); }
        | '(' expr ')' { $$ = $2; }
-| '<' num_const ',' num_const  ',' num_const ',' num_const '>' // FIXME - horribly broken
-| '<' num_const ',' num_const  ',' num_const '>' // FIXME
+| '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8); } 
+| '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6); } 
 | '[' list ']' // FIXME
 | expr INCR { $$ = enode_monop($1, NODE_POSTINC); } 
 | expr DECR { $$ = enode_monop($1, NODE_POSTDEC); } 
@@ -370,6 +419,8 @@ type : INTEGER { $$ = VM_TYPE_INT; }
 		/* bison -d lsl.y && flex lsl.lex && gcc -o lsl_compile lsl.tab.c lex.yy.c -lfl */
 
 static void print_expr(expr_node *enode) {
+  list_node *lnode; int i;
+  if(enode == NULL) { printf("<NULL enode> "); return; }
   switch(enode->node_type) {
   case NODE_CONST:
     switch(enode->vtype) {
@@ -400,6 +451,30 @@ static void print_expr(expr_node *enode) {
   case NODE_DIV:
     printf("(div "); print_expr(enode->u.child[0]); 
     print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_MOD:
+    printf("(div "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_ASSIGN:
+    printf("(assign "); print_expr(enode->u.child[0]); 
+    print_expr(enode->u.child[1]); printf(") ");
+    break;
+  case NODE_CALL:
+    printf("(call %s ", enode->u.call.name);
+    for(lnode = enode->u.call.args; lnode != NULL; lnode = lnode->next)
+      print_expr(lnode->expr);
+    printf(") ");
+    break;
+  case NODE_VECTOR:
+    printf("(vector ");
+    for(i = 0; i < 3; i++) print_expr(enode->u.child[i]); 
+    printf(") ");
+    break;
+  case NODE_ROTATION:
+    printf("(rotation ");
+    for(i = 0; i < 4; i++) print_expr(enode->u.child[i]); 
+    printf(") ");
     break;
   default:
     printf("<unknown expr %i>",enode->node_type);
