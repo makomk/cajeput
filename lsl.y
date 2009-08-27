@@ -34,12 +34,16 @@ struct expr_node {
 #define STMT_DO 5
 #define STMT_FOR 6
 #define STMT_DECL 7 /* variable declaration */
+#define STMT_BLOCK 8 /* { foo; bar; } block */
+#define STMT_JUMP 9
+#define STMT_LABEL 10
 
  typedef struct statement {
    int stype; /* STMT_* */
    expr_node *expr[3];
    struct statement *child[2];
    struct statement *next;
+   char *s; /* only used for labels */
  } statement;
 
  typedef struct basic_block {
@@ -58,10 +62,16 @@ struct expr_node {
    func_arg *args;
    basic_block *code;
    uint8_t ret_type;
+   struct function *next;
  } function;
 
+ typedef struct lsl_globals {
+   function *funcs;
+   function **add_func;
+ } lsl_globals;
+
  typedef struct lsl_program {
-   function *func; // FIXME
+   function *funcs; // FIXME
  } lsl_program;
 
  /* constants/variables */
@@ -247,6 +257,7 @@ static expr_node *enode_negate(expr_node *expr) {
   struct func_arg *arg;
   struct function *func;
   struct list_head *list;
+  struct lsl_globals *global;
   char *str;
   uint8_t vtype;
 }
@@ -275,25 +286,30 @@ static expr_node *enode_negate(expr_node *expr) {
 %type <str> state_id;
 %type <enode> expr opt_expr num_const variable call
 %type <bblock> statements function_body
-%type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local 
-%type <stat> jump_stmt label_stmt
-%type <func> function program functions
+%type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local
+%type <stat> jump_stmt label_stmt block_stmt
+%type <func> function 
+%type <global> program functions
 %type <arg> arguments arglist argument
 %type <vtype> type 
 %type <list> list
 %%
-program : functions states { $$ = $1; global_prog.func = $1; }; 
+program : functions states { $$ = NULL; global_prog.funcs = $1->funcs; }; 
 global : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
-functions : /* nowt */ { $$ = NULL } | functions function { $$=$2; } | functions global ;
+functions : /* nowt */ { 
+  $$ = malloc(sizeof(lsl_globals)); $$->funcs = NULL; $$->add_func = &$$->funcs;
+} 
+| functions function { *($1->add_func) = $2; $1->add_func = &$2->next; $$ = $1; }
+| functions global ;
 function : type IDENTIFIER '(' arguments ')' function_body {
   $$ = malloc(sizeof(function));
-  $$->ret_type = $1;
+  $$->ret_type = $1; $$->next = NULL;
   $$->name = $2; $$->args = $4; $$->code = $6;
 }     | IDENTIFIER '(' arguments ')' function_body {
   /* ideally, we'd define "ret_type : | type" and avoid the code duplication,
      but this causes a fatal shift/reduce conflict with the def. of global */
   $$ = malloc(sizeof(function));
-  $$->ret_type = VM_TYPE_NONE;
+  $$->ret_type = VM_TYPE_NONE; $$->next = NULL;
   $$->name = $1; $$->args = $3; $$->code = $5;
   } ;
 states : /* nothing */ | states state_id '{' state_funcs '}';
@@ -320,15 +336,20 @@ statement : ';' { $$ = NULL } |  expr ';' {
   $$ = new_statement();
   $$->stype = STMT_EXPR; $$->expr[0] = $1; 
  } 
-            | if_stmt ; // FIXME 
+            | if_stmt
             | do_stmt 
 	    | while_stmt
 	    | for_stmt
-	    | ret_stmt ';' ; // FIXME
-            | local ';' ;
-            | jump_stmt ;
-            | label_stmt ;
-	    | '{' statements '}' ;
+	    | ret_stmt ';'
+            | local ';'
+            | jump_stmt
+            | label_stmt
+	    | block_stmt 
+	    ;
+block_stmt : '{' statements '}' { 
+  $$ = new_statement(); $$->stype = STMT_BLOCK; 
+  $$->child[0] = $2->first; free($2);
+ } ;
 local : type IDENTIFIER {
   $$ = new_statement(); $$->stype = STMT_DECL; 
   $$->expr[0] = enode_make_id_type($2,$1); $$->expr[1] = NULL;
@@ -341,7 +362,10 @@ if_stmt : IF '(' expr ')' '{' statements '}' {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
   $$->child[0] = NULL; $$->child[1] = NULL; /* FIXME */
  }
-        | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}';
+        | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}' {
+  $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
+  $$->child[0] = NULL; $$->child[1] = NULL; /* FIXME */
+ }   ;
 while_stmt : WHILE '(' expr ')' statement {
   $$ = new_statement(); $$->stype = STMT_WHILE; 
   $$->expr[0] = $3; $$->child[0] = $5;
@@ -350,11 +374,21 @@ do_stmt : DO statement WHILE '(' expr ')' {
   $$ = new_statement(); $$->stype = STMT_DO; 
   $$->child[0] = $2; $$->expr[0] = $5;
  };
-for_stmt : FOR '(' opt_expr ';' opt_expr ';' opt_expr ')'  statement ;
-jump_stmt : JUMP IDENTIFIER ';';
-label_stmt : '@' IDENTIFIER ';';
+for_stmt : FOR '(' opt_expr ';' opt_expr ';' opt_expr ')'  statement {
+  $$ = new_statement(); $$->stype = STMT_FOR; 
+  $$->expr[0] = $3; $$->expr[1] = $5; $$->expr[2] = $7; 
+  $$->child[0] = $9; 
+ } ;
+jump_stmt : JUMP IDENTIFIER ';' {
+  $$ = new_statement(); $$->stype = STMT_JUMP; $$->s = $2;
+ } ;
+label_stmt : '@' IDENTIFIER ';'{
+  $$ = new_statement(); $$->stype = STMT_LABEL; $$->s = $2;
+ } ; 
 opt_expr : /* nothing */ { $$ = NULL } | expr ;
-ret_stmt : RETURN | RETURN expr ;
+ret_stmt : RETURN { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = NULL; }
+         | RETURN expr { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = $2; }
+         ;
 variable: IDENTIFIER { $$ = enode_make_id($1); }
 | IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1); } /* FIXME - handle .x right */
    ; 
@@ -499,27 +533,30 @@ static void print_expr(expr_node *enode) {
 }
 
 int main(int argc, char** argv) {
-  extern FILE *yyin;
+  extern FILE *yyin; function *func;
    yyin = fopen(argv[1],"r");
    yydebug = 1;
    //errors = 0;
 #if 1
-   global_prog.func = NULL;
+   global_prog.funcs = NULL;
    yyparse();
-   if(global_prog.func != NULL) {
+   for(func = global_prog.funcs; func != NULL; func = func->next) {
      statement* statem; func_arg *arg;
-     printf("%s %s(", type_names[global_prog.func->ret_type],
-	    global_prog.func->name);
-     for(arg = global_prog.func->args; arg != NULL; arg = arg->next) {
+     printf("%s %s(", type_names[func->ret_type],
+	    func->name);
+     for(arg = func->args; arg != NULL; arg = arg->next) {
        printf("%s %s, ", type_names[arg->vtype], arg->name);
      }
      printf(") {\n");
-     statem = global_prog.func->code->first;
+     statem = func->code->first;
      for( ; statem != NULL; statem = statem->next) {
        printf("  statement ");
        switch(statem->stype) {
        case STMT_EXPR:
 	 print_expr(statem->expr[0]);
+	 break;
+       case STMT_RET:
+	 printf("return "); print_expr(statem->expr[0]);
 	 break;
        default:
 	 printf("<unknown statement type %i>", statem->stype);
