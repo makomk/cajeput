@@ -45,6 +45,7 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st) {
 	st.error = 1; return;
       // FIXME - handle this
       }
+      st.vars[name] = var;
     }
   }
 }
@@ -55,17 +56,6 @@ static uint8_t find_var_type(lsl_compile_state &st, const char* name) {
   return iter->second.type;
 }
 
-static void propagate_types(lsl_compile_state &st, expr_node *expr);
-
-static void fix_binop_types(lsl_compile_state &st, expr_node *&left, expr_node *&right) {
-    propagate_types(st, left);
-    propagate_types(st, right);
-    if(left->vtype == VM_TYPE_FLOAT && right->vtype == VM_TYPE_INT) {
-      right = enode_cast(right, VM_TYPE_FLOAT);
-    } else if(left->vtype == VM_TYPE_INT && right->vtype == VM_TYPE_FLOAT) {
-      left = enode_cast(left, VM_TYPE_FLOAT);
-    }
-}
 
 static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
   switch(node_type) {
@@ -102,7 +92,23 @@ static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
     default: return 0;
     }
     break;
-    
+  case NODE_MOD:
+    if(ltype != rtype) return 0;
+    switch(ltype) {
+    case VM_TYPE_INT: return INSN_MOD_II;
+      /* case VM_TYPE_VECTOR: TODO - dot product */
+    default: return 0;
+    }
+  /* TODO - comparison operators */
+  case NODE_AND:
+    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_AND_II;
+    else return 0;
+  case NODE_OR:
+    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_OR_II;
+    else return 0;
+  case NODE_XOR:
+    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_XOR_II;
+    else return 0;
   default:
     break;
   }
@@ -124,6 +130,16 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       printf("ERROR: Reference to unknown var %s\n", expr->u.s);
       st.error = 1; return;
     }
+    break;
+  case NODE_ASSIGN:
+    assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
+    propagate_types(st, expr->u.child[0]); // finds variable's type
+    if(st.error != 0) return;
+    propagate_types(st, expr->u.child[1]);
+    if(st.error != 0) return;
+    expr->vtype = expr->u.child[0]->vtype;
+    // FIXME - do we really always want to auto-cast?
+    expr->u.child[1] = enode_cast(expr->u.child[1], expr->vtype);
     break;
   case NODE_ADD:
   case NODE_SUB:
@@ -231,8 +247,54 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     }
     break;
   case NODE_IDENT:
-    printf("FIXME: can't assemble idents yet\n");
-    st.error = 1; return;
+    {
+      uint16_t var_id;
+      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.s);
+      if(iter == st.vars.end()) {
+	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
+	st.error = 1; return;
+      }
+      assert(iter->second.type == expr->vtype);
+      var_id = iter->second.offset;
+
+      switch(expr->vtype) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+	vasm.rd_local_int(var_id);
+	break;
+      default:
+	printf("FIXME: can't handle access to vars of type %s \n", 
+	       type_names[expr->vtype]);
+	st.error = 1; return;
+      }
+    }
+    break;
+  case NODE_ASSIGN:
+    {
+      uint16_t var_id;
+      assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
+      assert(expr->vtype == expr->u.child[1]->vtype); // ensured by type propagation
+      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.child[0]->u.s);
+      if(iter == st.vars.end()) {
+	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
+	st.error = 1; return;
+      }
+      assert(iter->second.type == expr->vtype);
+      var_id = iter->second.offset;
+      assemble_expr(vasm, st, expr->u.child[1]);
+      if(st.error != 0) return;
+      switch(expr->vtype) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+	vasm.wr_local_int(var_id);
+	break;
+      default:
+	printf("FIXME: can't handle assignment to vars of type %s \n", 
+	       type_names[expr->vtype]);
+	st.error = 1; return;
+      }
+    }
+    break;
   case NODE_ADD:
   case NODE_SUB:
   case NODE_MUL:

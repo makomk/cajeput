@@ -613,6 +613,21 @@ lsl_program *caj_parse_lsl(const char* fname) {
   global_prog.funcs = NULL;
   yyparse();
   if(global_prog.funcs == NULL) return NULL;
+
+   for(func = global_prog.funcs; func != NULL; func = func->next) {
+     statement* statem; func_arg *arg;
+     printf("%s %s(", type_names[func->ret_type],
+           func->name);
+     for(arg = func->args; arg != NULL; arg = arg->next) {
+       printf("%s %s, ", type_names[arg->vtype], arg->name);
+     }
+     printf(") {\n");
+     statem = func->code->first;
+     print_stmts(statem, 1);
+     printf("}\n");
+   }
+
+
   return &global_prog;
 }
 
