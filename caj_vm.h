@@ -64,7 +64,7 @@
 #define INSN_AND_II 12 // & - todo
 #define INSN_OR_II  13 // | - todo
 #define INSN_XOR_II 14 // ^ - todo
-#define INSN_NOT_II 15 // ~ - todo
+#define INSN_NOT_I 15 // ~ - todo
 #define INSN_SHL    16 // << - todo
 #define INSN_SHR    17 // >> - todo
 #define INSN_AND_L  18 // && - non-short circuiting, of course

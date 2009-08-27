@@ -410,6 +410,32 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
       // FIXME - need to cast expression to void!
       assemble_expr(vasm, st, statem->expr[0]);
       break;
+    case STMT_IF:
+      {
+	loc_atom else_cl = vasm.make_loc();
+	loc_atom end_if = vasm.make_loc();
+	propagate_types(st, statem->expr[0]);
+	if(st.error) return;
+	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
+	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	vasm.insn(INSN_NCOND);
+	vasm.do_jump(else_cl);
+	if(vasm.get_error() != NULL) {
+	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  st.error = 1; return;
+	}
+	produce_code(vasm, st, statem->child[0]);
+	if(st.error) return;
+	if(statem->child[1] != NULL) vasm.do_jump(end_if);
+	vasm.do_label(else_cl);
+	if(statem->child[1] != NULL) {
+	  produce_code(vasm, st, statem->child[1]);
+	  if(st.error) return;
+	  vasm.do_label(end_if);
+	}
+      }
+      break;
     case STMT_WHILE:
       {
 	loc_atom loop_start = vasm.make_loc();
@@ -426,7 +452,6 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
 	  st.error = 1; return;
 	}
-	// FIXME - TODO 
 	produce_code(vasm, st, statem->child[0]);
 	if(st.error) return;
 	vasm.do_jump(loop_start);
