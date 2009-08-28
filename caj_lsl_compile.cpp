@@ -469,10 +469,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       case VM_TYPE_INT:
       case VM_TYPE_FLOAT:
 	vasm.rd_local_int(var_id);
-	if(!is_post && expr->vtype != VM_TYPE_NONE) 
+	if(is_post && expr->vtype != VM_TYPE_NONE) 
 	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
 	vasm.insn(insn);
-	if(is_post && expr->vtype != VM_TYPE_NONE) 
+	if(!is_post && expr->vtype != VM_TYPE_NONE) 
 	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
 	vasm.wr_local_int(var_id);
 	break;
@@ -493,6 +493,15 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 
 static expr_node *cast_to_void(expr_node *expr) {
   // we're going to need magic here for assignments later, but for now...
+  switch(expr->node_type) {
+  case NODE_PREINC:
+  case NODE_PREDEC:
+  case NODE_POSTINC:
+  case NODE_POSTDEC:
+    // the code generator handles this specially
+    expr->vtype = VM_TYPE_NONE; return expr;
+  }
+
   return enode_cast(expr, VM_TYPE_NONE);
 }
 
