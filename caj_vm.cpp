@@ -153,6 +153,10 @@ static void step_script(script_state* st, int num_steps) {
 	// --stack_top; // the magic is in the verifier.
 	*(stack_top--) = 0x1231234; // for debugging
 	break;
+      case INSN_INC_I:
+	stack_top[1]++; break;
+      case INSN_DEC_I:
+	stack_top[1]--; break;
       default:
 	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
 	goto abort_exec;

@@ -95,8 +95,11 @@
 #define INSN_CAST_I2S 38
 #define INSN_CAST_F2S 39
 #define INSN_BEGIN_CALL 40 // magic. Move somewhere saner?
+#define INSN_INC_I 41 // for optimisation of i++
+#define INSN_DEC_I 42
 
-#define NUM_INSNS 41
+
+#define NUM_INSNS 43
 
 #define INSN_QUIT 0xff0
 
@@ -112,7 +115,8 @@
 
 #define VM_TYPE_MAX   7
 // now for the internal types
-#define VM_TYPE_RET_ADDR 100
+#define VM_TYPE_RET_ADDR 100 // for functions we're calling
+#define VM_TYPE_OUR_RET_ADDR 101 // for ourselves
 
 struct insn_info {
   uint8_t special, arg1, arg2, ret;
@@ -165,6 +169,8 @@ static const insn_info vm_insns[NUM_INSNS] = {
   { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_STR }, // CAST_I2S
   { IVERIFY_NORMAL, VM_TYPE_FLOAT, VM_TYPE_NONE, VM_TYPE_STR }, // CAST_F2S
   { IVERIFY_NORMAL, VM_TYPE_NONE, VM_TYPE_NONE, VM_TYPE_RET_ADDR }, // BEGIN_CALL
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_INT }, // INC_I
+  { IVERIFY_NORMAL, VM_TYPE_INT, VM_TYPE_NONE, VM_TYPE_INT }, // DEC_I
 };
 
 struct script_func { // temporary placeholder

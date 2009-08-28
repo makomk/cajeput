@@ -228,15 +228,33 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     expr->vtype = get_insn_ret_type(insn);
     break;
     /* FIXME - need to implement a bunch of stuff */
+  case NODE_PREINC:
+  case NODE_POSTINC:
+  case NODE_PREDEC:
+  case NODE_POSTDEC:
+    propagate_types(st, expr->u.child[0]);
+    if(st.error != 0) return;
+    expr->vtype = expr->u.child[0]->vtype;
+    break;
   case NODE_CALL:
-    /* FIXME - this is incomplete/broken */
-    expr->vtype = VM_TYPE_NONE; // FIXME
+    /* FIXME - this is incomplete (doesn't verify args) */
     for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
       propagate_types(st, lnode->expr);
     }
+
+    if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
+      expr->vtype = VM_TYPE_NONE; // HACK!
+    } else {
+      std::map<std::string, const vm_function*>::iterator iter =
+	st.funcs.find(expr->u.call.name);
+      if(iter == st.funcs.end()) {
+	printf("ERROR: call to unknown function %s\n", expr->u.call.name);
+	st.error = 1; return;
+      }
+      expr->vtype = iter->second->ret_type;
+    }
   }
 #if 0
-#define NODE_ASSIGN 8
 #define NODE_L_OR 18
 #define NODE_L_AND 19
 #define NODE_SHR 20
@@ -250,10 +268,6 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
 #define NODE_NEGATE 27
 #define NODE_NOT 28 /* ~ - bitwise not */
 #define NODE_L_NOT 29 /* ! - logical not */
-#define NODE_PREINC 30 /* ++foo */
-#define NODE_POSTINC 31 /* foo++ */
-#define NODE_PREDEC 32 /* --foo */
-#define NODE_POSTDEC 33 /* foo-- */
 #endif
 }
 
@@ -394,7 +408,7 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	st.error = 1; return;
       }
       printf("DEBUG: beginning call to %s\n", expr->u.call.name);
-      vasm.insn(INSN_BEGIN_CALL);
+      vasm.begin_call(iter->second);
       for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
 	printf("DEBUG: assembling an argument %p\n", lnode);
 	assemble_expr(vasm, st, lnode->expr);
@@ -420,6 +434,52 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     vasm.insn(insn);
+    break;
+  case NODE_PREINC:
+  case NODE_PREDEC:
+  case NODE_POSTINC:
+  case NODE_POSTDEC:
+    {
+      uint16_t var_id; // FIXME - loads of code duplication with assignment/access
+      assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
+      uint8_t vtype = expr->u.child[0]->vtype; 
+      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.child[0]->u.s);
+      if(iter == st.vars.end()) {
+	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
+	st.error = 1; return;
+      }
+      assert(iter->second.type == vtype);
+      var_id = iter->second.offset;
+      int is_post = (expr->node_type == NODE_POSTINC || 
+		     expr->node_type == NODE_POSTDEC);
+      uint16_t insn;
+      switch(vtype) {
+      case VM_TYPE_INT:
+	if(expr->node_type == NODE_PREINC || expr->node_type ==  NODE_POSTINC)
+	  insn = INSN_INC_I;
+	else insn = INSN_DEC_I;
+	break;
+      case VM_TYPE_FLOAT: // TODO
+      default:
+	printf("FIXME: can't handle increment of vars of type %s \n", 
+	       type_names[vtype]);
+	st.error = 1; return;
+      }
+      switch(vtype) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+	vasm.rd_local_int(var_id);
+	if(!is_post && expr->vtype != VM_TYPE_NONE) 
+	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
+	vasm.insn(insn);
+	if(is_post && expr->vtype != VM_TYPE_NONE) 
+	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
+	vasm.wr_local_int(var_id);
+	break;
+      default:
+	abort(); // impossible
+      }
+    }
     break;
   default:
     printf("FIXME: unhandled node type %i\n", expr->node_type);
@@ -472,6 +532,28 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  vasm.do_label(end_if);
 	}
       }
+      break;
+    case STMT_RET:
+      if(statem->expr[0] != NULL) {
+	propagate_types(st, statem->expr[0]);
+	if(st.error) return;
+	// FIXME FIXME - check return type, do implicit cast
+	
+	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	switch(statem->expr[0]->vtype) {
+	case VM_TYPE_INT:
+	case VM_TYPE_FLOAT:
+	  vasm.wr_local_int(0); break;
+	default:
+	  printf("FIXME: unhandled type in return statement");
+	  st.error = 1; return;
+	}
+	
+      }
+      vasm.clear_stack();
+      vasm.insn(INSN_RET);
+      vasm.verify_stack(st.var_stack); // HACK until we have dead code elimination
       break;
     case STMT_WHILE:
       {
@@ -554,9 +636,6 @@ int main(int argc, char** argv) {
     for(func_arg* arg = func->args; arg != NULL; arg = arg->next) 
       args[j++] = arg->vtype;
 
-    // FIXME - we need to map the args to local variable names somehow
-    // FIXME FIXME - we also need to modify the way local variable names
-    // are assigned!!!! Things will implode horribly as they are now
     st.funcs[func->name] = funcs[func_no++] = 
       vasm.add_func(func->ret_type, args, num_args, func->name);
   }

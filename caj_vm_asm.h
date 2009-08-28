@@ -121,13 +121,23 @@ private:
     }
   }
 
+  void dump_stack(const char*prefix, asm_verify *v) { // DEBUG
+    printf("%sstack: ", prefix);
+    for(int i = 0; i < v->stack_types.size(); i++) {
+      printf("%i ", v->stack_types[i]);
+    }
+    printf("\n");
+  }
+
   void combine_verify(asm_verify *v1, asm_verify *v2) {
     if(err != NULL) return;
     if(v1->stack_types.size() != v2->stack_types.size()) {
+      dump_stack("First ", v1); dump_stack("Second ", v2);
       err = "Stack mismatch"; return;
     }
     for(int i = 0; i < v1->stack_types.size(); i++) {
       if(check_types(v1->stack_types[i], v2->stack_types[i])) {
+	dump_stack("First ", v1); dump_stack("Second ", v2);
 	err = "Stack mismatch"; return;
       }
     }
@@ -155,7 +165,7 @@ public:
     bytecode.push_back(INSN_QUIT);
   }
 
-  ~vm_asm() {
+  ~vm_asm() { // FIXME - incomplete
     for(std::vector<asm_verify*>::iterator iter = loc_verify.begin();
 	iter != loc_verify.end(); iter++) {
       delete *iter;
@@ -192,12 +202,13 @@ public:
     uint16_t *arg_offsets = new uint16_t[arg_count];
     func->name = name;
     func->ret_type = ret_type; // FIXME - not handled yet
+    frame_sz += vtype_size(ret_type)+1; // for the return address
     func->arg_types = arg_types;
     for(int i = 0; i < arg_count; i++) {
       arg_offsets[i] = frame_sz;
       frame_sz += vtype_size(arg_types[i]);
-     }
-    func->arg_offsets = arg_offsets;
+    }
+    func->arg_offsets = arg_offsets; // FIXME - need to free this in cleanup!
     func->func_num = funcs.size();
     func->insn_ptr = 0;
     func->arg_count = arg_count;
@@ -216,6 +227,11 @@ public:
     vm_function *func = funcs[cfunc->func_num];
     func->insn_ptr = func_start = bytecode.size();
     verify = new asm_verify();
+    
+    // the caller has to allocate space for the return value, to avoid 
+    // much messing around in the runtime!
+    push_val(func->ret_type);
+    push_val(VM_TYPE_OUR_RET_ADDR);
     for(int i = 0; i < func->arg_count; i++) {
       push_val(func->arg_types[i]);
     }
@@ -313,6 +329,29 @@ public:
     }
   }
 
+  void begin_call(const vm_function *func) {
+    if(err != NULL) return;
+    if(func_start == 0) { err = "Call outside of func"; return; }
+    if(cond_flag) { err = "Non-jump instruction after cond"; return; }
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }    
+
+    // again, if this fails, someone's done something *really* stupid
+    assert(func->func_num < funcs.size());
+    assert(funcs[func->func_num] == func);
+
+    switch(func->ret_type) {
+    case VM_TYPE_NONE: 
+      break;
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      const_int(0); break;
+    default:
+      err = "Unhandled func return type"; return;
+    }
+
+    insn(INSN_BEGIN_CALL);
+  }
+
   void do_call(const vm_function *func) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Call outside of func"; return; }
@@ -329,7 +368,7 @@ public:
     }
     pop_val(VM_TYPE_RET_ADDR);
 
-    // FIXME - need to handle return value somehow!
+    // FIXME - should really verify return value somehow!
 
     if(err != NULL) return;
     bytecode.push_back(MAKE_INSN(ICLASS_CALL, func->func_num));
@@ -376,7 +415,8 @@ public:
 	case IVERIFY_COND:
 	  cond_flag = 1; break;
 	case IVERIFY_RET:
-	  if(verify->stack_types.size() != 0) {
+	  assert(!verify->stack_types.empty()); // should be impossible.
+	  if(verify->stack_types.back() != VM_TYPE_OUR_RET_ADDR) {
 	    err = "Stack not cleared before RET"; return;
 	  }
 	  delete verify; verify = NULL;
@@ -453,6 +493,8 @@ public:
       case VM_TYPE_INT:
       case VM_TYPE_FLOAT:
 	insn(INSN_POP_I); break;
+      case VM_TYPE_OUR_RET_ADDR:
+	return; // we're done!
       default:
 	err = "Unhandled type in clear_stack"; return;
       }
