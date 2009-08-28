@@ -9,7 +9,7 @@
 #include <cassert>
 
 struct var_desc {
-  uint8_t type; uint16_t offset;
+  uint8_t type; uint8_t is_global; uint16_t offset;
 };
 
 struct lsl_compile_state {
@@ -26,7 +26,7 @@ static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
       printf("ERROR: duplicate function argument %s\n",args->name);
       st.error = 1; return;
     } else {
-      var_desc var; var.type = args->vtype; 
+      var_desc var; var.type = args->vtype; var.is_global = 0;
       var.offset = func->arg_offsets[arg_no];
       st.vars[args->name] = var;
     }
@@ -44,7 +44,7 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       st.error = 1; return;
       // FIXME - handle this
     } else {
-      var_desc var; var.type = vtype;
+      var_desc var; var.type = vtype; var.is_global = 0;
       // FIXME - initialise these where possible
       switch(vtype) {
       case VM_TYPE_INT:
@@ -63,13 +63,6 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
     }
   }
 }
-
-static uint8_t find_var_type(lsl_compile_state &st, const char* name) {
-  std::map<std::string, var_desc>::iterator iter = st.vars.find(name);
-  if(iter == st.vars.end()) return VM_TYPE_NONE;
-  return iter->second.type;
-}
-
 
 static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
   switch(node_type) {
@@ -158,16 +151,26 @@ static uint8_t get_insn_ret_type(uint16_t insn) {
   return vm_insns[insn].ret;
 }
 
+
+static var_desc get_variable(lsl_compile_state &st, const char* name) {
+  std::map<std::string, var_desc>::iterator iter = st.vars.find(name);
+  if(iter == st.vars.end()) {
+    var_desc desc; desc.type = VM_TYPE_NONE;
+    printf("INTERNAL ERROR: missing variable %s\n", name);
+    st.error = 1; return desc;
+  } else {
+    assert(!iter->second.is_global);
+    return iter->second;
+  }
+}
+
 static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   uint16_t insn; uint8_t ltype, rtype; list_node *lnode;
   switch(expr->node_type) {
   case NODE_CONST: break;
   case NODE_IDENT:
-    expr->vtype = find_var_type(st, expr->u.s);
-    if(expr->vtype == VM_TYPE_NONE) {
-      printf("ERROR: Reference to unknown var %s\n", expr->u.s);
-      st.error = 1; return;
-    }
+    // get_variable does all the nasty error handling for us!
+    expr->vtype = get_variable(st, expr->u.s).type;
     break;
   case NODE_ASSIGN:
     assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
@@ -285,6 +288,42 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   }
 }
 
+static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
+  if(var.is_global) {
+     printf("FIXME: can't handle access to global vars\n");
+      st.error = 1; return;
+  } else {
+    switch(var.type) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      vasm.rd_local_int(var.offset); // FIXME!
+      break;
+    default:
+      printf("FIXME: can't handle access to vars of type %s \n", 
+	   type_names[var.type]);
+      st.error = 1; return;
+    }
+  }
+}
+
+static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
+  if(var.is_global) {
+     printf("FIXME: can't handle access to global vars\n");
+      st.error = 1; return;
+  } else {
+    switch(var.type) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      vasm.wr_local_int(var.offset); // FIXME!
+      break;
+    default:
+      printf("FIXME: can't handle access to vars of type %s \n", 
+	   type_names[var.type]);
+      st.error = 1; return;
+    }
+  }
+}
+
 static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
   uint8_t insn;
   switch(expr->node_type) {
@@ -303,51 +342,24 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     break;
   case NODE_IDENT:
     {
-      uint16_t var_id;
-      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.s);
-      if(iter == st.vars.end()) {
-	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
-	st.error = 1; return;
-      }
-      assert(iter->second.type == expr->vtype);
-      var_id = iter->second.offset;
+      var_desc var = get_variable(st, expr->u.s);
+      if(st.error != 0) return;
+      assert(var.type == expr->vtype);
 
-      switch(expr->vtype) {
-      case VM_TYPE_INT:
-      case VM_TYPE_FLOAT:
-	vasm.rd_local_int(var_id);
-	break;
-      default:
-	printf("FIXME: can't handle access to vars of type %s \n", 
-	       type_names[expr->vtype]);
-	st.error = 1; return;
-      }
+      read_var(vasm, st, var);
     }
     break;
   case NODE_ASSIGN:
     {
-      uint16_t var_id;
       assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
       uint8_t vtype = expr->u.child[1]->vtype; // FIXME - use child[0]?
-      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.child[0]->u.s);
-      if(iter == st.vars.end()) {
-	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
-	st.error = 1; return;
-      }
-      assert(iter->second.type == vtype);
-      var_id = iter->second.offset;
+      var_desc var = get_variable(st, expr->u.child[0]->u.s);
+      if(st.error != 0) return;
+      assert(var.type == vtype);
+
       assemble_expr(vasm, st, expr->u.child[1]);
       if(st.error != 0) return;
-      switch(vtype) {
-      case VM_TYPE_INT:
-      case VM_TYPE_FLOAT:
-	vasm.wr_local_int(var_id);
-	break;
-      default:
-	printf("FIXME: can't handle assignment to vars of type %s \n", 
-	       type_names[vtype]);
-	st.error = 1; return;
-      }
+      write_var(vasm, st, var);
     }
     break;
   case NODE_ADD:
@@ -440,24 +452,20 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_POSTINC:
   case NODE_POSTDEC:
     {
-      uint16_t var_id; // FIXME - loads of code duplication with assignment/access
       assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
       uint8_t vtype = expr->u.child[0]->vtype; 
-      std::map<std::string, var_desc>::iterator iter = st.vars.find(expr->u.child[0]->u.s);
-      if(iter == st.vars.end()) {
-	printf("INTERNAL ERROR: missing variable %s\n", expr->u.s);
-	st.error = 1; return;
-      }
-      assert(iter->second.type == vtype);
-      var_id = iter->second.offset;
+      var_desc var = get_variable(st, expr->u.child[0]->u.s);
+      if(st.error != 0) return;
+      assert(var.type == vtype);
       int is_post = (expr->node_type == NODE_POSTINC || 
 		     expr->node_type == NODE_POSTDEC);
-      uint16_t insn;
+      uint16_t insn, dup_insn;
       switch(vtype) {
       case VM_TYPE_INT:
 	if(expr->node_type == NODE_PREINC || expr->node_type ==  NODE_POSTINC)
 	  insn = INSN_INC_I;
 	else insn = INSN_DEC_I;
+	dup_insn = MAKE_INSN(ICLASS_RDL_I, 1);
 	break;
       case VM_TYPE_FLOAT: // TODO
       default:
@@ -465,20 +473,13 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	       type_names[vtype]);
 	st.error = 1; return;
       }
-      switch(vtype) {
-      case VM_TYPE_INT:
-      case VM_TYPE_FLOAT:
-	vasm.rd_local_int(var_id);
-	if(is_post && expr->vtype != VM_TYPE_NONE) 
-	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
-	vasm.insn(insn);
-	if(!is_post && expr->vtype != VM_TYPE_NONE) 
-	  vasm.insn(MAKE_INSN(ICLASS_RDL_I, 1)); // DUP
-	vasm.wr_local_int(var_id);
-	break;
-      default:
-	abort(); // impossible
-      }
+      read_var(vasm, st, var);
+      if(is_post && expr->vtype != VM_TYPE_NONE) 
+	vasm.insn(dup_insn);
+      vasm.insn(insn);
+      if(!is_post && expr->vtype != VM_TYPE_NONE) 
+	vasm.insn(dup_insn);
+      write_var(vasm, st, var);
     }
     break;
   default:
