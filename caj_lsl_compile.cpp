@@ -16,30 +16,18 @@ struct lsl_compile_state {
   int error;
   std::map<std::string, var_desc> vars;
   std::map<std::string, const vm_function*> funcs;
-  std::vector<uint8_t> stack_vars;
+  loc_atom var_stack;
 };
 
 static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
-			    func_arg *args) {
-  for( ; args != NULL; args = args->next) {
+			    func_arg *args, const vm_function* func) {
+  for(int arg_no = 0; args != NULL; args = args->next, arg_no++) {
     if(st.vars.count(args->name)) {
       printf("ERROR: duplicate function argument %s\n",args->name);
       st.error = 1; return;
     } else {
       var_desc var; var.type = args->vtype; 
-      var.offset = st.stack_vars.size();
-      switch(args->vtype) {
-      case VM_TYPE_INT:
-      case VM_TYPE_FLOAT:
-      case VM_TYPE_STR:
-	st.stack_vars.push_back(args->vtype);
-	break;
-      default:
-	printf("ERROR: func argument '%s' has unhandled type '%s'\n",
-	       args->name, type_names[args->vtype]);
-	st.error = 1; return;
-      // FIXME - handle this
-      }
+      var.offset = func->arg_offsets[arg_no];
       st.vars[args->name] = var;
     }
   }
@@ -57,18 +45,13 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       // FIXME - handle this
     } else {
       var_desc var; var.type = vtype;
-      int our_offset = st.stack_vars.size(); 
       // FIXME - initialise these where possible
       switch(vtype) {
       case VM_TYPE_INT:
-	st.stack_vars.push_back(vtype);
 	var.offset = vasm.const_int(0); 
-	assert(our_offset == var.offset);
 	break;
       case VM_TYPE_FLOAT:
-	st.stack_vars.push_back(vtype);
 	var.offset = vasm.const_real(0.0f); 
-	assert(our_offset == var.offset);
 	break;
       default:
 	printf("ERROR: unknown type of local var %s\n",name);
@@ -522,6 +505,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
   } 
 }
 
+#if 0 // FIXME - dead code, remove
 static void clear_stack(vm_asm &vasm, lsl_compile_state &st) {
   for(int i = st.stack_vars.size()-1; i >= 0; i--) {
     switch(st.stack_vars[i]) {
@@ -533,7 +517,7 @@ static void clear_stack(vm_asm &vasm, lsl_compile_state &st) {
     }
   }
 }
-
+#endif
 
 int main(int argc, char** argv) {
   int num_funcs = 0; int func_no;
@@ -581,24 +565,25 @@ int main(int argc, char** argv) {
   for(function *func = prog->funcs; func != NULL; func = func->next, func_no++) {
     printf("DEBUG: assembling function %s\n", func->name);
 
-    
     vasm.begin_func(funcs[func_no]);
 
-    handle_arg_vars(vasm, st, func->args);
-     if(st.error) return 1;
-
-     extract_local_vars(vasm, st, func->code->first);
+    handle_arg_vars(vasm, st, func->args, funcs[func_no]);
     if(st.error) return 1;
+    
+    extract_local_vars(vasm, st, func->code->first);
+    if(st.error) return 1;
+
+    st.var_stack = vasm.mark_stack();
 
     produce_code(vasm, st, func->code->first);
     if(st.error) return 1;
 
-    clear_stack(vasm,st);
+    vasm.verify_stack(st.var_stack);
+    vasm.clear_stack();
     vasm.insn(INSN_RET);
     vasm.end_func();
 
     st.vars.clear();
-    st.stack_vars.clear();
   
     if(vasm.get_error() != NULL) {
       printf("ASSEMBLER ERROR: %s\n", vasm.get_error());

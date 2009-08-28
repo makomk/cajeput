@@ -52,9 +52,11 @@ struct vm_function {
   const char* name;
   uint8_t ret_type;
   uint16_t func_num;
+  uint16_t frame_sz;
   uint32_t insn_ptr; 
   int arg_count;
   const uint8_t* arg_types;
+  const uint16_t* arg_offsets;
 };
 
 // 
@@ -166,13 +168,37 @@ public:
   // don't get freed before we're done with them.
   const vm_function *add_func(uint8_t ret_type, uint8_t *arg_types, int arg_count,
 			const char *name) {
+    uint16_t frame_sz = 0;
     vm_function *func = new vm_function();
+    assert(arg_count < 255); // FIXME !
+
+    uint16_t *arg_offsets = new uint16_t[arg_count];
     func->name = name;
     func->ret_type = ret_type; // FIXME - not handled yet
     func->arg_types = arg_types;
+    for(int i = 0; i < arg_count; i++) {
+      arg_offsets[i] = frame_sz;
+
+      switch(arg_types[i]) {
+	case VM_TYPE_INT:
+	case VM_TYPE_FLOAT:
+	case VM_TYPE_STR:
+	case VM_TYPE_KEY:
+	case VM_TYPE_LIST:
+	  frame_sz++;
+	  break;
+	case VM_TYPE_VECT:
+	  frame_sz += 3;
+	  break;
+	case VM_TYPE_ROT:
+	  frame_sz += 4;
+	  break;
+      default: printf("ERROR: bad argument type"); abort();
+      }
+    }
+    func->arg_offsets = arg_offsets;
     func->func_num = funcs.size();
     func->insn_ptr = 0;
-    assert(arg_count < 255); // FIXME !
     func->arg_count = arg_count;
     funcs.push_back(func);
     return func;
@@ -235,6 +261,9 @@ public:
     if(err != NULL) return;
     if(func_start == 0) { err = "do_jump outside of func"; return; } 
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    if(loc.val < 0 || loc.val >= loc_map.size()) { 
+      err = "do_label with bad atom"; return; 
+    }
     jump_fixup fixup;
     fixup.dest_loc = loc.val; fixup.insn_pos = bytecode.size();
     bytecode.push_back(INSN_QUIT); // replaced later
@@ -255,6 +284,32 @@ public:
       verify = NULL;
     }
     cond_flag = 0;
+  }
+
+  // special loc_atom, for use with verify_stack only
+  loc_atom mark_stack(void) {
+    if(err != NULL) return loc_atom(-1);
+    if(func_start == 0) { err = "mark_stack outside of func"; return loc_atom(-1); } 
+    if(verify == NULL) { err = "mark_stack at unverifiable point"; return loc_atom(-1); } 
+    int pos = loc_map.size();
+    loc_map.push_back(0xffffffff);
+    loc_verify.push_back(verify->dup());
+    return loc_atom(pos);
+  }
+
+  void verify_stack(loc_atom mark) {
+    if(err != NULL) return;
+    if(func_start == 0) { err = "verify_stack outside of func"; return; } 
+    if(mark.val < 0 || mark.val >= loc_map.size() || 
+       loc_map[mark.val] != 0xffffffff) { 
+      err = "verify_stack with bad atom"; return; 
+    }
+    if(verify == NULL) {
+      // use this as a hint to the stack's state. We'll verify this later.
+      verify = loc_verify[mark.val]->dup();
+    } else {
+      combine_verify(loc_verify[mark.val], verify);
+    }
   }
 
   void do_call(const vm_function *func) {
@@ -386,6 +441,21 @@ public:
     u.f = val;
     insn(MAKE_INSN(ICLASS_RDG_I, add_const(u.i)));
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
+  }
+
+  void clear_stack(void) {
+    if(err != NULL) return;
+    if(func_start == 0) { err = "clear_stack outside of func"; return; }
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    while(!verify->stack_types.empty()) {
+      switch(verify->stack_types.back()) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+	insn(INSN_POP_I); break;
+      default:
+	err = "Unhandled type in clear_stack"; return;
+      }
+    }
   }
 
   void end_func(void) {
