@@ -52,7 +52,6 @@ struct vm_function {
   const char* name;
   uint8_t ret_type;
   uint16_t func_num;
-  uint16_t frame_sz;
   uint32_t insn_ptr; 
   int arg_count;
   const uint8_t* arg_types;
@@ -164,11 +163,29 @@ public:
     delete verify;
   }
 
+  int vtype_size(uint8_t vtype) {
+    switch(vtype) {
+    case VM_TYPE_NONE:
+      return 0; // for return values, mainly
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+    case VM_TYPE_LIST:
+      return 1;
+    case VM_TYPE_VECT:
+      return 3;
+    case VM_TYPE_ROT:
+      return 4;
+    default: printf("ERROR: bad vtype in vtype_size()\n"); abort();
+    }   
+  }
+
   // note - it's up to you to make sure the argument types and function name
   // don't get freed before we're done with them.
   const vm_function *add_func(uint8_t ret_type, uint8_t *arg_types, int arg_count,
 			const char *name) {
-    uint16_t frame_sz = 0;
+    uint16_t frame_sz = 0; // WARNING - calculated differently than in finish()
     vm_function *func = new vm_function();
     assert(arg_count < 255); // FIXME !
 
@@ -178,24 +195,8 @@ public:
     func->arg_types = arg_types;
     for(int i = 0; i < arg_count; i++) {
       arg_offsets[i] = frame_sz;
-
-      switch(arg_types[i]) {
-	case VM_TYPE_INT:
-	case VM_TYPE_FLOAT:
-	case VM_TYPE_STR:
-	case VM_TYPE_KEY:
-	case VM_TYPE_LIST:
-	  frame_sz++;
-	  break;
-	case VM_TYPE_VECT:
-	  frame_sz += 3;
-	  break;
-	case VM_TYPE_ROT:
-	  frame_sz += 4;
-	  break;
-      default: printf("ERROR: bad argument type"); abort();
-      }
-    }
+      frame_sz += vtype_size(arg_types[i]);
+     }
     func->arg_offsets = arg_offsets;
     func->func_num = funcs.size();
     func->insn_ptr = 0;
@@ -500,22 +501,7 @@ public:
       st->funcs[i].ip = funcs[i]->insn_ptr;
       st->funcs[i].frame_sz = 1;
       for(int j = 0; j < funcs[i]->arg_count; j++) {
-	switch(funcs[i]->arg_types[j]) {
-	case VM_TYPE_INT:
-	case VM_TYPE_FLOAT:
-	case VM_TYPE_STR:
-	case VM_TYPE_KEY:
-	case VM_TYPE_LIST:
-	  st->funcs[i].frame_sz++;
-	  break;
-	case VM_TYPE_VECT:
-	  st->funcs[i].frame_sz += 3;
-	  break;
-	case VM_TYPE_ROT:
-	  st->funcs[i].frame_sz += 4;
-	  break;
-	default: abort();
-	}
+	st->funcs[i].frame_sz += vtype_size(funcs[i]->arg_types[j]);
       }
     }
     return st;
