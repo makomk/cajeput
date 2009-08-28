@@ -31,6 +31,7 @@ static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
       switch(args->vtype) {
       case VM_TYPE_INT:
       case VM_TYPE_FLOAT:
+      case VM_TYPE_STR:
 	st.stack_vars.push_back(args->vtype);
 	break;
       default:
@@ -55,16 +56,19 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       st.error = 1; return;
       // FIXME - handle this
     } else {
-      var_desc var; var.type = vtype; var.offset = st.stack_vars.size();
+      var_desc var; var.type = vtype;
+      int our_offset = st.stack_vars.size(); 
       // FIXME - initialise these where possible
       switch(vtype) {
       case VM_TYPE_INT:
 	st.stack_vars.push_back(vtype);
-	vasm.const_int(0); 
+	var.offset = vasm.const_int(0); 
+	assert(our_offset == var.offset);
 	break;
       case VM_TYPE_FLOAT:
 	st.stack_vars.push_back(vtype);
-	vasm.const_real(0.0f); 
+	var.offset = vasm.const_real(0.0f); 
+	assert(our_offset == var.offset);
 	break;
       default:
 	printf("ERROR: unknown type of local var %s\n",name);
@@ -242,7 +246,8 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     break;
     /* FIXME - need to implement a bunch of stuff */
   case NODE_CALL:
-    /* FIXME - this is incomplete */
+    /* FIXME - this is incomplete/broken */
+    expr->vtype = VM_TYPE_NONE; // FIXME
     for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
       propagate_types(st, lnode->expr);
     }
@@ -592,6 +597,9 @@ int main(int argc, char** argv) {
     vasm.insn(INSN_RET);
     vasm.end_func();
 
+    st.vars.clear();
+    st.stack_vars.clear();
+  
     if(vasm.get_error() != NULL) {
       printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
       st.error = 1; return 1;

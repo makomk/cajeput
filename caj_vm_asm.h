@@ -376,14 +376,16 @@ public:
     insn(MAKE_INSN(ICLASS_WRL_I, offset));
   }
 
-  void const_int(int32_t val) {
+  uint16_t const_int(int32_t val) {
     insn(MAKE_INSN(ICLASS_RDG_I, add_const(val)));
+    return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
 
-  void const_real(float val) {
+  uint16_t const_real(float val) {
     union { float f; int32_t i; } u;
     u.f = val;
     insn(MAKE_INSN(ICLASS_RDG_I, add_const(u.i)));
+    return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
 
   void end_func(void) {
