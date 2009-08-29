@@ -47,3 +47,20 @@
 43 ADD_SS: str + str -> str
 // 44 ADD_SI: str + int -> str
 // 45 ADD_SF: str + float -> str
+// 46 ADD_SV: str + vect -> str // needed?
+// 47 ADD_SR: str + rot -> str // needed
+48 EQ_FF: float == float -> int // need to implement these
+49 NEQ_FF: float != float -> int
+50 GR_FF: float > float -> int
+51 LES_FF: float < float -> int
+52 GEQ_FF: float >= float -> int
+53 LEQ_FF: float <= float -> int
+54 EQ_SS: str == str -> int // need to implement this
+
+// now for some casts in boolean contexts
+55 CAST_F2B: float -> int // not same as F2I
+56 CAST_S2B: str -> int 
+57 CAST_K2B: key -> int // again, not same as S2B.
+58 CAST_L2B: list -> int
+59 CAST_V2B: vect -> int
+60 CAST_R2B: rot -> int

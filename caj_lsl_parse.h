@@ -37,7 +37,8 @@ extern "C" {
  } list_node;
 
 struct expr_node {
-  int node_type; uint8_t vtype;
+  int node_type; int line_no; 
+  uint8_t vtype;
   union {
     expr_node* child[4];
     int i; float f; char* s; list_node *list; float v[4];
@@ -167,6 +168,7 @@ static const char* type_names[] = {"void","int","float","str","key","vect","rot"
 
   lsl_program *caj_parse_lsl(const char* fname);
   expr_node *enode_cast(expr_node *expr, uint8_t vtype);
+  void enode_split_assign(expr_node *expr);
   const lsl_const* find_lsl_const(const char* name);
 
 #ifdef __cplusplus

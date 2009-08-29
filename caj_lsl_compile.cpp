@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <cassert>
+#include <stdio.h>
+#include <stdarg.h>
 
 // Possible Linden dain bramage:
 // Order of operations (second operand, first operand)
@@ -19,12 +21,27 @@ struct var_desc {
 };
 
 struct lsl_compile_state {
-  int error;
+  int error; int line_no;
   std::map<std::string, var_desc> globals;
   std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
   loc_atom var_stack;
 };
+
+static void update_loc(lsl_compile_state &st, expr_node *expr) {
+  st.line_no = expr->line_no;
+  
+}
+
+static void do_error(lsl_compile_state &st, const char* format, ...) {
+  va_list args;
+  if(st.error != 0) return;
+  printf("Line %i: ", st.line_no);
+  va_start (args, format);
+  vprintf (format, args);
+  va_end (args);
+  st.error = 1;
+}
 
 static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
 			    func_arg *args, const vm_function* func) {
@@ -84,8 +101,8 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
     std::map<std::string, var_desc>::iterator iter2 = st.globals.find(name);
     if(iter2 == st.globals.end()) {
       var_desc desc; desc.type = VM_TYPE_NONE;
-      printf("ERROR: missing variable %s\n", name);
-      st.error = 1; return desc;
+      do_error(st, "ERROR: missing variable %s\n", name);
+      return desc;
     } else {
       assert(iter2->second.is_global);
       assert(iter2->second.type <= VM_TYPE_MAX);
@@ -100,6 +117,7 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
 
 static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   uint16_t insn; uint8_t ltype, rtype; list_node *lnode;
+  update_loc(st, expr);
   switch(expr->node_type) {
   case NODE_CONST: break;
   case NODE_IDENT:
@@ -116,6 +134,16 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     // FIXME - do we really always want to auto-cast?
     expr->u.child[1] = enode_cast(expr->u.child[1], expr->u.child[0]->vtype);
     break;
+
+  case NODE_ASSIGNADD:
+  case NODE_ASSIGNSUB:
+  case NODE_ASSIGNMUL:
+  case NODE_ASSIGNDIV:
+  case NODE_ASSIGNMOD:
+    enode_split_assign(expr);
+    assert(expr->node_type == NODE_ASSIGN);
+    propagate_types(st, expr);
+    return;
   case NODE_VECTOR:
   case NODE_ROTATION:
     {
@@ -127,12 +155,14 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
 	// FIXME - do we really always want to auto-cast?
 	expr->u.child[i] = enode_cast(expr->u.child[i], VM_TYPE_FLOAT); 
       }
+      update_loc(st, expr);
+
       for(int i = 0; i < count; i++) {
 	if(expr->u.child[i]->node_type != NODE_CONST || 
 	   expr->u.child[i]->vtype != VM_TYPE_FLOAT) {
-	  printf("ERROR: %s not made up of constant floats\n",
-		 expr->node_type == NODE_VECTOR ? "vector" : "rotation");
-	  st.error = 1; return;
+	  do_error(st, "ERROR: %s not made up of constant floats\n",
+		   expr->node_type == NODE_VECTOR ? "vector" : "rotation");
+	  return;
 	};
       };
       for(int i = 0; i < count; i++) {
@@ -166,6 +196,8 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     if(st.error != 0) return;
     propagate_types(st, expr->u.child[1]);
     if(st.error != 0) return;
+    update_loc(st, expr);
+
     insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
 			  expr->u.child[1]->vtype);
     if(insn == 0) {
@@ -190,14 +222,30 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       }
     }
     if(insn == 0) {
-      printf("ERROR: bad types passed to operator %i %s : %s %s\n",
-	     expr->node_type, node_names[expr->node_type],
-	     type_names[ltype], type_names[rtype]); 
-      st.error = 1; return;
+      do_error(st, "ERROR: bad types passed to operator %i %s : %s %s\n",
+	       expr->node_type, node_names[expr->node_type],
+	       type_names[ltype], type_names[rtype]); 
+      return;
     }
     expr->vtype = get_insn_ret_type(insn);
     break;
     /* FIXME - need to implement a bunch of stuff */
+  case NODE_NOT:
+    propagate_types(st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    if(expr->u.child[0]->vtype != VM_TYPE_INT) {
+      do_error(st, "ERROR: bitwise NOT on non-integer"); return;
+    }
+    expr->vtype = VM_TYPE_INT; 
+    break;
+  case NODE_L_NOT:
+    propagate_types(st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    // no type enforcement, boolean context
+    expr->vtype = VM_TYPE_INT; 
+    break;
   case NODE_PREINC:
   case NODE_POSTINC:
   case NODE_PREDEC:
@@ -215,6 +263,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       propagate_types(st, lnode->expr);
       if(st.error != 0) return;
     }
+    update_loc(st, expr);
 
     if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
       expr->vtype = VM_TYPE_NONE; // HACK!
@@ -222,8 +271,8 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       std::map<std::string, const vm_function*>::iterator iter =
 	st.funcs.find(expr->u.call.name);
       if(iter == st.funcs.end()) {
-	printf("ERROR: call to unknown function %s\n", expr->u.call.name);
-	st.error = 1; return;
+	do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
+	return;
       }
       expr->vtype = iter->second->ret_type;
     }
@@ -250,6 +299,7 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_STR): return INSN_CAST_I2S;
+  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_STR): return INSN_CAST_F2S;
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -267,9 +317,9 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       vasm.insn(MAKE_INSN(ICLASS_RDG_P, var.offset));
       break;
     default:
-      printf("FIXME: can't handle access to vars of type %s \n", 
-	   type_names[var.type]);
-      st.error = 1; return;
+      do_error(st,"FIXME: can't handle access to vars of type %s \n", 
+	       type_names[var.type]);
+      return;
     }
   } else {
     switch(var.type) {
@@ -282,9 +332,9 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       vasm.rd_local_ptr(var.offset);
       break;
     default:
-      printf("FIXME: can't handle access to vars of type %s \n", 
-	   type_names[var.type]);
-      st.error = 1; return;
+      do_error(st, "FIXME: can't handle access to vars of type %s \n", 
+	       type_names[var.type]);
+      return;
     }
   }
 }
@@ -301,9 +351,9 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       vasm.insn(MAKE_INSN(ICLASS_WRG_P, var.offset));
       break;
     default:
-      printf("FIXME: can't handle access to vars of type %s \n", 
-	   type_names[var.type]);
-      st.error = 1; return;
+      do_error(st, "FIXME: can't handle access to vars of type %s \n", 
+	       type_names[var.type]);
+      return;
     }
   } else {
     switch(var.type) {
@@ -316,15 +366,38 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       // vasm.wr_local_ptr(var.offset); // FIXME - TODO
       // break;
     default:
-      printf("FIXME: can't handle access to vars of type %s \n", 
-	   type_names[var.type]);
-      st.error = 1; return;
+      do_error(st, "FIXME: can't handle access to vars of type %s \n", 
+	       type_names[var.type]);
+      return;
     }
+  }
+}
+
+// actually outputs a cast to boolean context
+static void asm_cast_to_bool(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
+  switch(expr->vtype) {
+  case VM_TYPE_INT:
+    break;
+  case VM_TYPE_FLOAT:
+    vasm.insn(INSN_CAST_F2B); break;
+  case VM_TYPE_STR:
+    vasm.insn(INSN_CAST_S2B); break;
+  case VM_TYPE_KEY:
+    vasm.insn(INSN_CAST_K2B); break;
+  case VM_TYPE_LIST:
+    vasm.insn(INSN_CAST_L2B); break;
+  case VM_TYPE_VECT:
+    vasm.insn(INSN_CAST_V2B); break;
+  case VM_TYPE_ROT:
+    vasm.insn(INSN_CAST_R2B); break;
+  default:
+    do_error(st, "ERROR: can't cast %s type to bool\n", type_names[expr->vtype]);
   }
 }
 
 static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
   uint8_t insn;
+  update_loc(st, expr);
   switch(expr->node_type) {
   case NODE_CONST:
     switch(expr->vtype) {
@@ -332,14 +405,14 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       printf("DEBUG: assembling int literal\n");
       vasm.const_int(expr->u.i); break;
     case VM_TYPE_FLOAT:
-     printf("DEBUG: assembling float literal\n");
-     vasm.const_real(expr->u.f); break;
+      printf("DEBUG: assembling float literal\n");
+      vasm.const_real(expr->u.f); break;
     case VM_TYPE_STR:
        printf("DEBUG: assembling string literal\n");
        vasm.const_str(expr->u.s); break;
     default:
-      printf("FIXME: unhandled const type %s\n", type_names[expr->vtype]);
-      st.error = 1; return;
+      do_error(st, "FIXME: unhandled const type %s\n", type_names[expr->vtype]);
+      return;
     }
     break;
   case NODE_IDENT:
@@ -362,6 +435,7 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 
       assemble_expr(vasm, st, expr->u.child[1]);
       if(st.error != 0) return;
+      update_loc(st, expr);
       write_var(vasm, st, var);
     }
     break;
@@ -386,15 +460,16 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
 			  expr->u.child[1]->vtype);
     if(insn == 0) {
-      printf("INTERNAL ERROR: no insn for binop %i %s %s\n", 
-	     expr->node_type, type_names[expr->u.child[0]->vtype],
-	     type_names[expr->u.child[1]->vtype]);
-      st.error = 1; return;
+      do_error(st, "INTERNAL ERROR: no insn for binop %i %s %s\n", 
+	       expr->node_type, type_names[expr->u.child[0]->vtype],
+	       type_names[expr->u.child[1]->vtype]);
+      return;
     }
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     assemble_expr(vasm, st, expr->u.child[1]);
     if(st.error != 0) return;
+    update_loc(st, expr);
     printf("DEBUG: assembling binary op\n");
     vasm.insn(insn);
     break;    
@@ -421,17 +496,18 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	vasm.insn(INSN_PRINT_STR);
 	break;
       default:
-	printf("ERROR: bad argument type to print() builtin: %s\n",
-	       type_names[expr->u.call.args->expr->vtype]);
-	st.error = 1; return;
+	do_error(st, "ERROR: bad argument type to print() builtin: %s\n",
+		 type_names[expr->u.call.args->expr->vtype]);
+	return;
       }	
     } else {
       std::map<std::string, const vm_function*>::iterator iter =
 	st.funcs.find(expr->u.call.name);
       if(iter == st.funcs.end()) {
-	printf("ERROR: call to unknown function %s\n", expr->u.call.name);
-	st.error = 1; return;
+	do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
+	return;
       }
+
       printf("DEBUG: beginning call to %s\n", expr->u.call.name);
       vasm.begin_call(iter->second);
       for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
@@ -441,9 +517,25 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	if(lnode->next == NULL) { printf("DEBUG: last argument\n"); }
 	else { printf("DEBUG: next argument %p\n", lnode); }
       }
+
+      update_loc(st, expr);
       printf("DEBUG: doing call to %s\n", expr->u.call.name);
       vasm.do_call(iter->second);
     }
+    break;
+  case NODE_NOT:
+    assemble_expr(vasm, st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    vasm.insn(INSN_NOT_I);
+    break;
+  case NODE_L_NOT:
+    assemble_expr(vasm, st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    asm_cast_to_bool(vasm, st, expr->u.child[0]);
+    if(st.error) return;
+    vasm.insn(INSN_NOT_L);
     break;
   case NODE_CAST:
     insn = get_insn_cast(expr->u.child[0]->vtype, expr->vtype);
@@ -451,15 +543,16 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       printf("WARNING: got cast to same type. Continuing anyway\n");
       insn = INSN_NOOP;
     } else if(insn == 0) {
-      printf("ERROR: couldn't cast %s -> %s\n", 
-	     type_names[expr->u.child[0]->vtype], 
-	     type_names[expr->vtype]);
+      do_error(st, "ERROR: couldn't cast %s -> %s\n", 
+	       type_names[expr->u.child[0]->vtype], 
+	       type_names[expr->vtype]);
       st.error = 1; return;
     }
     printf("DEBUG: assembling cast %s -> %s\n",type_names[expr->u.child[0]->vtype], 
 	     type_names[expr->vtype]);
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
+    update_loc(st, expr);
     vasm.insn(insn);
     break;
   case NODE_PREINC:
@@ -484,9 +577,9 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	break;
       case VM_TYPE_FLOAT: // TODO
       default:
-	printf("FIXME: can't handle increment of vars of type %s \n", 
-	       type_names[vtype]);
-	st.error = 1; return;
+	do_error(st, "FIXME: can't handle increment of vars of type %s \n", 
+		 type_names[vtype]);
+	return;
       }
       read_var(vasm, st, var);
       if(is_post && expr->vtype != VM_TYPE_NONE) 
@@ -498,12 +591,12 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     }
     break;
   default:
-    printf("FIXME: unhandled node type %i\n", expr->node_type);
-    st.error = 1; return;
+    do_error(st, "FIXME: unhandled node type %i\n", expr->node_type);
+    return;
   } 
   if(vasm.get_error() != NULL) {
-    printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-    st.error = 1; return;
+    do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+    return;
   }
 }
 
@@ -536,10 +629,11 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
       {
 	loc_atom else_cl = vasm.make_loc();
 	loc_atom end_if = vasm.make_loc();
-	propagate_types(st, statem->expr[0]);
+	propagate_types(st, statem->expr[0]); // FIXME - horrid code duplication
 	if(st.error) return;
-	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
 	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	vasm.insn(INSN_NCOND);
 	vasm.do_jump(else_cl);
@@ -570,8 +664,10 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	case VM_TYPE_INT:
 	case VM_TYPE_FLOAT:
 	  vasm.wr_local_int(0); break;
+	case VM_TYPE_STR:
+	  vasm.wr_local_ptr(0); break;
 	default:
-	  printf("FIXME: unhandled type in return statement");
+	  printf("FIXME: unhandled type in return statement\n");
 	  st.error = 1; return;
 	}
 	
@@ -587,8 +683,9 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	vasm.do_label(loop_start);
 	propagate_types(st, statem->expr[0]);
 	if(st.error) return;
-	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
 	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	vasm.insn(INSN_NCOND);
 	vasm.do_jump(loop_end);
@@ -600,6 +697,25 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	if(st.error) return;
 	vasm.do_jump(loop_start);
 	vasm.do_label(loop_end);
+      }
+      break;
+    case STMT_DO:
+      {
+	loc_atom loop_start = vasm.make_loc();
+	vasm.do_label(loop_start);
+	if(vasm.get_error() != NULL) {
+	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  st.error = 1; return;
+	}
+	produce_code(vasm, st, statem->child[0]);
+	if(st.error) return;
+	propagate_types(st, statem->expr[0]);
+	if(st.error) return;
+	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
+	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	vasm.insn(INSN_COND);
+	vasm.do_jump(loop_start);
       }
       break;
     case STMT_BLOCK:

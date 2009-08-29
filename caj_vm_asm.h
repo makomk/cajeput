@@ -505,6 +505,10 @@ public:
       // FIXME - not right
       push_val(VM_TYPE_STR);
       break;
+    case ICLASS_WRL_P:
+      // FIXME - not right
+      pop_val(VM_TYPE_STR);
+      break;
     default:
       err = "Unknown instruction class"; return;
     }
@@ -557,6 +561,22 @@ public:
     offset = verify->stack_types.size()-offset;
     insn(MAKE_INSN(ICLASS_RDL_P, offset)); // FIXME - not right yet!
 
+  }
+
+  void wr_local_ptr(int offset) {
+    if(err != NULL) return;
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    if(offset < 0 || offset >= verify->stack_types.size()-1) {
+      printf("DEBUG: wr var out of bounds @ %i, stack size %i\n",
+	     offset, verify->stack_types.size());
+      err = "Local variable out of bounds"; return;
+    }
+    if(verify->stack_types[offset] != VM_TYPE_STR /* && 
+       verify->stack_types[offset] != VM_TYPE_LIST */) {
+      err = "Local variable of wrong type"; return;
+    }
+    offset = verify->stack_types.size()-1-offset;
+    insn(MAKE_INSN(ICLASS_WRL_P, offset));
   }
 
   uint16_t const_int(int32_t val) {
