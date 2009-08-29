@@ -190,8 +190,9 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       }
     }
     if(insn == 0) {
-      printf("ERROR: bad types passed to operator %i: %s %s\n",
-	     expr->node_type, type_names[ltype], type_names[rtype]); 
+      printf("ERROR: bad types passed to operator %i %s : %s %s\n",
+	     expr->node_type, node_names[expr->node_type],
+	     type_names[ltype], type_names[rtype]); 
       st.error = 1; return;
     }
     expr->vtype = get_insn_ret_type(insn);
@@ -205,10 +206,14 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     if(st.error != 0) return;
     expr->vtype = expr->u.child[0]->vtype;
     break;
+  case NODE_CAST:
+    propagate_types(st, expr->u.child[0]);
+    break;
   case NODE_CALL:
     /* FIXME - this is incomplete (doesn't verify args) */
     for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
       propagate_types(st, lnode->expr);
+      if(st.error != 0) return;
     }
 
     if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
@@ -222,6 +227,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       }
       expr->vtype = iter->second->ret_type;
     }
+    break;
   }
 #if 0
 #define NODE_ASSIGNADD 22
@@ -243,6 +249,7 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_DROP_I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_STR): return INSN_CAST_I2S;
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -449,6 +456,8 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	     type_names[expr->vtype]);
       st.error = 1; return;
     }
+    printf("DEBUG: assembling cast %s -> %s\n",type_names[expr->u.child[0]->vtype], 
+	     type_names[expr->vtype]);
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     vasm.insn(insn);

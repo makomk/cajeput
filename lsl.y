@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
+#include <string.h>
 #include "caj_lsl_parse.h"
 int yylex (void);
 void yyerror (char const *);
@@ -94,9 +95,26 @@ static expr_node * enode_make_list(list_node *list) {
 
 static expr_node * enode_make_id(char *s) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
-   enode->node_type = NODE_IDENT;
-   enode->u.s = s;
-    return enode;
+   const lsl_const *c = find_lsl_const(s);
+   if(c == NULL) {
+     enode->node_type = NODE_IDENT;
+     enode->u.s = s;
+   } else {
+     free(s);
+     enode->node_type = NODE_CONST; enode->vtype = c->vtype;
+     switch(c->vtype) {
+     case VM_TYPE_INT:
+       enode->u.i = c->u.i; break;
+     case VM_TYPE_FLOAT:
+       enode->u.f = c->u.f; break;     
+     case VM_TYPE_STR:
+       enode->u.s = strdup(c->u.s); break;     
+     default:
+       yyerror("Unhandled type of named constant");
+       enode->vtype = VM_TYPE_NONE; 
+     }
+   }
+   return enode;
 }
 
  static expr_node * enode_make_id_type(char *s, uint8_t vtype) {
@@ -178,6 +196,13 @@ typedef struct func_args {
   func_arg *first; func_arg **add;
 }  func_args;
 
+ typedef struct lsl_globals {
+   function *funcs;
+   function **add_func;
+   global *globals;
+   global **add_global;
+ } lsl_globals;
+
 %}
 %locations
  /* %debug */
@@ -232,6 +257,7 @@ typedef struct func_args {
 %%
 program : functions states { 
   $$ = NULL; global_prog.funcs = $1->funcs; global_prog.globals = $1->globals;
+  free($1);
 }; 
 global : type IDENTIFIER ';'  {
   $$ = malloc(sizeof(global));
@@ -393,7 +419,7 @@ expr : NUMBER { $$ = enode_make_int($1); }
 | '!' expr { $$ = enode_unaryop($2, NODE_L_NOT); } 
 | '~' expr { $$ = enode_unaryop($2, NODE_NOT); }
 | '-' expr { $$ = enode_negate($2); } 
-| '(' type ')' expr %prec CAST { $$ = $4 } /* FIXME */ /* FIXME - operator precidence? */ /* FIXME - shift/reduce conflicts */
+| '(' type ')' expr %prec CAST { $$ = enode_cast($4,$2); } 
        
    ;
 type : INTEGER { $$ = VM_TYPE_INT; } 

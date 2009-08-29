@@ -90,13 +90,6 @@ struct expr_node {
     struct global *next;
   } global;
 
- typedef struct lsl_globals {
-   function *funcs;
-   function **add_func;
-   global *globals;
-   global **add_global;
- } lsl_globals;
-
  typedef struct lsl_program {
    function *funcs;
    global *globals;
@@ -145,6 +138,13 @@ struct expr_node {
 #define NODE_LIST 37
 #define NODE_CAST 38 /* special type of unary op */
 
+  static const char* node_names[] = { "BOGUS", "const","ident","+","-","*","/","%","=",
+				    "==","!=","<=",">=","<",">","|","&","^",
+				    "||","&&","<<",">>","+=","-=","*=","/=",
+				    "%=", "unary -", "~","!","preinc","postinc"
+				    "predec","postdec","call","vec","rot",
+				      "list","cast" };
+
  /* FIXME - types should be in a shared header */
 #define VM_TYPE_NONE  0
 #define VM_TYPE_INT   1
@@ -157,8 +157,17 @@ struct expr_node {
 
 static const char* type_names[] = {"void","int","float","str","key","vect","rot","list"};
 
+  typedef struct lsl_const {
+    const char* name;
+    uint8_t vtype;
+    union {
+      int32_t i; float f; const char *s; float v[4];
+    } u;
+  } lsl_const;
+
   lsl_program *caj_parse_lsl(const char* fname);
   expr_node *enode_cast(expr_node *expr, uint8_t vtype);
+  const lsl_const* find_lsl_const(const char* name);
 
 #ifdef __cplusplus
 }

@@ -8,7 +8,7 @@ cajeput_main.o: cajeput_main.cpp sl_messages.h sl_types.h sl_llsd.h \
   cajeput_j2k.h cajeput_prim.h cajeput_anims.h terrain_compress.h \
   caj_parse_nini.h
 caj_lsl_compile.o: caj_lsl_compile.cpp caj_lsl_parse.h caj_vm.h \
-  caj_vm_insns.h caj_vm_asm.h caj_vm_exec.h
+  caj_vm_insns.h caj_vm_asm.h caj_vm_exec.h caj_vm_ops.h
 caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h sl_types.h sl_udp_proto.h \
   cajeput_core.h cajeput_int.h sl_llsd.h cajeput_world.h cajeput_user.h \
   cajeput_anims.h caj_omv.h terrain_compress.h
@@ -25,6 +25,7 @@ cajeput_anims.o: cajeput_anims.c
 cajeput_j2k.o: cajeput_j2k.c cajeput_j2k.h libopenjpeg/openjpeg.h
 cajeput_j2k_test.o: cajeput_j2k_test.c cajeput_j2k.h
 caj_parse_nini.o: caj_parse_nini.c caj_parse_nini.h
+lsl_consts.o: lsl_consts.c caj_lsl_parse.h
 lsl-lex.o: lsl-lex.c lsl.tab.h
 lsl.tab.o: lsl.tab.c caj_lsl_parse.h
 sl_llsd.o: sl_llsd.c sl_llsd.h sl_types.h
