@@ -185,7 +185,8 @@ static expr_node *enode_negate(expr_node *expr) {
   struct func_arg *arg;
   struct function *func;
   struct list_head *list;
-  struct lsl_globals *global;
+  struct lsl_globals *prog;
+  struct global *glob;
   char *str;
   uint8_t vtype;
 }
@@ -217,18 +218,30 @@ static expr_node *enode_negate(expr_node *expr) {
 %type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local
 %type <stat> jump_stmt label_stmt block_stmt
 %type <func> function 
-%type <global> program functions
+%type <prog> program functions
+%type <glob> global
 %type <arg> arguments arglist argument
 %type <vtype> type 
 %type <list> list
 %%
-program : functions states { $$ = NULL; global_prog.funcs = $1->funcs; }; 
-global : type IDENTIFIER ';' | type IDENTIFIER '=' expr ';' ; 
+program : functions states { 
+  $$ = NULL; global_prog.funcs = $1->funcs; global_prog.globals = $1->globals;
+}; 
+global : type IDENTIFIER ';'  {
+  $$ = malloc(sizeof(global));
+  $$->vtype = $1; $$->next = NULL;  $$->name = $2; $$->val = NULL;
+ }
+       | type IDENTIFIER '=' expr ';' { 
+  $$ = malloc(sizeof(global));
+  $$->vtype = $1; $$->next = NULL;  $$->name = $2; $$->val = $4;
+
+ }  ; 
 functions : /* nowt */ { 
   $$ = malloc(sizeof(lsl_globals)); $$->funcs = NULL; $$->add_func = &$$->funcs;
+   $$->globals = NULL; $$->add_global = &$$->globals;
 } 
 | functions function { *($1->add_func) = $2; $1->add_func = &$2->next; $$ = $1; }
-| functions global ;
+| functions global { *($1->add_global) = $2; $1->add_global = &$2->next; $$ = $1; };
 function : type IDENTIFIER '(' arguments ')' function_body {
   $$ = malloc(sizeof(function));
   $$->ret_type = $1; $$->next = NULL;

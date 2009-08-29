@@ -14,7 +14,8 @@ struct var_desc {
 
 struct lsl_compile_state {
   int error;
-  std::map<std::string, var_desc> vars;
+  std::map<std::string, var_desc> globals;
+  std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
   loc_atom var_stack;
 };
@@ -155,9 +156,15 @@ static uint8_t get_insn_ret_type(uint16_t insn) {
 static var_desc get_variable(lsl_compile_state &st, const char* name) {
   std::map<std::string, var_desc>::iterator iter = st.vars.find(name);
   if(iter == st.vars.end()) {
-    var_desc desc; desc.type = VM_TYPE_NONE;
-    printf("INTERNAL ERROR: missing variable %s\n", name);
-    st.error = 1; return desc;
+    std::map<std::string, var_desc>::iterator iter2 = st.globals.find(name);
+    if(iter2 == st.vars.end()) {
+      var_desc desc; desc.type = VM_TYPE_NONE;
+      printf("INTERNAL ERROR: missing variable %s\n", name);
+      st.error = 1; return desc;
+    } else {
+      assert(iter2->second.is_global);
+      return iter2->second;
+    }
   } else {
     assert(!iter->second.is_global);
     return iter->second;
@@ -290,8 +297,16 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
 
 static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
   if(var.is_global) {
-     printf("FIXME: can't handle access to global vars\n");
+    switch(var.type) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset));
+      break;
+    default:
+      printf("FIXME: can't handle access to vars of type %s \n", 
+	   type_names[var.type]);
       st.error = 1; return;
+    }
   } else {
     switch(var.type) {
     case VM_TYPE_INT:
@@ -308,8 +323,16 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
 
 static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
   if(var.is_global) {
-     printf("FIXME: can't handle access to global vars\n");
+    switch(var.type) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset));
+      break;
+    default:
+      printf("FIXME: can't handle access to vars of type %s \n", 
+	   type_names[var.type]);
       st.error = 1; return;
+    }
   } else {
     switch(var.type) {
     case VM_TYPE_INT:
@@ -629,6 +652,39 @@ int main(int argc, char** argv) {
   }
 
   // TODO - handle globals
+  for(global *g = prog->globals; g != NULL; g = g->next) {
+    if(st.globals.count(g->name)) {
+      printf("ERROR: duplicate definition of global var %s\n",g->name);
+      st.error = 1; return 1;
+    } else {
+      var_desc var; var.type = g->vtype; var.is_global = 1;
+      // FIXME - cast this, handle named constants.
+      if(g->val != NULL && (g->val->node_type != NODE_CONST ||
+			    g->val->vtype != g->vtype)) {
+	printf("FIXME: global var initialiser not const of expected type\n");
+	st.error = 1; return 1;
+      }
+      switch(g->vtype) {
+      case VM_TYPE_INT:
+	var.offset = vasm.add_global_int(g->val == NULL ? 0 : g->val->u.i); 
+	break;
+      case VM_TYPE_FLOAT:
+	var.offset = vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.f); 
+	break;
+      case VM_TYPE_STR:
+	var.offset = vasm.add_global(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
+				     VM_TYPE_STR); 
+	break;
+      default:
+	printf("ERROR: unknown type of global var %s\n",g->name);
+	st.error = 1; return 1;
+      // FIXME - handle this
+      }
+      printf("Adding global var %s %s\n", type_names[g->vtype], g->name);
+      st.globals[g->name] = var;
+      
+    }
+  }
 
   for(function *func = prog->funcs; func != NULL; func = func->next)
     num_funcs++;

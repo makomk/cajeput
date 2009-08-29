@@ -83,13 +83,23 @@ struct expr_node {
    struct function *next;
  } function;
 
+  typedef struct global {
+    uint8_t vtype;
+    char *name;
+    expr_node *val;
+    struct global *next;
+  } global;
+
  typedef struct lsl_globals {
    function *funcs;
    function **add_func;
+   global *globals;
+   global **add_global;
  } lsl_globals;
 
  typedef struct lsl_program {
    function *funcs;
+   global *globals;
  } lsl_program;
 
  /* constants/variables */

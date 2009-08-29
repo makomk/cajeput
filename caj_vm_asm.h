@@ -99,6 +99,7 @@ private:
   std::vector<asm_verify*> loc_verify;
   std::vector<jump_fixup> fixups;
   std::vector<vm_function*> funcs;
+  std::vector<uint32_t> heap;
 
   int check_types(uint8_t stype, uint8_t vtype) {
     return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
@@ -381,6 +382,16 @@ public:
     return ret;
   }
 
+  uint16_t add_global_int(int32_t val) {
+    return add_global(val, VM_TYPE_INT);
+  }
+
+  uint16_t add_global_float(float val) {
+    union { float f; int32_t i; } u;
+    u.f = val;
+    return add_global(u.i, VM_TYPE_FLOAT);
+  }
+
   uint16_t add_const(int32_t val) {
     std::map<int32_t,uint16_t>::iterator iter = consts.find(val);
     if(iter == consts.end()) {
@@ -389,6 +400,23 @@ public:
     } else {
       return iter->second;
     }
+  }
+
+  uint32_t add_string(const char* val) {
+    // FIXME - reuse strings
+    int len = strlen(val);
+    int len4 = (len+3)/4;
+    uint32_t pos = heap.size();
+    heap.push_back((VM_TYPE_STR<<24)|1);
+    heap.push_back(len);
+    
+    // FIXME - better way to do this!
+    for(int i = 0; i < len4; i++) heap.push_back(0);
+    
+    // FIXME - HACK!!!
+    memcpy(&heap[pos+2], val, len);
+    
+    return pos;
   }
 
   void insn(uint16_t val) {
@@ -425,9 +453,25 @@ public:
       }
       break;
     case ICLASS_RDG_I:
-      // TODO - verify this!
-      push_val(VM_TYPE_INT);
-      break;
+      {
+	int16_t ival = GET_IVAL(val);
+	if(ival >= global_types.size() || 
+	   check_types(global_types[ival], VM_TYPE_INT)) {
+	   err = "Bad global variable read"; return;
+	}
+	push_val(VM_TYPE_INT);
+	break;
+      }
+    case ICLASS_WRG_I:
+      {
+	int16_t ival = GET_IVAL(val);
+	if(ival >= global_types.size() || 
+	   check_types(global_types[ival], VM_TYPE_INT)) {
+	   err = "Bad global variable read"; return;
+	}
+	pop_val(VM_TYPE_INT);
+	break;
+      }
     case ICLASS_RDL_I:
       // not verified fully - use rd_local_int wrapper
       push_val(VM_TYPE_INT);
