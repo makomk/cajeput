@@ -72,6 +72,10 @@
 #define VM_TYPE_RET_ADDR 100 // for functions we're calling
 #define VM_TYPE_OUR_RET_ADDR 101 // for ourselves
 
+/* WARNING WARING - this needs fixing if we increase the number of types */
+/* For this reason, do NOT use this for anything that's serialised. Really. */
+#define MK_VM_TYPE_PAIR(a, b) (((a) << 3) | b)
+
 struct insn_info {
   uint8_t special, arg1, arg2, ret;
 };

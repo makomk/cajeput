@@ -2,6 +2,7 @@
 #include "caj_vm.h"
 #include "caj_vm_asm.h"
 #include "caj_vm_exec.h" // FOR DEBUGGING
+#include "caj_vm_ops.h"
 
 #include <map>
 #include <string>
@@ -68,88 +69,6 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       st.vars[name] = var;
     }
   }
-}
-
-static uint16_t get_insn_binop(int node_type, uint8_t ltype, uint8_t rtype) {
-  switch(node_type) {
-  case NODE_ADD:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_ADD_II;
-    case VM_TYPE_FLOAT: return INSN_ADD_FF;
-    case VM_TYPE_STR: return 0; // TODO - FIXME
-    default: return 0;
-    }
-    break;
-  case NODE_SUB:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_SUB_II;
-    case VM_TYPE_FLOAT: return INSN_SUB_FF;
-    default: return 0;
-    }
-    break;
-  case NODE_MUL:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_MUL_II;
-    case VM_TYPE_FLOAT: return INSN_MUL_FF;
-    default: return 0;
-    }
-    break;
-  case NODE_DIV:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_DIV_II;
-    case VM_TYPE_FLOAT: return INSN_DIV_FF;
-    default: return 0;
-    }
-    break;
-  case NODE_MOD:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_MOD_II;
-      /* case VM_TYPE_VECTOR: TODO - dot product */
-    default: return 0;
-    }
-  case NODE_EQUAL:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_EQ_II;
-    default: return 0;
-    }
-  case NODE_NEQUAL:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_NEQ_II;
-    default: return 0;
-    }
-  case NODE_LESS:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_LES_II;
-    default: return 0;
-    }
-  case NODE_GREATER:
-    if(ltype != rtype) return 0;
-    switch(ltype) {
-    case VM_TYPE_INT: return INSN_GR_II;
-    default: return 0;
-    }
-  /* TODO - other comparison operators */
-  case NODE_AND:
-    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_AND_II;
-    else return 0;
-  case NODE_OR:
-    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_OR_II;
-    else return 0;
-  case NODE_XOR:
-    if(ltype == VM_TYPE_INT && rtype == VM_TYPE_INT) return INSN_XOR_II;
-    else return 0;
-  default:
-    break;
-  }
-  return 0;
 }
 
 static uint8_t get_insn_ret_type(uint16_t insn) {
@@ -234,8 +153,12 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_LESS:
   case NODE_GREATER:
   case NODE_OR:
-  case NODE_AND:
+  case NODE_AND: // FIXME - think these need special handling for typecasts
   case NODE_XOR:
+  case NODE_L_OR:
+  case NODE_L_AND:
+  case NODE_SHR:
+  case NODE_SHL:
     propagate_types(st, expr->u.child[0]);
     if(st.error != 0) return;
     propagate_types(st, expr->u.child[1]);
@@ -314,15 +237,13 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
 #endif
 }
 
-/* WARNING WARING - this needs fixing if we increase the number of types */
-#define TYPE_PAIR(a, b) (((a) << 3) | b)
 
 static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
-  switch(TYPE_PAIR(from_type, to_type)) {
-  case TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_POP_I;
-  case TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_POP_I;
-  case TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
-  case TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
+  switch(MK_VM_TYPE_PAIR(from_type, to_type)) {
+  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_POP_I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_POP_I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
+  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   /* FIXME - fill out the rest of these */
   default: return 0;
   }

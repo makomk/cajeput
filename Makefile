@@ -26,7 +26,7 @@ lsl.tab.o: lsl.tab.c lsl.tab.h caj_lsl_parse.h
 
 lsl-lex.o: lsl-lex.c lsl.tab.h
 
-caj_vm_insns.h: caj_vm_make_insns.py opcode_data.txt
+caj_vm_insns.h caj_vm_ops.h: caj_vm_make_insns.py opcode_data.txt
 	python caj_vm_make_insns.py
 
 lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o
