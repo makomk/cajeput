@@ -8,11 +8,11 @@ cajeput_main.o: cajeput_main.cpp sl_messages.h sl_types.h sl_llsd.h \
   cajeput_j2k.h cajeput_prim.h cajeput_anims.h terrain_compress.h \
   caj_parse_nini.h
 caj_lsl_compile.o: caj_lsl_compile.cpp caj_lsl_parse.h caj_vm.h \
-  caj_vm_asm.h caj_vm_exec.h
+  caj_vm_insns.h caj_vm_asm.h caj_vm_exec.h
 caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h sl_types.h sl_udp_proto.h \
   cajeput_core.h cajeput_int.h sl_llsd.h cajeput_world.h cajeput_user.h \
   cajeput_anims.h caj_omv.h terrain_compress.h
-caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_exec.h
+caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_exec.h
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h sl_types.h \
   cajeput_user.h opensim_grid_glue.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h sl_types.h \

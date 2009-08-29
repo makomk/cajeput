@@ -1,0 +1,43 @@
+0 NOOP: ->
+1 ABORT: -> (INVALID)   // should never appear in actual bytecode!
+2 ADD_II: int int -> int
+3 SUB_II: int int -> int
+4 MUL_II: int int -> int
+5 DIV_II: int int -> int
+6 ADD_FF: float float -> float
+7 SUB_FF: float float -> float
+8 MUL_FF: float float -> float
+9 DIV_FF: float float -> float
+10 RET: -> (RET)
+11 MOD_II: int int -> int
+12 AND_II: int int -> int   // & - todo
+13 OR_II: int int -> int   // | - todo
+14 XOR_II: int int -> int   // ^ - todo
+15 NOT_I: int -> int   // ~ - todo
+16 SHL: int int -> int   // << - todo
+17 SHR: int int -> int   // >> - todo
+18 AND_L: int int -> int   // && - non-short circuiting, of course
+19 OR_L: int int -> int   // ||
+20 NOT_L: int -> int   // !
+21 COND: int -> (COND)   // pops value from stack, skips next insn if it's 0
+22 NCOND: int -> (COND)   // pops value from stack, skips next insn unless it's 0
+23 EQ_II: int int -> int   // ==
+24 NEQ_II: int int -> int   // !=
+25 GR_II: int int -> int   // >
+26 LES_II: int int -> int   // <
+27 GEQ_II: int int -> int   // >=
+28 LEQ_II: int int -> int   // <=
+29 POP_I: int ->   // FIXME - dubious mnemonic
+// 30 POP_P: -> (INVALID)   // UNIMPLEMENTED
+// 31 POP_I3: -> (INVALID)   // UNIMPLEMENTED -  POP_I*3
+// 32 POP_I4: -> (INVALID)   // UNIMPLEMENTED - POP_I*4
+33 PRINT_I: int ->
+34 PRINT_F: float ->
+35 PRINT_STR: str ->
+36 CAST_I2F: int -> float
+37 CAST_F2I: float -> int
+38 CAST_I2S: int -> str
+39 CAST_F2S: float -> str
+40 BEGIN_CALL: -> ret_addr   // magic. Move somewhere saner?
+41 INC_I: int -> int   // for optimisation of i++
+42 DEC_I: int -> int
