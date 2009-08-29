@@ -153,9 +153,9 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_LESS:
   case NODE_GREATER:
   case NODE_OR:
-  case NODE_AND: // FIXME - think these need special handling for typecasts
+  case NODE_AND: 
   case NODE_XOR:
-  case NODE_L_OR:
+  case NODE_L_OR: // FIXME - think these need special handling for typecasts!
   case NODE_L_AND:
   case NODE_SHR:
   case NODE_SHL:
@@ -221,10 +221,6 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     }
   }
 #if 0
-#define NODE_L_OR 18
-#define NODE_L_AND 19
-#define NODE_SHR 20
-#define NODE_SHL 21
 #define NODE_ASSIGNADD 22
 #define NODE_ASSIGNSUB 23
 #define NODE_ASSIGNMUL 24
@@ -353,6 +349,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_OR:
   case NODE_AND:
   case NODE_XOR:
+  case NODE_L_OR:
+  case NODE_L_AND:
+  case NODE_SHR:
+  case NODE_SHL:
     insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
 			  expr->u.child[1]->vtype);
     if(insn == 0) {
