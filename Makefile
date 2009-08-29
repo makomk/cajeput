@@ -30,7 +30,7 @@ caj_vm_insns.h caj_vm_ops.h: caj_vm_make_insns.py opcode_data.txt
 	python caj_vm_make_insns.py
 
 lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o
-	$(CXX) -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o -lfl
+	$(CXX) -O0 -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o -lfl
 
 # cajeput_vm_test: caj_vm.o
 #	$(CXX) $(CFLAGS) -o cajeput_vm_test caj_vm.o

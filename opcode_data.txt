@@ -30,8 +30,8 @@
 26 LES_II: int < int -> int
 27 GEQ_II: int >= int -> int
 28 LEQ_II: int <= int -> int
-29 POP_I: int ->   // FIXME - dubious mnemonic
-// 30 POP_P: -> (INVALID)   // UNIMPLEMENTED
+29 DROP_I: int ->
+30 DROP_P: str ->  // UNIMPLEMENTED, and FIXME - bad type!
 // 31 POP_I3: -> (INVALID)   // UNIMPLEMENTED -  POP_I*3
 // 32 POP_I4: -> (INVALID)   // UNIMPLEMENTED - POP_I*4
 33 PRINT_I: int ->
@@ -44,3 +44,6 @@
 40 BEGIN_CALL: -> ret_addr   // magic. Move somewhere saner?
 41 INC_I: int++ -> int   // for optimisation of i++
 42 DEC_I: int-- -> int
+43 ADD_SS: str + str -> str
+// 44 ADD_SI: str + int -> str
+// 45 ADD_SF: str + float -> str

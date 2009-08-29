@@ -27,13 +27,13 @@
 #define ICLASS_RDG_I  2
 #define ICLASS_WRG_I  3
 #define ICLASS_RDG_P  4
-// #define ICLASS_WRG_P  5
+#define ICLASS_WRG_P  5 // NOT IMPLEMENTED YET
 // #define ICLASS_RDG_V  6
 // #define ICLASS_WRG_V  7
 #define ICLASS_RDL_I 8
 #define ICLASS_WRL_I 9
-// #define ICLASS_RDL_P  10
-// #define ICLASS_WRL_P  11
+#define ICLASS_RDL_P  10 // NOT IMPLEMENTED YET
+#define ICLASS_WRL_P  11 // NOT IMPLEMENTED YET
 // #define ICLASS_RDL_V  12
 // #define ICLASS_WRL_V  13
 #define ICLASS_CALL 14

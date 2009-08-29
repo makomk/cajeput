@@ -122,7 +122,7 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top[2] = stack_top[2] <= stack_top[1];
 	stack_top++;
 	break;
-      case INSN_POP_I:
+      case INSN_DROP_I:
 	stack_top++; break;
       case INSN_QUIT:
 	ip = 0; goto out;

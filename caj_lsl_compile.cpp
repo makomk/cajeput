@@ -36,6 +36,7 @@ static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
       var_desc var; var.type = args->vtype; var.is_global = 0;
       var.offset = func->arg_offsets[arg_no];
       st.vars[args->name] = var;
+      printf("DEBUG: added argument %s\n", args->name);
     }
   }
 }
@@ -81,16 +82,18 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
   std::map<std::string, var_desc>::iterator iter = st.vars.find(name);
   if(iter == st.vars.end()) {
     std::map<std::string, var_desc>::iterator iter2 = st.globals.find(name);
-    if(iter2 == st.vars.end()) {
+    if(iter2 == st.globals.end()) {
       var_desc desc; desc.type = VM_TYPE_NONE;
-      printf("INTERNAL ERROR: missing variable %s\n", name);
+      printf("ERROR: missing variable %s\n", name);
       st.error = 1; return desc;
     } else {
       assert(iter2->second.is_global);
+      assert(iter2->second.type <= VM_TYPE_MAX);
       return iter2->second;
     }
   } else {
     assert(!iter->second.is_global);
+    assert(iter->second.type <= VM_TYPE_MAX);
     return iter->second;
   }
 }
@@ -236,8 +239,8 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
 
 static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   switch(MK_VM_TYPE_PAIR(from_type, to_type)) {
-  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_POP_I;
-  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_POP_I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_DROP_I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_DROP_I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   /* FIXME - fill out the rest of these */
@@ -252,6 +255,10 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_FLOAT:
       vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset));
       break;
+    case VM_TYPE_STR:
+    case VM_TYPE_LIST:
+      vasm.insn(MAKE_INSN(ICLASS_RDG_P, var.offset));
+      break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
 	   type_names[var.type]);
@@ -262,6 +269,10 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       vasm.rd_local_int(var.offset);
+      break;
+    case VM_TYPE_STR:
+    case VM_TYPE_LIST:
+      vasm.rd_local_ptr(var.offset);
       break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
@@ -278,6 +289,10 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_FLOAT:
       vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset));
       break;
+    case VM_TYPE_STR:
+    case VM_TYPE_LIST:
+      vasm.insn(MAKE_INSN(ICLASS_WRG_P, var.offset));
+      break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
 	   type_names[var.type]);
@@ -289,6 +304,10 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_FLOAT:
       vasm.wr_local_int(var.offset); 
       break;
+    case VM_TYPE_STR:
+    case VM_TYPE_LIST:
+      // vasm.wr_local_ptr(var.offset); // FIXME - TODO
+      // break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
 	   type_names[var.type]);
@@ -307,7 +326,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       vasm.const_int(expr->u.i); break;
     case VM_TYPE_FLOAT:
      printf("DEBUG: assembling float literal\n");
-      vasm.const_real(expr->u.f); break;
+     vasm.const_real(expr->u.f); break;
+    case VM_TYPE_STR:
+       printf("DEBUG: assembling string literal\n");
+       vasm.const_str(expr->u.s); break;
     default:
       printf("FIXME: unhandled const type %s\n", type_names[expr->vtype]);
       st.error = 1; return;
@@ -319,6 +341,7 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       if(st.error != 0) return;
       assert(var.type == expr->vtype);
 
+      printf("DEBUG: assembling var read: %s %s\n", type_names[var.type], expr->u.s);
       read_var(vasm, st, var);
     }
     break;
@@ -383,6 +406,12 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	if(st.error != 0) return;
 	printf("DEBUG: assembling PRINT_F\n");
 	vasm.insn(INSN_PRINT_F);
+	break;
+      case VM_TYPE_STR:
+	assemble_expr(vasm, st, expr->u.call.args->expr);
+	if(st.error != 0) return;
+	printf("DEBUG: assembling PRINT_STR\n");
+	vasm.insn(INSN_PRINT_STR);
 	break;
       default:
 	printf("ERROR: bad argument type to print() builtin: %s\n",
@@ -647,6 +676,8 @@ int main(int argc, char** argv) {
       // FIXME - handle this
       }
       printf("Adding global var %s %s\n", type_names[g->vtype], g->name);
+      assert(g->vtype == var.type); // FIXME - something funny is going on..
+      assert(var.type <= VM_TYPE_MAX); 
       st.globals[g->name] = var;
       
     }

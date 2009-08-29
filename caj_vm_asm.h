@@ -95,6 +95,7 @@ private:
   std::vector<int32_t> globals;
   std::vector<uint8_t> global_types;
   std::map<int32_t,uint16_t> consts;
+  std::map<std::string,uint16_t> const_strs;
   std::vector<uint32_t> loc_map;
   std::vector<asm_verify*> loc_verify;
   std::vector<jump_fixup> fixups;
@@ -419,6 +420,16 @@ public:
     return pos;
   }
 
+  uint16_t add_const_str(const char *val) {
+    std::map<std::string,uint16_t>::iterator iter = const_strs.find(val);
+    if(iter == const_strs.end()) {
+      uint16_t ret = add_global(add_string(val), VM_TYPE_STR);
+      const_strs[val] = ret; return ret;
+    } else {
+      return iter->second;
+    }
+  }
+
   void insn(uint16_t val) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Instruction outside of func"; return; }
@@ -472,6 +483,16 @@ public:
 	pop_val(VM_TYPE_INT);
 	break;
       }
+    case ICLASS_RDG_P:
+      {
+	int16_t ival = GET_IVAL(val);
+	if(ival >= global_types.size() || 
+	   global_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	   err = "Bad global pointer read"; return;
+	}
+	push_val(global_types[ival]);
+	break;
+      }
     case ICLASS_RDL_I:
       // not verified fully - use rd_local_int wrapper
       push_val(VM_TYPE_INT);
@@ -479,6 +500,10 @@ public:
     case ICLASS_WRL_I:
       // not verified fully - use wr_local_int wrapper
       pop_val(VM_TYPE_INT);
+      break;
+    case ICLASS_RDL_P:
+      // FIXME - not right
+      push_val(VM_TYPE_STR);
       break;
     default:
       err = "Unknown instruction class"; return;
@@ -516,6 +541,24 @@ public:
     insn(MAKE_INSN(ICLASS_WRL_I, offset));
   }
 
+  void rd_local_ptr(int offset) {
+
+    if(err != NULL) return;
+    if(verify == NULL) { err = "Unverifiable code ordering"; return; }
+    if(offset < 0 || offset >= verify->stack_types.size()) {
+      printf("DEBUG: rd ptr var out of bounds @ %i, stack size %i\n",
+	     offset, verify->stack_types.size());
+      err = "Local variable out of bounds"; return;
+    }
+    if(verify->stack_types[offset] != VM_TYPE_STR /* && 
+       verify->stack_types[offset] != VM_TYPE_LIST */) {
+      err = "Local variable of wrong type"; return;
+    }
+    offset = verify->stack_types.size()-offset;
+    insn(MAKE_INSN(ICLASS_RDL_P, offset)); // FIXME - not right yet!
+
+  }
+
   uint16_t const_int(int32_t val) {
     insn(MAKE_INSN(ICLASS_RDG_I, add_const(val)));
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
@@ -528,6 +571,11 @@ public:
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
 
+  uint16_t const_str(const char* val) {
+    insn(MAKE_INSN(ICLASS_RDG_P, add_const_str(val)));
+    return verify == NULL ? 0 : verify->stack_types.size() - 1;
+  }
+
   void clear_stack(void) {
     if(err != NULL) return;
     if(func_start == 0) { err = "clear_stack outside of func"; return; }
@@ -536,12 +584,16 @@ public:
       switch(verify->stack_types.back()) {
       case VM_TYPE_INT:
       case VM_TYPE_FLOAT:
-	insn(INSN_POP_I); break;
+	insn(INSN_DROP_I); break;
+      case VM_TYPE_STR:
+      case VM_TYPE_LIST:
+	insn(INSN_DROP_P); break;
       case VM_TYPE_OUR_RET_ADDR:
 	return; // we're done!
       default:
 	err = "Unhandled type in clear_stack"; return;
       }
+      if(err != NULL) return;
     }
   }
 

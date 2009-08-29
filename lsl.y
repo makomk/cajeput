@@ -174,6 +174,10 @@ static expr_node *enode_negate(expr_node *expr) {
 
  struct lsl_program global_prog; // FIXME - remove this
 
+typedef struct func_args {
+  func_arg *first; func_arg **add;
+}  func_args;
+
 %}
 %locations
  /* %debug */
@@ -183,6 +187,7 @@ static expr_node *enode_negate(expr_node *expr) {
   struct statement *stat;
   struct basic_block *bblock;
   struct func_arg *arg;
+  struct func_args *args;
   struct function *func;
   struct list_head *list;
   struct lsl_globals *prog;
@@ -220,7 +225,8 @@ static expr_node *enode_negate(expr_node *expr) {
 %type <func> function 
 %type <prog> program functions
 %type <glob> global
-%type <arg> arguments arglist argument
+%type <arg> arguments argument
+%type <args> arglist
 %type <vtype> type 
 %type <list> list
 %%
@@ -259,9 +265,9 @@ state_id : DEFAULT { $$ = NULL; }
 state_funcs : /* nothing */ | state_funcs state_func ;
 state_func : IDENTIFIER '(' arguments ')' function_body;
 arguments : /* nothing */ { $$ = NULL; }
-          | arglist ;
-arglist : argument /* FIXME - this production feels inefficient? */
-        | arglist ',' argument { $1->next = $3; $$ = $1 } ;
+          | arglist { $$ = $1->first; free($1); } ;
+arglist : argument { $$ = malloc(sizeof(func_args)); $$->first = $1; $$->add = &$1->next; }
+     | arglist ',' argument { *($1->add) = $3; $1->add = &$3->next; $$ = $1; } ;
 argument: type IDENTIFIER { 
   $$ = malloc(sizeof(func_arg)); $$->vtype = $1; 
   $$->name = $2; $$->next = NULL;
