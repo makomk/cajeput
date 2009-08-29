@@ -347,6 +347,8 @@ public:
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       const_int(0); break;
+    case VM_TYPE_STR:
+      const_str(""); break;
     default:
       err = "Unhandled func return type"; return;
     }
@@ -491,6 +493,16 @@ public:
 	   err = "Bad global pointer read"; return;
 	}
 	push_val(global_types[ival]);
+	break;
+      }
+    case ICLASS_WRG_P:
+      {
+	int16_t ival = GET_IVAL(val);
+	if(ival >= global_types.size() || 
+	   global_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	   err = "Bad global pointer write"; return;
+	}
+	pop_val(global_types[ival]);
 	break;
       }
     case ICLASS_RDL_I:
