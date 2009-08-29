@@ -25,6 +25,247 @@
 #include "caj_vm_exec.h"
 #include <cassert>
 
+
+struct script_state {
+  uint32_t ip;
+  uint32_t mem_use;
+  uint32_t bytecode_len;
+  uint16_t num_gvals, num_gptrs;
+  uint16_t num_funcs;
+  uint16_t* bytecode;
+  int32_t* stack_top;
+  int32_t* frame;
+  int32_t* gvals;
+  uint32_t* gptrs;
+  vm_function *funcs;
+  int scram_flag;
+};
+
+
+
+static script_state *new_script(void) {
+  script_state *st = new script_state();
+  st->ip = 0;  st->mem_use = 0; st->scram_flag = 0;
+  st->bytecode_len = 0; 
+  st->num_gvals = st->num_gptrs = st->num_funcs = 0;
+  st->bytecode = NULL; st->stack_top = NULL;
+  st->frame = NULL; st->gvals = NULL;
+  st->gptrs = NULL; st->funcs = NULL;
+  return st;
+}
+
+struct heap_header {
+  uint32_t refcnt;
+  uint32_t len;
+};
+
+static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) {
+  uint32_t hlen = len + sizeof(heap_header);
+  if(len > VM_LIMIT_HEAP || (st->mem_use+hlen) > VM_LIMIT_HEAP) {
+    printf("DEBUG: exceeded mem limit of %i allocating %i with %i in use\n",
+	   VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
+    st->scram_flag = 1; return NULL;
+  }
+  heap_header* p = (heap_header*)malloc(hlen);
+  p->refcnt = ((uint32_t)vtype << 24) | 1;
+  p->len = len;
+  st->mem_use += hlen;
+  return p;
+}
+
+static inline void *script_getptr(heap_header *p) {
+  return p+1;
+}
+
+
+static  int vtype_size(uint8_t vtype) {
+  switch(vtype) {
+  case VM_TYPE_NONE:
+    return 0; // for return values, mainly
+  case VM_TYPE_INT:
+  case VM_TYPE_FLOAT:
+  case VM_TYPE_STR:
+  case VM_TYPE_KEY:
+  case VM_TYPE_LIST:
+    return 1;
+  case VM_TYPE_VECT:
+    return 3;
+  case VM_TYPE_ROT:
+    return 4;
+  default: printf("ERROR: bad vtype in vtype_size()\n"); abort();
+  }   
+}
+
+class script_loader {
+private:
+  script_state *st;
+  unsigned char *data; int data_len, pos;
+  int has_failed;
+  uint32_t heap_count;
+  vm_heap_entry *heap;
+
+  uint32_t read_u32() {
+    if(pos+4 > data_len) { 
+      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      has_failed = 1; return 0;
+    }
+    uint32_t ret = ((uint32_t)data[pos] << 24) | ((uint32_t)data[pos+1] << 16) |
+      ((uint32_t)data[pos+2] << 8) | (uint32_t)data[pos+3];
+    pos += 4; return ret;
+  }
+
+  uint16_t read_u16() {
+    if(pos+2 > data_len) { 
+      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      has_failed = 1; return 0;
+    }
+    uint32_t ret =  ((uint16_t)data[pos] << 8) | (uint16_t)data[pos+1];
+    pos += 2; return ret;
+  }
+
+  uint16_t read_u8() {
+    if(pos+1 > data_len) { 
+      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      has_failed = 1; return 0;
+    }
+    return data[pos++];
+  }
+
+  void read_data(void* buf, int len) {
+    if(pos+len > data_len) { 
+      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      has_failed = 1; return;
+    }
+    memcpy(buf,data+pos,len); pos += len;
+  }
+
+public:
+  script_loader() : st(NULL), heap(NULL) {
+    
+  }
+
+  script_state *load(unsigned char* dat, int len) {
+    data = dat; data_len = len; pos = 0; has_failed = false;
+
+    if(read_u32() != 0xf0b17ecd || has_failed) {
+      printf("SCRIPT LOAD ERR: bad magic\n"); return NULL;
+    }
+
+    st = new_script();
+
+    uint32_t hcount = read_u32();
+    if(has_failed) return NULL;
+    if(hcount > VM_LIMIT_HEAP_ENTRIES)  {
+      printf("SCRIPT LOAD ERR: too many heap entries\n"); return NULL;
+    }
+    printf("DEBUG: %u heap entries\n", (unsigned)hcount);
+
+    heap = new vm_heap_entry[hcount];
+
+    // FIXME - don't really need the vm_heap_entry struct!
+    for(heap_count = 0; heap_count < hcount;) {
+      heap[heap_count].vtype = read_u8();
+      if(heap[heap_count].vtype > VM_TYPE_MAX) { 
+	printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+      }
+      uint32_t it_len = heap[heap_count].len = read_u32();
+      heap_header *p = script_alloc(st, it_len, heap[heap_count].vtype);
+      if(p == NULL) { printf("SCRIPT LOAD ERR: memory limit\n"); return NULL; }
+      switch(heap[heap_count].vtype) {
+      case VM_TYPE_STR:
+      default: // FIXME - handle lists, etc
+	read_data(script_getptr(p), it_len);
+      }
+      heap_count++; // placement important for proper mem freeing later
+      if(has_failed) return NULL;
+    }
+  
+    
+    uint16_t gcnt = read_u16();
+    if(has_failed) return NULL;
+  
+    if(gcnt > VM_MAX_GVALS) {
+      printf("SCRIPT LOAD ERR: excess gvals\n"); return NULL;
+    }
+    printf("DEBUG: %i gvals\n", (int)gcnt);
+
+    st->gvals = new int32_t[gcnt];
+    for(unsigned int i = 0; i < gcnt; i++) {
+      st->gvals[i] = read_u32();
+    }
+    if(has_failed) return NULL;
+    st->num_gvals = gcnt;
+    
+    // FIXME - do something with gptrs
+    gcnt = read_u16();
+    if(has_failed) return NULL;
+    if(gcnt > VM_MAX_GPTRS) {
+      printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
+    }
+    printf("DEBUG: %i gptrs\n", (int)gcnt);
+    for(unsigned int i = 0; i < gcnt; i++) {
+      uint32_t gptr = read_u32();
+    }
+    if(has_failed) return NULL;
+
+    gcnt = read_u16();
+    if(has_failed) return NULL;
+    if(gcnt > VM_MAX_FUNCS) {
+      printf("SCRIPT LOAD ERR: excess funcs\n"); return NULL;
+    }
+    printf("DEBUG: %i funcs\n", (int)gcnt);
+    st->funcs = new vm_function[gcnt]; st->num_funcs = 0;
+
+    for(unsigned int i = 0; i < gcnt; i++) {
+      st->funcs[i].ret_type = read_u8(); //(funcs[i].ret_type);
+      if(st->funcs[i].ret_type > VM_TYPE_MAX) { 
+	printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+      }
+
+      int arg_count = st->funcs[i].arg_count = read_u8();
+      st->funcs[i].arg_types = new uint8_t[arg_count];
+      st->funcs[i].name = NULL; st->num_funcs++; // for eventual freeing
+
+      st->funcs[i].frame_sz = 1;
+      for(int j = 0; j < arg_count; j++) {
+	uint8_t arg_type = st->funcs[i].arg_types[j] = read_u8();
+	if(arg_type > VM_TYPE_MAX) { 
+	  printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+	}
+	st->funcs[i].frame_sz += vtype_size(arg_type);
+      }
+      
+      int slen = read_u8();
+      if(has_failed) return NULL;
+
+      char *name = new char[slen+1];
+      read_data(name, slen); name[slen] = 0;
+      st->funcs[i].name = name;
+      st->funcs[i].insn_ptr = read_u32();
+      if(has_failed) return NULL;
+    }
+
+    
+    st->bytecode_len = read_u32();
+    if(has_failed) return NULL;
+    if(st->bytecode_len > VM_LIMIT_INSNS) { 
+      printf("SCRIPT LOAD ERR: too much bytecode\n"); return NULL;
+    }
+    st->bytecode = new uint16_t[st->bytecode_len];
+    for(unsigned int i = 0; i < st->bytecode_len; i++) {
+      st->bytecode[i] = read_u16();
+      if(has_failed) return NULL;
+    }
+
+    return st; // FIXME - should set st to null
+  }
+};
+
+script_state* vm_load_script(void* data, int data_len) {
+  script_loader loader;
+  return loader.load((unsigned char*)data, data_len);
+}
+
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
   int32_t* stack_top = st->stack_top;
@@ -132,6 +373,7 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_PRINT_F:
 	printf("DEBUG: float %f\n", (double)*(float*)(++stack_top));
 	break;
+#if 0 // FIXME
       case INSN_PRINT_STR:
 	{
 	  int32_t tmp = *(++stack_top);
@@ -142,6 +384,7 @@ static void step_script(script_state* st, int num_steps) {
 	  printf("DEBUG: string '%s'\n", buf);
 	  st->heap[tmp]--;
 	}
+#endif
       case INSN_CAST_I2F:
 	((float*)stack_top)[1] = stack_top[1];
 	break;
@@ -177,15 +420,16 @@ static void step_script(script_state* st, int num_steps) {
 	int16_t ival = GET_IVAL(insn);
 	assert(stack_top[st->funcs[ival].frame_sz] == 0x1231234);
 	stack_top[st->funcs[ival].frame_sz] = ip;
-	ip = st->funcs[ival].ip;
+	ip = st->funcs[ival].insn_ptr;
       }
       break;
     case ICLASS_RDG_I:
-      *(stack_top--) = st->globals[GET_IVAL(insn)];
+      *(stack_top--) = st->gvals[GET_IVAL(insn)];
       break;
     case ICLASS_WRG_I:
-      st->globals[GET_IVAL(insn)] = *(++stack_top);
+      st->gvals[GET_IVAL(insn)] = *(++stack_top);
       break;
+#if 0 // FIXME
     case ICLASS_RDG_P:
       {
 	int32_t tmp = st->globals[GET_IVAL(insn)];
@@ -193,6 +437,7 @@ static void step_script(script_state* st, int num_steps) {
 	*(stack_top--) = tmp;
       }
     // TODO - other global-related instructions
+#endif
     case ICLASS_RDL_I:
       *stack_top = stack_top[GET_IVAL(insn)];
       stack_top--;

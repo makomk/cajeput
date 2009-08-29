@@ -48,15 +48,6 @@ struct asm_verify {
   }
 };
 
-struct vm_function {
-  const char* name;
-  uint8_t ret_type;
-  uint16_t func_num;
-  uint32_t insn_ptr; 
-  int arg_count;
-  const uint8_t* arg_types;
-  const uint16_t* arg_offsets;
-};
 
 // 
 // BIG FAT WARNING!
@@ -92,15 +83,21 @@ private:
   int cond_flag;
 
   std::vector<uint16_t> bytecode;
-  std::vector<int32_t> globals;
-  std::vector<uint8_t> global_types;
+
+  // global variables
+  std::vector<int32_t> gvals; // int/float
+  std::vector<uint8_t> gval_types;
+  std::vector<uint32_t> gptrs; // pointer
+  std::vector<uint8_t> gptr_types;
+
   std::map<int32_t,uint16_t> consts;
   std::map<std::string,uint16_t> const_strs;
   std::vector<uint32_t> loc_map;
   std::vector<asm_verify*> loc_verify;
   std::vector<jump_fixup> fixups;
   std::vector<vm_function*> funcs;
-  std::vector<uint32_t> heap;
+
+  vm_serialiser serial;
 
   int check_types(uint8_t stype, uint8_t vtype) {
     return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
@@ -196,7 +193,7 @@ public:
   // note - it's up to you to make sure the argument types and function name
   // don't get freed before we're done with them.
   const vm_function *add_func(uint8_t ret_type, uint8_t *arg_types, int arg_count,
-			const char *name) {
+			      char *name) {
     uint16_t frame_sz = 0; // WARNING - calculated differently than in finish()
     vm_function *func = new vm_function();
     assert(arg_count < 255); // FIXME !
@@ -378,27 +375,35 @@ public:
     bytecode.push_back(MAKE_INSN(ICLASS_CALL, func->func_num));
   }
 
-  uint16_t add_global(int32_t val, uint8_t vtype) {
-    uint16_t ret = globals.size();
-    globals.push_back(val);
-    global_types.push_back(vtype);
+  // FIXME - add_global_val/add_global_ptr should be private!
+  uint16_t add_global_val(int32_t val, uint8_t vtype) {
+    uint16_t ret = gvals.size();
+    gvals.push_back(val);
+    gval_types.push_back(vtype);
+    return ret;
+  }
+
+  uint16_t add_global_ptr(int32_t val, uint8_t vtype) {
+    uint16_t ret = gptrs.size();
+    gptrs.push_back(val);
+    gptr_types.push_back(vtype);
     return ret;
   }
 
   uint16_t add_global_int(int32_t val) {
-    return add_global(val, VM_TYPE_INT);
+    return add_global_val(val, VM_TYPE_INT);
   }
 
   uint16_t add_global_float(float val) {
     union { float f; int32_t i; } u;
     u.f = val;
-    return add_global(u.i, VM_TYPE_FLOAT);
+    return add_global_val(u.i, VM_TYPE_FLOAT);
   }
 
   uint16_t add_const(int32_t val) {
     std::map<int32_t,uint16_t>::iterator iter = consts.find(val);
     if(iter == consts.end()) {
-      uint16_t ret = add_global(val, VM_TYPE_INT);
+      uint16_t ret = add_global_val(val, VM_TYPE_INT);
       consts[val] = ret; return ret;
     } else {
       return iter->second;
@@ -408,24 +413,14 @@ public:
   uint32_t add_string(const char* val) {
     // FIXME - reuse strings
     int len = strlen(val);
-    int len4 = (len+3)/4;
-    uint32_t pos = heap.size();
-    heap.push_back((VM_TYPE_STR<<24)|1);
-    heap.push_back(len);
-    
-    // FIXME - better way to do this!
-    for(int i = 0; i < len4; i++) heap.push_back(0);
-    
-    // FIXME - HACK!!!
-    memcpy(&heap[pos+2], val, len);
-    
-    return pos;
+    char *dat = strdup(val);
+    return serial.add_heap_entry(VM_TYPE_STR,len,dat);
   }
 
   uint16_t add_const_str(const char *val) {
     std::map<std::string,uint16_t>::iterator iter = const_strs.find(val);
     if(iter == const_strs.end()) {
-      uint16_t ret = add_global(add_string(val), VM_TYPE_STR);
+      uint16_t ret = add_global_ptr(add_string(val), VM_TYPE_STR);
       const_strs[val] = ret; return ret;
     } else {
       return iter->second;
@@ -467,9 +462,9 @@ public:
       break;
     case ICLASS_RDG_I:
       {
-	int16_t ival = GET_IVAL(val);
-	if(ival >= global_types.size() || 
-	   check_types(global_types[ival], VM_TYPE_INT)) {
+	int16_t ival = GET_IVAL(val); 
+	if(ival >= gval_types.size() || 
+	   check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
 	   err = "Bad global variable read"; return;
 	}
 	push_val(VM_TYPE_INT);
@@ -478,9 +473,9 @@ public:
     case ICLASS_WRG_I:
       {
 	int16_t ival = GET_IVAL(val);
-	if(ival >= global_types.size() || 
-	   check_types(global_types[ival], VM_TYPE_INT)) {
-	   err = "Bad global variable read"; return;
+	if(ival >= gval_types.size() || 
+	   check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
+	   err = "Bad global variable write"; return;
 	}
 	pop_val(VM_TYPE_INT);
 	break;
@@ -488,21 +483,21 @@ public:
     case ICLASS_RDG_P:
       {
 	int16_t ival = GET_IVAL(val);
-	if(ival >= global_types.size() || 
-	   global_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	if(ival >= gptr_types.size() || 
+	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer read"; return;
 	}
-	push_val(global_types[ival]);
+	push_val(gptr_types[ival]);
 	break;
       }
     case ICLASS_WRG_P:
       {
 	int16_t ival = GET_IVAL(val);
-	if(ival >= global_types.size() || 
-	   global_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	if(ival >= gptr_types.size() || 
+	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer write"; return;
 	}
-	pop_val(global_types[ival]);
+	pop_val(gptr_types[ival]);
 	break;
       }
     case ICLASS_RDL_I:
@@ -651,30 +646,34 @@ public:
     loc_verify.clear();
   }
 
-  script_state* finish(void) {
+  unsigned char* finish(size_t *len) {
     if(err != NULL) return NULL;
     if(func_start != 0) { 
       err = "Need to end function before finishing";
       return NULL;
     }
-    script_state* st = new script_state();
-    st->bytecode = new uint16_t[bytecode.size()];
+   
+    uint16_t *s_bytecode = new uint16_t[bytecode.size()];
     for(int i = 0; i < bytecode.size(); i++)
-      st->bytecode[i] = bytecode[i];
+      s_bytecode[i] = bytecode[i];
+    serial.set_bytecode(s_bytecode, bytecode.size());
 
-    st->globals = new int32_t[globals.size()];
-    for(int i = 0; i < globals.size(); i++)
-      st->globals[i] = globals[i];
+    int32_t *s_gvals = new int32_t[gvals.size()];
+    for(int i = 0; i < gvals.size(); i++)
+      s_gvals[i] = gvals[i];
+    serial.set_gvals(s_gvals, gvals.size());
 
-    st->funcs = new script_func[funcs.size()];
+    uint32_t *s_gptrs = new uint32_t[gptrs.size()];
+    for(int i = 0; i < gptrs.size(); i++)
+      s_gptrs[i] = gptrs[i];
+    serial.set_gptrs(s_gptrs, gptrs.size());
+
     for(int i = 0; i < funcs.size(); i++) {
-      st->funcs[i].ip = funcs[i]->insn_ptr;
-      st->funcs[i].frame_sz = 1;
-      for(int j = 0; j < funcs[i]->arg_count; j++) {
-	st->funcs[i].frame_sz += vtype_size(funcs[i]->arg_types[j]);
-      }
+      serial.add_func(funcs[i]);
     }
-    return st;
+    
+
+    return serial.serialise(len);
   }
   
   const char* get_error(void) {

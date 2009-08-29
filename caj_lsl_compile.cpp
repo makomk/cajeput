@@ -784,8 +784,8 @@ int main(int argc, char** argv) {
 	var.offset = vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.f); 
 	break;
       case VM_TYPE_STR:
-	var.offset = vasm.add_global(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
-				     VM_TYPE_STR); 
+	var.offset = vasm.add_global_ptr(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
+					 VM_TYPE_STR); 
 	break;
       case VM_TYPE_VECT:
       case VM_TYPE_ROT:
@@ -858,13 +858,17 @@ int main(int argc, char** argv) {
     }
   }
 
-  script_state *scr = vasm.finish();
-  if(scr == NULL) {
+  size_t len;
+  unsigned char *data = vasm.finish(&len);
+  if(data == NULL) {
     printf("Error assembling: %s\n", vasm.get_error());
     return 1;
   }
-  printf("DEBUG: testing code execution\n");
-  caj_vm_test(scr); // FIXME - HACK HACK HACK
+
+  // HACK!
+  printf("DEBUG: deserialising script\n");
+  script_state* scr = vm_load_script(data, len);
+  caj_vm_test(scr);
   
   return 0;
 }
