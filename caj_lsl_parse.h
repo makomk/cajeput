@@ -40,7 +40,7 @@ struct expr_node {
   int node_type; uint8_t vtype;
   union {
     expr_node* child[4];
-    int i; float f; char* s; list_node *list;
+    int i; float f; char* s; list_node *list; float v[4];
     struct { char* name; list_node* args; } call;
   } u;
 };

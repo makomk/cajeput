@@ -69,7 +69,7 @@ static expr_node * enode_make_str(char *s) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
   enode->node_type = NODE_VECTOR;
   enode->vtype = VM_TYPE_VECT;
-  enode->u.child[0] = x; enode->u.child[1] = y; enode->u.child[2] = x;
+  enode->u.child[0] = x; enode->u.child[1] = y; enode->u.child[2] = z;
   return enode;
 }
 
@@ -79,7 +79,7 @@ static expr_node * enode_make_str(char *s) {
   enode->node_type = NODE_ROTATION;
   enode->vtype = VM_TYPE_ROT;
   enode->u.child[0] = x; enode->u.child[1] = y; 
-  enode->u.child[2] = x; enode->u.child[3] = w;
+  enode->u.child[2] = z; enode->u.child[3] = w;
   return enode;
 }
 

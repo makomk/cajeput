@@ -8,6 +8,11 @@
 #include <vector>
 #include <cassert>
 
+// Possible Linden dain bramage:
+// Order of operations (second operand, first operand)
+// String/key typecasts: https://jira.secondlife.com/browse/SVC-1710
+// ...
+
 struct var_desc {
   uint8_t type; uint8_t is_global; uint16_t offset;
 };
@@ -189,6 +194,34 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     // FIXME - do we really always want to auto-cast?
     expr->u.child[1] = enode_cast(expr->u.child[1], expr->u.child[0]->vtype);
     break;
+  case NODE_VECTOR:
+  case NODE_ROTATION:
+    {
+      float v[4]; 
+      int count = ( expr->node_type == NODE_VECTOR ? 3 : 4);
+      for(int i = 0; i < count; i++) {
+	propagate_types(st, expr->u.child[i]);
+	if(st.error != 0) return;
+	// FIXME - do we really always want to auto-cast?
+	expr->u.child[i] = enode_cast(expr->u.child[i], VM_TYPE_FLOAT); 
+      }
+      for(int i = 0; i < count; i++) {
+	if(expr->u.child[i]->node_type != NODE_CONST || 
+	   expr->u.child[i]->vtype != VM_TYPE_FLOAT) {
+	  printf("ERROR: %s not made up of constant floats\n",
+		 expr->node_type == NODE_VECTOR ? "vector" : "rotation");
+	  st.error = 1; return;
+	};
+      };
+      for(int i = 0; i < count; i++) {
+	v[i] = expr->u.child[i]->u.f;
+	free(expr->u.child[i]); // FIXME - do this right!
+      }
+      expr->vtype = expr->node_type == NODE_VECTOR ? VM_TYPE_VECT : VM_TYPE_ROT;
+      expr->node_type = NODE_CONST;
+      for(int i = 0; i < count; i++) expr->u.v[i] = v[i];
+      break;
+    }
   case NODE_ADD:
   case NODE_SUB:
   case NODE_MUL:
@@ -311,7 +344,7 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     switch(var.type) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
-      vasm.rd_local_int(var.offset); // FIXME!
+      vasm.rd_local_int(var.offset);
       break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
@@ -337,7 +370,7 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     switch(var.type) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
-      vasm.wr_local_int(var.offset); // FIXME!
+      vasm.wr_local_int(var.offset); 
       break;
     default:
       printf("FIXME: can't handle access to vars of type %s \n", 
@@ -651,7 +684,6 @@ int main(int argc, char** argv) {
     printf(" *** Compile failed.\n"); return 1;
   }
 
-  // TODO - handle globals
   for(global *g = prog->globals; g != NULL; g = g->next) {
     if(st.globals.count(g->name)) {
       printf("ERROR: duplicate definition of global var %s\n",g->name);
@@ -659,10 +691,15 @@ int main(int argc, char** argv) {
     } else {
       var_desc var; var.type = g->vtype; var.is_global = 1;
       // FIXME - cast this, handle named constants.
-      if(g->val != NULL && (g->val->node_type != NODE_CONST ||
-			    g->val->vtype != g->vtype)) {
-	printf("FIXME: global var initialiser not const of expected type\n");
-	st.error = 1; return 1;
+      if(g->val != NULL) {
+	propagate_types(st, g->val);
+	if(g->val->node_type != NODE_CONST ||
+			    g->val->vtype != g->vtype) {
+	  printf("FIXME: global var initialiser not const of expected type\n");
+	  printf("DEBUG: got %i %s node, wanted const %s\n",
+		 g->val->node_type, type_names[g->val->vtype], type_names[g->vtype]);
+	  st.error = 1; return 1;
+	}
       }
       switch(g->vtype) {
       case VM_TYPE_INT:
@@ -674,6 +711,14 @@ int main(int argc, char** argv) {
       case VM_TYPE_STR:
 	var.offset = vasm.add_global(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
 				     VM_TYPE_STR); 
+	break;
+      case VM_TYPE_VECT:
+      case VM_TYPE_ROT:
+	var.offset = vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.v[0]); 
+	vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.v[1]); 
+	vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.v[2]); 
+	if(g->vtype == VM_TYPE_ROT)
+	  vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.v[3]); 
 	break;
       default:
 	printf("ERROR: unknown type of global var %s\n",g->name);
