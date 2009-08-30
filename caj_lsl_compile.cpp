@@ -296,6 +296,8 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   switch(MK_VM_TYPE_PAIR(from_type, to_type)) {
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_NONE): return INSN_DROP_I;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_DROP_I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_NONE): return INSN_DROP_I3;
+  case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_NONE): return INSN_DROP_I4;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_STR): return INSN_CAST_I2S;
@@ -311,6 +313,10 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset));
+      break;
+    case VM_TYPE_VECT:
+      for(int i = 2; i >= 0; i--)
+	vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+i));
       break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
@@ -402,13 +408,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_CONST:
     switch(expr->vtype) {
     case VM_TYPE_INT:
-      printf("DEBUG: assembling int literal\n");
       vasm.const_int(expr->u.i); break;
     case VM_TYPE_FLOAT:
-      printf("DEBUG: assembling float literal\n");
       vasm.const_real(expr->u.f); break;
     case VM_TYPE_STR:
-       printf("DEBUG: assembling string literal\n");
        vasm.const_str(expr->u.s); break;
     default:
       do_error(st, "FIXME: unhandled const type %s\n", type_names[expr->vtype]);
@@ -420,8 +423,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       var_desc var = get_variable(st, expr->u.s);
       if(st.error != 0) return;
       assert(var.type == expr->vtype);
-
-      printf("DEBUG: assembling var read: %s %s\n", type_names[var.type], expr->u.s);
       read_var(vasm, st, var);
     }
     break;
@@ -470,7 +471,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     assemble_expr(vasm, st, expr->u.child[1]);
     if(st.error != 0) return;
     update_loc(st, expr);
-    printf("DEBUG: assembling binary op\n");
     vasm.insn(insn);
     break;    
   case NODE_CALL:
@@ -480,19 +480,16 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       case VM_TYPE_INT:
 	assemble_expr(vasm, st, expr->u.call.args->expr);
 	if(st.error != 0) return;
-	printf("DEBUG: assembling PRINT_I\n");
 	vasm.insn(INSN_PRINT_I);
 	break;
       case VM_TYPE_FLOAT:
 	assemble_expr(vasm, st, expr->u.call.args->expr);
 	if(st.error != 0) return;
-	printf("DEBUG: assembling PRINT_F\n");
 	vasm.insn(INSN_PRINT_F);
 	break;
       case VM_TYPE_STR:
 	assemble_expr(vasm, st, expr->u.call.args->expr);
 	if(st.error != 0) return;
-	printf("DEBUG: assembling PRINT_STR\n");
 	vasm.insn(INSN_PRINT_STR);
 	break;
       default:
@@ -514,8 +511,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	printf("DEBUG: assembling an argument %p\n", lnode);
 	assemble_expr(vasm, st, lnode->expr);
 	if(st.error != 0) return;
-	if(lnode->next == NULL) { printf("DEBUG: last argument\n"); }
-	else { printf("DEBUG: next argument %p\n", lnode); }
       }
 
       update_loc(st, expr);
@@ -540,7 +535,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_CAST:
     insn = get_insn_cast(expr->u.child[0]->vtype, expr->vtype);
     if(expr->u.child[0]->vtype == expr->vtype) {
-      printf("WARNING: got cast to same type. Continuing anyway\n");
       insn = INSN_NOOP;
     } else if(insn == 0) {
       do_error(st, "ERROR: couldn't cast %s -> %s\n", 
@@ -548,8 +542,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	       type_names[expr->vtype]);
       st.error = 1; return;
     }
-    printf("DEBUG: assembling cast %s -> %s\n",type_names[expr->u.child[0]->vtype], 
-	     type_names[expr->vtype]);
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     update_loc(st, expr);
@@ -728,19 +720,6 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
   } 
 }
 
-#if 0 // FIXME - dead code, remove
-static void clear_stack(vm_asm &vasm, lsl_compile_state &st) {
-  for(int i = st.stack_vars.size()-1; i >= 0; i--) {
-    switch(st.stack_vars[i]) {
-    case VM_TYPE_INT:
-    case VM_TYPE_FLOAT:
-      printf("DEBUG: stack clear: assembling POP_I\n");
-      vasm.insn(INSN_POP_I);
-      break;
-    }
-  }
-}
-#endif
 
 int main(int argc, char** argv) {
   int num_funcs = 0; int func_no;
@@ -868,7 +847,11 @@ int main(int argc, char** argv) {
   // HACK!
   printf("DEBUG: deserialising script\n");
   script_state* scr = vm_load_script(data, len);
-  caj_vm_test(scr);
+  if(scr != NULL) {
+    caj_vm_test(scr);
+  } else { 
+    printf("ERROR: deserialise failed, not running\n");
+  }
   
   return 0;
 }

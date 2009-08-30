@@ -32,8 +32,8 @@
 28 LEQ_II: int <= int -> int
 29 DROP_I: int ->
 30 DROP_P: str ->  // UNIMPLEMENTED, and FIXME - bad type!
-// 31 POP_I3: -> (INVALID)   // UNIMPLEMENTED -  POP_I*3
-// 32 POP_I4: -> (INVALID)   // UNIMPLEMENTED - POP_I*4
+31 DROP_I3: vect ->  // UNIMPLEMENTED -  POP_I*3
+32 DROP_I4: rot ->  // UNIMPLEMENTED - POP_I*4
 33 PRINT_I: int ->
 34 PRINT_F: float ->
 35 PRINT_STR: str ->

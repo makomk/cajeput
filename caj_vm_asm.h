@@ -27,6 +27,7 @@
 #include <vector>
 #include <map>
 #include <stdlib.h>
+#include "caj_vm_internal.h"
 
 class loc_atom {
   friend class vm_asm;
@@ -36,16 +37,6 @@ private:
 public:
   loc_atom() : val(-1) { };
   loc_atom(const loc_atom &src) : val(src.val) { };
-};
-
-struct asm_verify {
-  std::vector<uint8_t> stack_types;
-
-  asm_verify* dup(void) {
-    asm_verify *verify = new asm_verify();
-    verify->stack_types = stack_types;
-    return verify;
-  }
 };
 
 
@@ -99,10 +90,6 @@ private:
 
   vm_serialiser serial;
 
-  int check_types(uint8_t stype, uint8_t vtype) {
-    return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
-			      (vtype != VM_TYPE_INT && vtype != VM_TYPE_FLOAT));
-  }
 
 private:
   void do_fixup(const jump_fixup &fixup) {
@@ -118,45 +105,6 @@ private:
     } else {
       bytecode[fixup.insn_pos] = MAKE_INSN(ICLASS_JUMP, offset);
     }
-  }
-
-  void dump_stack(const char*prefix, asm_verify *v) { // DEBUG
-    printf("%sstack: ", prefix);
-    for(int i = 0; i < v->stack_types.size(); i++) {
-      printf("%i ", v->stack_types[i]);
-    }
-    printf("\n");
-  }
-
-  void combine_verify(asm_verify *v1, asm_verify *v2) {
-    if(err != NULL) return;
-    if(v1->stack_types.size() != v2->stack_types.size()) {
-      dump_stack("First ", v1); dump_stack("Second ", v2);
-      err = "Stack mismatch"; return;
-    }
-    for(int i = 0; i < v1->stack_types.size(); i++) {
-      if(check_types(v1->stack_types[i], v2->stack_types[i])) {
-	dump_stack("First ", v1); dump_stack("Second ", v2);
-	err = "Stack mismatch"; return;
-      }
-    }
-  }
-
-  void pop_val(uint8_t vtype) {
-    if(err != NULL || vtype == VM_TYPE_NONE) return;
-    if(verify->stack_types.empty()) {
-      err = "Pop on empty stack"; return;
-    }
-    uint8_t stype = verify->stack_types.back();
-    verify->stack_types.pop_back();
-    if(check_types(stype, vtype)) {
-      err = "Type mismatch on stack"; return;
-    }
-  }
-
-  void push_val(uint8_t vtype) {
-    if(err != NULL || vtype == VM_TYPE_NONE) return;
-    verify->stack_types.push_back(vtype);
   }
 
 public:
@@ -225,15 +173,9 @@ public:
 
     vm_function *func = funcs[cfunc->func_num];
     func->insn_ptr = func_start = bytecode.size();
-    verify = new asm_verify();
+    verify = new asm_verify(err, func);
     
-    // the caller has to allocate space for the return value, to avoid 
-    // much messing around in the runtime!
-    push_val(func->ret_type);
-    push_val(VM_TYPE_OUR_RET_ADDR);
-    for(int i = 0; i < func->arg_count; i++) {
-      push_val(func->arg_types[i]);
-    }
+    
   }
 
   loc_atom make_loc(void) {
@@ -268,7 +210,7 @@ public:
     } else if(loc_verify[loc.val] == NULL)  {
       loc_verify[loc.val] = verify->dup();
     } else {
-      combine_verify(loc_verify[loc.val], verify);
+      verify->combine_verify(loc_verify[loc.val]);
     }
   }
 
@@ -289,7 +231,7 @@ public:
       fixups.push_back(fixup);
     }
     if(loc_verify[fixup.dest_loc] != NULL) {
-      combine_verify(loc_verify[fixup.dest_loc], verify);
+      verify->combine_verify(loc_verify[fixup.dest_loc]);
       if(!cond_flag) {
 	delete verify; verify = NULL;
       }
@@ -324,7 +266,7 @@ public:
       // use this as a hint to the stack's state. We'll verify this later.
       verify = loc_verify[mark.val]->dup();
     } else {
-      combine_verify(loc_verify[mark.val], verify);
+      verify->combine_verify(loc_verify[mark.val]);
     }
   }
 
@@ -365,9 +307,9 @@ public:
 
     // arguments are pushed on left-to-right
     for(int i = func->arg_count - 1; i >= 0; i--) {
-      pop_val(func->arg_types[i]); 
+      verify->pop_val(func->arg_types[i]); 
     }
-    pop_val(VM_TYPE_RET_ADDR);
+    verify->pop_val(VM_TYPE_RET_ADDR);
 
     // FIXME - should really verify return value somehow!
 
@@ -438,8 +380,8 @@ public:
 	int16_t ival = GET_IVAL(val);
 	if(ival >= NUM_INSNS) { err = "Invalid instruction"; return; }
 	insn_info info = vm_insns[ival];
-	pop_val(info.arg1); pop_val(info.arg2);
-	push_val(info.ret);
+	verify->pop_val(info.arg1); verify->pop_val(info.arg2);
+	verify->push_val(info.ret);
 	
 	if(err != NULL) return;
 
@@ -451,10 +393,7 @@ public:
 	case IVERIFY_COND:
 	  cond_flag = 1; break;
 	case IVERIFY_RET:
-	  assert(!verify->stack_types.empty()); // should be impossible.
-	  if(verify->stack_types.back() != VM_TYPE_OUR_RET_ADDR) {
-	    err = "Stack not cleared before RET"; return;
-	  }
+	  verify->pop_val(VM_TYPE_OUR_RET_ADDR);
 	  delete verify; verify = NULL;
 	  break; 
 	}
@@ -464,20 +403,20 @@ public:
       {
 	int16_t ival = GET_IVAL(val); 
 	if(ival >= gval_types.size() || 
-	   check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
+	   caj_vm_check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
 	   err = "Bad global variable read"; return;
 	}
-	push_val(VM_TYPE_INT);
+	verify->push_val(VM_TYPE_INT);
 	break;
       }
     case ICLASS_WRG_I:
       {
 	int16_t ival = GET_IVAL(val);
 	if(ival >= gval_types.size() || 
-	   check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
+	   caj_vm_check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
 	   err = "Bad global variable write"; return;
 	}
-	pop_val(VM_TYPE_INT);
+	verify->pop_val(VM_TYPE_INT);
 	break;
       }
     case ICLASS_RDG_P:
@@ -487,7 +426,7 @@ public:
 	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer read"; return;
 	}
-	push_val(gptr_types[ival]);
+	verify->push_val(gptr_types[ival]);
 	break;
       }
     case ICLASS_WRG_P:
@@ -497,24 +436,24 @@ public:
 	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer write"; return;
 	}
-	pop_val(gptr_types[ival]);
+	verify->pop_val(gptr_types[ival]);
 	break;
       }
     case ICLASS_RDL_I:
       // not verified fully - use rd_local_int wrapper
-      push_val(VM_TYPE_INT);
+      verify->push_val(VM_TYPE_INT);
       break;
     case ICLASS_WRL_I:
       // not verified fully - use wr_local_int wrapper
-      pop_val(VM_TYPE_INT);
+      verify->pop_val(VM_TYPE_INT);
       break;
     case ICLASS_RDL_P:
       // FIXME - not right
-      push_val(VM_TYPE_STR);
+      verify->push_val(VM_TYPE_STR);
       break;
     case ICLASS_WRL_P:
       // FIXME - not right
-      pop_val(VM_TYPE_STR);
+      verify->pop_val(VM_TYPE_STR);
       break;
     default:
       err = "Unknown instruction class"; return;
@@ -530,7 +469,7 @@ public:
 	     offset, verify->stack_types.size());
       err = "Local variable out of bounds"; return;
     }
-    if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
+    if(caj_vm_check_types(verify->stack_types[offset], VM_TYPE_INT)) {
       err = "Local variable of wrong type"; return;
     }
     offset = verify->stack_types.size()-offset;
@@ -545,7 +484,7 @@ public:
 	     offset, verify->stack_types.size());
       err = "Local variable out of bounds"; return;
     }
-    if(check_types(verify->stack_types[offset], VM_TYPE_INT)) {
+    if(caj_vm_check_types(verify->stack_types[offset], VM_TYPE_INT)) {
       err = "Local variable of wrong type"; return;
     }
     offset = verify->stack_types.size()-1-offset;

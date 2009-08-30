@@ -22,9 +22,14 @@
 
 #include "caj_vm.h"
 // #include "caj_vm_asm.h"
+#include "caj_vm_internal.h"
 #include "caj_vm_exec.h"
 #include <cassert>
 
+struct heap_header {
+  uint32_t refcnt;
+  uint32_t len;
+};
 
 struct script_state {
   uint32_t ip;
@@ -34,14 +39,21 @@ struct script_state {
   uint16_t num_funcs;
   uint16_t* bytecode;
   int32_t* stack_top;
-  int32_t* frame;
   int32_t* gvals;
-  uint32_t* gptrs;
+  heap_header** gptrs;
   vm_function *funcs;
   int scram_flag;
 };
 
+static int verify_code(script_state *st);
 
+static inline int ptr_stack_sz(void) {
+  if(sizeof(uint32_t) == sizeof(void*)) 
+    return 1;
+  else if(sizeof(uint32_t)*2 == sizeof(void*)) 
+    return 2;
+  else assert(0);
+}
 
 static script_state *new_script(void) {
   script_state *st = new script_state();
@@ -49,15 +61,10 @@ static script_state *new_script(void) {
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
   st->bytecode = NULL; st->stack_top = NULL;
-  st->frame = NULL; st->gvals = NULL;
+  st->gvals = NULL;
   st->gptrs = NULL; st->funcs = NULL;
   return st;
 }
-
-struct heap_header {
-  uint32_t refcnt;
-  uint32_t len;
-};
 
 static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) {
   uint32_t hlen = len + sizeof(heap_header);
@@ -78,7 +85,7 @@ static inline void *script_getptr(heap_header *p) {
 }
 
 
-static  int vtype_size(uint8_t vtype) {
+static  int vtype_size(uint8_t vtype) { // FIXME - code duplication with vm_asm
   switch(vtype) {
   case VM_TYPE_NONE:
     return 0; // for return values, mainly
@@ -176,6 +183,7 @@ public:
       default: // FIXME - handle lists, etc
 	read_data(script_getptr(p), it_len);
       }
+      heap[heap_count].data = (unsigned char*)p; // FIXME - bad types!
       heap_count++; // placement important for proper mem freeing later
       if(has_failed) return NULL;
     }
@@ -202,9 +210,16 @@ public:
     if(gcnt > VM_MAX_GPTRS) {
       printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
     }
+    st->gptrs = new heap_header*[gcnt]; st->num_gptrs = 0;
     printf("DEBUG: %i gptrs\n", (int)gcnt);
     for(unsigned int i = 0; i < gcnt; i++) {
       uint32_t gptr = read_u32();
+      if(has_failed) return NULL;
+      if(gptr >= heap_count) {
+	printf("SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
+      }
+      heap_header *p = (heap_header*)heap[gptr].data; // FIXME
+      p->refcnt++; st->gptrs[i] = p; st->num_gptrs++;
     }
     if(has_failed) return NULL;
 
@@ -257,6 +272,10 @@ public:
       if(has_failed) return NULL;
     }
 
+    if(!verify_code(st)) {
+      printf("SCRIPT LOAD ERR: didn't verify\n"); return NULL;
+    };
+
     return st; // FIXME - should set st to null
   }
 };
@@ -264,6 +283,256 @@ public:
 script_state* vm_load_script(void* data, int data_len) {
   script_loader loader;
   return loader.load((unsigned char*)data, data_len);
+}
+
+static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function *func) {
+  std::vector<uint32_t> pending;
+  pending.push_back(func->insn_ptr);
+ next_chunk:
+  while(!pending.empty()) {
+    uint32_t ip = pending.back(); pending.pop_back();
+    for(;;) {
+      if(ip < func->insn_ptr || ip >= func->insn_end) {
+	printf("SCRIPT VERIFY ERR: IP out of bounds\n"); return 0;
+      }
+      if(visited[ip] != 0) { 
+	visited[ip] = 2; goto next_chunk;
+      }
+
+      visited[ip] = 1; uint16_t insn = bytecode[ip++];
+      
+      switch(GET_ICLASS(insn)) {
+      case ICLASS_NORMAL:
+	{
+	  uint16_t ival = GET_IVAL(insn);
+	  if(ival >= NUM_INSNS) { 
+	    printf("SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
+	  }
+	  switch(vm_insns[ival].special) {
+	  case IVERIFY_INVALID: 
+	    printf("SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
+	  case IVERIFY_RET:
+	    goto next_chunk;
+	  case IVERIFY_COND:
+	    // execution could skip the next instruction...
+	    pending.push_back(ip+1);
+	    break;
+	  case IVERIFY_NORMAL: // not interesting yet
+	  default: break;
+	  }
+	  break;
+	}
+      case ICLASS_JUMP:
+	{
+	  uint16_t ival = GET_IVAL(insn);
+	  if(ival & 0x800) {
+	    ip -= ival & 0x7ff;
+	  } else {
+	    ip += ival;
+	  }
+	}
+	break;
+      default: break;
+      }
+    }
+  }
+  
+  return 1;
+}
+
+struct pass2_state {
+  uint32_t ip;
+  struct asm_verify* verify;
+
+  pass2_state(uint32_t ipstart, struct asm_verify* v) : ip(ipstart), verify(v) {
+  }
+};
+
+static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function *func,
+			script_state *st) {
+  std::vector<pass2_state> pending; const char* err = NULL;
+  std::map<uint32_t,asm_verify*> done;
+  {
+    asm_verify* verify = new asm_verify(err, func);
+    pending.push_back(pass2_state(func->insn_ptr, verify));
+  }
+ next_chunk:
+  while(!pending.empty()) {
+    pass2_state vs = pending.back(); pending.pop_back();
+    for(;;) {
+      assert(!(vs.ip < func->insn_ptr || vs.ip >= func->insn_end)); // checked pass 1
+      assert(visited[vs.ip] != 0); 
+
+      if(visited[vs.ip] > 1) { 
+	std::map<uint32_t,asm_verify*>::iterator iter = done.find(vs.ip);
+	if(iter == done.end()) {
+	  done[vs.ip] = vs.verify->dup();
+	} else {
+	  vs.verify->combine_verify(iter->second); delete vs.verify;
+	  if(err != NULL) goto out; else goto next_chunk;
+	}
+      }
+
+
+      uint16_t insn = bytecode[vs.ip];
+      // printf("DEBUG: verifying 0x%04x @ %i\n", (unsigned)insn, (int)vs.ip);
+      uint32_t next_ip = vs.ip+1;
+      
+      switch(GET_ICLASS(insn)) {
+      case ICLASS_NORMAL:
+	{
+	  uint16_t ival = GET_IVAL(insn);
+	  assert(ival < NUM_INSNS); // checked pass 1
+
+	  insn_info info = vm_insns[ival];
+	  vs.verify->pop_val(info.arg1); 
+	  vs.verify->pop_val(info.arg2);
+	  vs.verify->push_val(info.ret);
+	  if(err != NULL) { delete vs.verify; goto out; }
+
+	  switch(info.special) {
+	  case IVERIFY_INVALID: 
+	    assert(0); break; // checked pass 1
+	  case IVERIFY_RET:
+	    delete vs.verify; goto next_chunk;
+	  case IVERIFY_COND:
+	    // execution could skip the next instruction...
+	    pending.push_back(pass2_state(next_ip+1, vs.verify->dup()));
+	    break;
+	  case IVERIFY_NORMAL: // not interesting yet
+	  default: break;
+	  }
+	  break;
+	}
+      case ICLASS_RDL_I:
+	{
+	  int16_t ival = GET_IVAL(insn);
+	  int fudge = vs.verify->check_rdl_i(ival)*(ptr_stack_sz()-1);
+	  if(err != NULL) { delete vs.verify; goto out; }
+	  if(fudge + ival >= VM_MAX_IVAL) {
+	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
+	    delete vs.verify; goto out;
+	  };
+	  if(fudge > 0) {
+	    // FIXME - record fudge factors somewhere
+	    bytecode[vs.ip] += fudge;
+	  }
+	  break;
+	}
+      case ICLASS_WRL_I:
+	{
+	  int16_t ival = GET_IVAL(insn);
+	  int fudge = vs.verify->check_wrl_i(ival)*(ptr_stack_sz()-1);
+	  if(err != NULL) { delete vs.verify; goto out; }
+	  if(fudge + ival >= VM_MAX_IVAL) {
+	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
+	    delete vs.verify; goto out;
+	  };
+	  if(fudge > 0) {
+	    // FIXME - record fudge factors somewhere
+	    bytecode[vs.ip] += fudge;
+	  }
+	  break;
+	}
+      case ICLASS_RDG_I:
+	{
+	  int16_t ival = GET_IVAL(insn); 
+	  if(ival >= st->num_gvals) {
+	    err = "Bad global variable read";
+	  } else {
+	    vs.verify->push_val(VM_TYPE_INT);
+	  }
+	  break;
+	}
+      case ICLASS_WRG_I:
+	{
+	  int16_t ival = GET_IVAL(insn);
+	  if(ival >= st->num_gvals) {
+	    err = "Bad global variable write"; 
+	  } else {
+	    vs.verify->pop_val(VM_TYPE_INT);
+	  }
+	  break;
+	}
+      case ICLASS_JUMP:
+	{
+	  uint16_t ival = GET_IVAL(insn);
+	  if(ival & 0x800) {
+	    next_ip -= ival & 0x7ff;
+	  } else {
+	    next_ip += ival;
+	  }
+	}
+	break;
+      case ICLASS_CALL:
+	{
+	  uint16_t ival = GET_IVAL(insn);
+	  if(ival >= st->num_funcs) {
+	    err = "Call to invalid function number"; 
+	    delete vs.verify; goto out;
+	  }
+	  vm_function *func = &st->funcs[ival];
+	  for(int i = func->arg_count - 1; i >= 0; i--) {
+	    vs.verify->pop_val(func->arg_types[i]);
+	  }
+	  vs.verify->pop_val(VM_TYPE_RET_ADDR);
+	  // bit hacky, but should work...
+	  vs.verify->pop_val(func->ret_type);
+	  vs.verify->push_val(func->ret_type);
+	}
+	break;
+      default:
+	printf("DEBUG: insn 0x%x\n", (unsigned)insn);
+	err = "unhandled iclass"; break;
+      }
+      if(err != NULL) { delete vs.verify; goto out; };
+      // vs.verify->dump_stack("  ");
+      vs.ip = next_ip;
+    }
+  }
+  
+ out:
+  // FIXME - free memory allocated in pending!
+
+  for(std::map<uint32_t,asm_verify*>::iterator iter = done.begin(); 
+      iter != done.end(); iter++) {
+    delete iter->second;
+  }
+
+  if(err != NULL) { printf("SCRIPT VERIFY ERR: %s\n", err); return 0; }
+  return 1;
+}
+
+
+static int verify_code(script_state *st) {
+  if(st->stack_top != NULL) return 0;
+  {
+    uint32_t last_ip = 0; int last_func = -1;
+    for(int i = 0; i < st->num_funcs; i++) {
+      if(st->funcs[i].insn_ptr == 0) continue;
+      if(st->funcs[i].insn_ptr <= last_ip) {
+	printf("SCRIPT VERIFY ERR: functions in wrong order\n");
+	return 0;
+      } else if(st->funcs[i].insn_ptr >= st->bytecode_len) {
+	printf("SCRIPT VERIFY ERR: function has invalid bytecode ptr\n");
+	return 0;
+      }
+      if(last_func >= 0) st->funcs[last_func].insn_end = st->funcs[i].insn_ptr;
+      last_ip = st->funcs[i].insn_ptr; last_func = i;
+    }
+    if(last_func >= 0) st->funcs[last_func].insn_end = st->bytecode_len;
+  }
+
+  unsigned char *visited = new uint8_t[st->bytecode_len];
+  memset(visited, 0, st->bytecode_len);
+  for(int i = 0; i < st->num_funcs; i++) {
+    if(!verify_pass1(visited, st->bytecode, &st->funcs[i])) goto out_fail;
+    if(!verify_pass2(visited, st->bytecode, &st->funcs[i], st)) goto out_fail;
+  }
+
+  delete[] visited;  return 1;
+ out_fail:
+  delete[] visited; return 0;
 }
 
 static void step_script(script_state* st, int num_steps) {
@@ -365,7 +634,12 @@ static void step_script(script_state* st, int num_steps) {
 	break;
       case INSN_DROP_I:
 	stack_top++; break;
-      case INSN_QUIT:
+      // TODO: INSN_DROP_P
+      case INSN_DROP_I3:
+	stack_top += 3; break;
+      case INSN_DROP_I4:
+	stack_top += 4; break;
+      case INSN_QUIT: // FIXME - fake insn, remove
 	ip = 0; goto out;
       case INSN_PRINT_I:
 	printf("DEBUG: int %i\n", (int)*(++stack_top));
@@ -464,7 +738,7 @@ static void step_script(script_state* st, int num_steps) {
 void caj_vm_test(script_state *st) {
   int32_t stack[128];
   stack[127] = 0;
-  st->frame = st->stack_top = stack+126;
+  st->stack_top = stack+126;
   st->ip = 1;
   step_script(st, 1000);
 }
