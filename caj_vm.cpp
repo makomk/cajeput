@@ -31,6 +31,10 @@ struct heap_header {
   uint32_t len;
 };
 
+static uint8_t heap_entry_vtype(heap_header *hentry) {
+  return hentry->refcnt >> 24;
+}
+
 struct script_state {
   uint32_t ip;
   uint32_t mem_use;
@@ -41,6 +45,7 @@ struct script_state {
   int32_t* stack_top;
   int32_t* gvals;
   heap_header** gptrs;
+  uint8_t* gptr_types;
   vm_function *funcs;
   int scram_flag;
 };
@@ -80,26 +85,38 @@ static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) 
   return p;
 }
 
+static void heap_ref_decr(heap_header *p, script_state *st) {
+  if( ((--(p->refcnt)) & 0xffffff) == 0) {
+    printf("DEBUG: freeing heap entry 0x%p\n",p);
+    st->mem_use -= p->len + sizeof(heap_header);
+  }
+}
+
+static inline void heap_ref_incr(heap_header *p) {
+  p->refcnt++;
+}
+
 static inline void *script_getptr(heap_header *p) {
   return p+1;
 }
 
 
-static  int vtype_size(uint8_t vtype) { // FIXME - code duplication with vm_asm
+static int vm_vtype_size(uint8_t vtype) { // not same as vm_asm equivalent
   switch(vtype) {
   case VM_TYPE_NONE:
     return 0; // for return values, mainly
   case VM_TYPE_INT:
   case VM_TYPE_FLOAT:
+    return 1;
   case VM_TYPE_STR:
   case VM_TYPE_KEY:
   case VM_TYPE_LIST:
-    return 1;
+    return ptr_stack_sz();
   case VM_TYPE_VECT:
     return 3;
   case VM_TYPE_ROT:
     return 4;
-  default: printf("ERROR: bad vtype in vtype_size()\n"); abort();
+  default: printf("ERROR: bad vtype in vm_vtype_size()\n"); abort();
   }   
 }
 
@@ -151,7 +168,7 @@ public:
     
   }
 
-  script_state *load(unsigned char* dat, int len) {
+  script_state *load(unsigned char* dat, int len) { // FIXME - leaks masses of memory
     data = dat; data_len = len; pos = 0; has_failed = false;
 
     if(read_u32() != 0xf0b17ecd || has_failed) {
@@ -211,6 +228,7 @@ public:
       printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
     }
     st->gptrs = new heap_header*[gcnt]; st->num_gptrs = 0;
+    st->gptr_types = new uint8_t[gcnt];
     printf("DEBUG: %i gptrs\n", (int)gcnt);
     for(unsigned int i = 0; i < gcnt; i++) {
       uint32_t gptr = read_u32();
@@ -219,7 +237,9 @@ public:
 	printf("SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
       }
       heap_header *p = (heap_header*)heap[gptr].data; // FIXME
-      p->refcnt++; st->gptrs[i] = p; st->num_gptrs++;
+      heap_ref_incr(p);
+      st->gptrs[i] = p; st->gptr_types[i] = heap_entry_vtype(p);
+      st->num_gptrs++;
     }
     if(has_failed) return NULL;
 
@@ -247,7 +267,7 @@ public:
 	if(arg_type > VM_TYPE_MAX) { 
 	  printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
 	}
-	st->funcs[i].frame_sz += vtype_size(arg_type);
+	st->funcs[i].frame_sz += vm_vtype_size(arg_type);
       }
       
       int slen = read_u8();
@@ -454,6 +474,26 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  }
 	  break;
 	}
+      case ICLASS_RDG_P:
+	{
+	  int16_t ival = GET_IVAL(insn); 
+	  if(ival >= st->num_gptrs) {
+	    err = "Bad global pointer read";
+	  } else {
+	    vs.verify->push_val(st->gptr_types[ival]);
+	  }
+	  break;
+	}
+      case ICLASS_WRG_P:
+	{
+	  int16_t ival = GET_IVAL(insn); 
+	  if(ival >= st->num_gptrs) {
+	    err = "Bad global pointer write";
+	  } else {
+	    vs.verify->pop_val(st->gptr_types[ival]);
+	  }
+	  break;
+	}	
       case ICLASS_JUMP:
 	{
 	  uint16_t ival = GET_IVAL(insn);
@@ -534,6 +574,34 @@ static int verify_code(script_state *st) {
  out_fail:
   delete[] visited; return 0;
 }
+
+static void put_stk_ptr(int32_t *tloc, heap_header* p) {  
+  union { heap_header* p; uint32_t v[2]; } u; // HACK
+  uint32_t *loc = (uint32_t*)tloc;
+
+  if(sizeof(heap_header*) == sizeof(uint32_t)) {
+    // loc[0] = (uint32_t)p; // doesn't compile on 64-bit systems
+    u.p = p; loc[0] = u.v[0]; // HACK HACK HACK
+  } else if(sizeof(heap_header*) == 2*sizeof(uint32_t)) {
+    union { heap_header* p; uint32_t v[2]; } u; // HACK
+    assert(sizeof(u) == sizeof(heap_header*));
+    u.p = p; loc[0] = u.v[0]; loc[1] = u.v[1];
+  }
+}
+
+static heap_header* get_stk_ptr(int32_t *tloc) {
+  union { heap_header* p; uint32_t v[2]; } u; // HACK
+  uint32_t *loc = (uint32_t*)tloc;
+
+  if(sizeof(heap_header*) == sizeof(uint32_t)) {
+    // return (heap_header*) loc[0]; // ditto
+    u.v[0] = loc[0]; return u.p; // HACK HACK HACK
+  } else if(sizeof(heap_header*) == 2*sizeof(uint32_t)) {
+    assert(sizeof(u) == sizeof(heap_header*));
+    u.v[0] = loc[0]; u.v[1] = loc[1]; return u.p;
+  }
+}
+
 
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
@@ -647,18 +715,17 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_PRINT_F:
 	printf("DEBUG: float %f\n", (double)*(float*)(++stack_top));
 	break;
-#if 0 // FIXME
       case INSN_PRINT_STR:
 	{
-	  int32_t tmp = *(++stack_top);
-	  int32_t len = st->heap[tmp+1];
-	  char buf[len+1]; 
-	  memcpy(buf,&st->heap[tmp+2],len);
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  int32_t len = p->len;
+	  char buf[len+1];  // HACK!
+	  memcpy(buf, script_getptr(p), len);
 	  buf[len] = 0;
 	  printf("DEBUG: string '%s'\n", buf);
-	  st->heap[tmp]--;
+	  heap_ref_decr(p, st); stack_top += ptr_stack_sz();
+	  break;
 	}
-#endif
       case INSN_CAST_I2F:
 	((float*)stack_top)[1] = stack_top[1];
 	break;
@@ -703,15 +770,14 @@ static void step_script(script_state* st, int num_steps) {
     case ICLASS_WRG_I:
       st->gvals[GET_IVAL(insn)] = *(++stack_top);
       break;
-#if 0 // FIXME
     case ICLASS_RDG_P:
       {
-	int32_t tmp = st->globals[GET_IVAL(insn)];
-	st->heap[tmp]++;
-	*(stack_top--) = tmp;
+	heap_header *p = st->gptrs[GET_IVAL(insn)];  
+	stack_top -= ptr_stack_sz(); heap_ref_incr(p);
+	put_stk_ptr(stack_top+1,p);
+	break;
       }
     // TODO - other global-related instructions
-#endif
     case ICLASS_RDL_I:
       *stack_top = stack_top[GET_IVAL(insn)];
       stack_top--;
