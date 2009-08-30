@@ -132,7 +132,7 @@ struct vm_function {
 struct script_state;
 
 script_state* vm_load_script(void* data, int data_len);
-
+void vm_free_script(script_state * st);
 
 
 #endif

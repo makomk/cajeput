@@ -612,7 +612,9 @@ public:
     }
     
 
-    return serial.serialise(len);
+    unsigned char* ret = serial.serialise(len);
+    delete[] s_bytecode; delete[] s_gvals; delete[] s_gptrs;
+    return ret;
   }
   
   const char* get_error(void) {

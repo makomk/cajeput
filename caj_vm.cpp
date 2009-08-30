@@ -66,10 +66,11 @@ static script_state *new_script(void) {
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
   st->bytecode = NULL; st->stack_top = NULL;
-  st->gvals = NULL;
+  st->gvals = NULL; st->gptr_types = NULL;
   st->gptrs = NULL; st->funcs = NULL;
   return st;
 }
+
 
 static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) {
   uint32_t hlen = len + sizeof(heap_header);
@@ -89,6 +90,7 @@ static void heap_ref_decr(heap_header *p, script_state *st) {
   if( ((--(p->refcnt)) & 0xffffff) == 0) {
     printf("DEBUG: freeing heap entry 0x%p\n",p);
     st->mem_use -= p->len + sizeof(heap_header);
+    free(p);
   }
 }
 
@@ -96,8 +98,38 @@ static inline void heap_ref_incr(heap_header *p) {
   p->refcnt++;
 }
 
+static inline uint32_t heap_get_refcnt(heap_header *p) {
+  return p->refcnt & 0xffffff;
+}
+
 static inline void *script_getptr(heap_header *p) {
   return p+1;
+}
+
+void vm_free_script(script_state * st) {
+  if(st->stack_top != NULL) {
+    // FIXME!
+    printf("WARNING: vm_free_script doesn't free script stacks yet\n");
+  }
+  for(unsigned i = 0; i < st->num_gptrs; i++) {
+    heap_header *p = st->gptrs[i];
+    if(heap_get_refcnt(p) != 1) {
+      // won't apply once we support lists
+      printf("WARNING: unexpected refcnt for 0x%p on script shutdown: %u\n",
+	     p, (unsigned)heap_get_refcnt(p));
+    }
+    heap_ref_decr(p, st);
+  }
+  delete[] st->gvals; delete[] st->gptrs; delete[] st->gptr_types;
+
+  delete[] st->bytecode; // FIXME - will want to add bytecode sharing
+
+  for(unsigned i = 0; i < st->num_funcs; i++) {
+    delete[] st->funcs[i].arg_types; delete[] st->funcs[i].name;
+  }
+  delete[] st->funcs;
+  
+  delete st;
 }
 
 
@@ -163,9 +195,25 @@ private:
     memcpy(buf,data+pos,len); pos += len;
   }
 
+  void free_our_heap() {
+    if(heap != NULL) {
+      assert(st != NULL);
+
+      for(uint32_t i = 0; i < heap_count; i++) {
+	heap_ref_decr((heap_header*) heap[i].data, st); // FIXME bad types
+      }
+      delete[] heap; heap = NULL;
+    }
+  }
+
 public:
   script_loader() : st(NULL), heap(NULL) {
     
+  }
+  
+  ~script_loader() {
+    free_our_heap();
+    if(st != NULL) vm_free_script(st);
   }
 
   script_state *load(unsigned char* dat, int len) { // FIXME - leaks masses of memory
@@ -175,8 +223,11 @@ public:
       printf("SCRIPT LOAD ERR: bad magic\n"); return NULL;
     }
 
+    free_our_heap();
+    if(st != NULL) vm_free_script(st);
     st = new_script();
 
+    // first, read the heap
     uint32_t hcount = read_u32();
     if(has_failed) return NULL;
     if(hcount > VM_LIMIT_HEAP_ENTRIES)  {
@@ -205,81 +256,87 @@ public:
       if(has_failed) return NULL;
     }
   
-    
-    uint16_t gcnt = read_u16();
-    if(has_failed) return NULL;
-  
-    if(gcnt > VM_MAX_GVALS) {
-      printf("SCRIPT LOAD ERR: excess gvals\n"); return NULL;
-    }
-    printf("DEBUG: %i gvals\n", (int)gcnt);
-
-    st->gvals = new int32_t[gcnt];
-    for(unsigned int i = 0; i < gcnt; i++) {
-      st->gvals[i] = read_u32();
-    }
-    if(has_failed) return NULL;
-    st->num_gvals = gcnt;
-    
-    // FIXME - do something with gptrs
-    gcnt = read_u16();
-    if(has_failed) return NULL;
-    if(gcnt > VM_MAX_GPTRS) {
-      printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
-    }
-    st->gptrs = new heap_header*[gcnt]; st->num_gptrs = 0;
-    st->gptr_types = new uint8_t[gcnt];
-    printf("DEBUG: %i gptrs\n", (int)gcnt);
-    for(unsigned int i = 0; i < gcnt; i++) {
-      uint32_t gptr = read_u32();
+   
+    { 
+      uint16_t gcnt = read_u16();
       if(has_failed) return NULL;
-      if(gptr >= heap_count) {
-	printf("SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
+      
+      if(gcnt > VM_MAX_GVALS) {
+	printf("SCRIPT LOAD ERR: excess gvals\n"); return NULL;
       }
-      heap_header *p = (heap_header*)heap[gptr].data; // FIXME
-      heap_ref_incr(p);
-      st->gptrs[i] = p; st->gptr_types[i] = heap_entry_vtype(p);
-      st->num_gptrs++;
-    }
-    if(has_failed) return NULL;
+      printf("DEBUG: %i gvals\n", (int)gcnt);
 
-    gcnt = read_u16();
-    if(has_failed) return NULL;
-    if(gcnt > VM_MAX_FUNCS) {
-      printf("SCRIPT LOAD ERR: excess funcs\n"); return NULL;
+      st->gvals = new int32_t[gcnt];
+      for(unsigned int i = 0; i < gcnt; i++) {
+	st->gvals[i] = read_u32();
+      }
+      if(has_failed) return NULL;
+      st->num_gvals = gcnt;
     }
-    printf("DEBUG: %i funcs\n", (int)gcnt);
-    st->funcs = new vm_function[gcnt]; st->num_funcs = 0;
 
-    for(unsigned int i = 0; i < gcnt; i++) {
-      st->funcs[i].ret_type = read_u8(); //(funcs[i].ret_type);
-      if(st->funcs[i].ret_type > VM_TYPE_MAX) { 
-	printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+    {
+      uint16_t gcnt = read_u16();
+      if(has_failed) return NULL;
+      if(gcnt > VM_MAX_GPTRS) {
+	printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
       }
 
-      int arg_count = st->funcs[i].arg_count = read_u8();
-      st->funcs[i].arg_types = new uint8_t[arg_count];
-      st->funcs[i].name = NULL; st->num_funcs++; // for eventual freeing
+      st->gptrs = new heap_header*[gcnt]; st->num_gptrs = 0;
+      st->gptr_types = new uint8_t[gcnt];
+      printf("DEBUG: %i gptrs\n", (int)gcnt);
 
-      st->funcs[i].frame_sz = 1;
-      for(int j = 0; j < arg_count; j++) {
-	uint8_t arg_type = st->funcs[i].arg_types[j] = read_u8();
-	if(arg_type > VM_TYPE_MAX) { 
+      for(unsigned int i = 0; i < gcnt; i++) {
+	uint32_t gptr = read_u32();
+	if(has_failed) return NULL;
+	if(gptr >= heap_count) {
+	  printf("SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
+	}
+	heap_header *p = (heap_header*)heap[gptr].data; // FIXME
+	heap_ref_incr(p);
+	st->gptrs[i] = p; st->gptr_types[i] = heap_entry_vtype(p);
+	st->num_gptrs++;
+      }
+      if(has_failed) return NULL;
+    }
+
+    {
+      uint16_t gcnt = read_u16();
+      if(has_failed) return NULL;
+      if(gcnt > VM_MAX_FUNCS) {
+	printf("SCRIPT LOAD ERR: excess funcs\n"); return NULL;
+      }
+      printf("DEBUG: %i funcs\n", (int)gcnt);
+      st->funcs = new vm_function[gcnt]; st->num_funcs = 0;
+
+      for(unsigned int i = 0; i < gcnt; i++) {
+	st->funcs[i].ret_type = read_u8(); //(funcs[i].ret_type);
+	if(st->funcs[i].ret_type > VM_TYPE_MAX) { 
 	  printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
 	}
-	st->funcs[i].frame_sz += vm_vtype_size(arg_type);
-      }
+
+	int arg_count = st->funcs[i].arg_count = read_u8();
+	st->funcs[i].arg_types = new uint8_t[arg_count];
+	st->funcs[i].name = NULL; st->num_funcs++; // for eventual freeing
+
+	st->funcs[i].frame_sz = 1;
+	for(int j = 0; j < arg_count; j++) {
+	  uint8_t arg_type = st->funcs[i].arg_types[j] = read_u8();
+	  if(arg_type > VM_TYPE_MAX) { 
+	    printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+	  }
+	  st->funcs[i].frame_sz += vm_vtype_size(arg_type);
+	}
       
-      int slen = read_u8();
-      if(has_failed) return NULL;
+	int slen = read_u8();
+	if(has_failed) return NULL;
 
-      char *name = new char[slen+1];
-      read_data(name, slen); name[slen] = 0;
-      st->funcs[i].name = name;
-      st->funcs[i].insn_ptr = read_u32();
-      if(has_failed) return NULL;
+	char *name = new char[slen+1];
+	read_data(name, slen); name[slen] = 0;
+	st->funcs[i].name = name;
+	st->funcs[i].insn_ptr = read_u32();
+	if(has_failed) return NULL;
+      }
     }
-
     
     st->bytecode_len = read_u32();
     if(has_failed) return NULL;
@@ -295,8 +352,11 @@ public:
     if(!verify_code(st)) {
       printf("SCRIPT LOAD ERR: didn't verify\n"); return NULL;
     };
-
-    return st; // FIXME - should set st to null
+    
+    { // final return
+      script_state *st2 = st; free_our_heap(); st = NULL;
+      return st2;
+    }
   }
 };
 

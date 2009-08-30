@@ -848,7 +848,7 @@ int main(int argc, char** argv) {
   printf("DEBUG: deserialising script\n");
   script_state* scr = vm_load_script(data, len);
   if(scr != NULL) {
-    caj_vm_test(scr);
+    caj_vm_test(scr); vm_free_script(scr);
   } else { 
     printf("ERROR: deserialise failed, not running\n");
   }
