@@ -46,7 +46,7 @@ sl_llsd_test: sl_llsd.c sl_llsd.h sl_llsd_test.c
 
 include depend.make
 
-CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o sl_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o libopenjpeg/openjpeg.a
+CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o sl_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_vm.o libopenjpeg/openjpeg.a
 
 cajeput_sim: $(CAJEPUT_OBJS)
 	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) -luuid -lglib-2.0 -lsoup-2.4 -lxml2 -lbulletdynamics -lbulletcollision -lbulletmath -ljson-glib-1.0

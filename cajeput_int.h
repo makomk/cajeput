@@ -217,7 +217,7 @@ struct user_ctx {
   // FIXME - move this out of struct to save l KB of space per child agent
   struct wearable_desc wearables[SL_NUM_WEARABLES];
 
-  void *grid_priv;
+  void *grid_priv; 
 
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
 
@@ -288,6 +288,9 @@ struct simulator_ctx {
 
   void *phys_priv;
   struct cajeput_physics_hooks physh;
+
+  void *script_priv;
+  struct cajeput_script_hooks scripth;
 
   std::map<std::string,cap_descrip*> caps;
   //struct obj_bucket[8][8][32];

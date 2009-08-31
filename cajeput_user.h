@@ -208,29 +208,7 @@ struct inventory_folder {
   int8_t inv_type;
 };
 
-struct inventory_item {
-  char *name;
-  uuid_t item_id, folder_id, owner_id;
-
-  char *creator_id;
-  uuid_t creator_as_uuid;
-  char *description;
-
-  uint32_t next_perms, current_perms, base_perms;
-  uint32_t everyone_perms, group_perms;
-
-  int8_t inv_type, asset_type;
-  uint8_t sale_type;
-  int8_t group_owned; // a boolean
-
-  uuid_t asset_id, group_id;
-
-  uint32_t flags;
-  int32_t sale_price;
-  int32_t creation_date;
-  // ...
-
-};
+  // struct inventory_item is in cajeput_core.h (used by objects)
 
 // describes contents of an inventory folder
 struct inventory_contents {

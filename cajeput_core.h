@@ -52,6 +52,8 @@ uint16_t sim_get_http_port(struct simulator_ctx *sim);
 uint16_t sim_get_udp_port(struct simulator_ctx *sim);
 void* sim_get_grid_priv(struct simulator_ctx *sim);
 void sim_set_grid_priv(struct simulator_ctx *sim, void* p);
+void* sim_get_script_priv(struct simulator_ctx *sim);
+void sim_set_script_priv(struct simulator_ctx *sim, void* p);
 float* sim_get_heightfield(struct simulator_ctx *sim);
 
 // These, on the other hand, require you to g_free the returned string
@@ -170,6 +172,39 @@ void sim_remove_shutdown_hook(struct simulator_ctx *sim,
 
 // ----- MISC STUFF ---------
 
+
+struct simple_asset { // for makeshift scripting stuff
+  char *name, *description;
+  int8_t type; // FIXME - is this right?
+  uuid_t id;
+  sl_string data;
+};
+
+struct inventory_item {
+  char *name;
+  uuid_t item_id, folder_id, owner_id;
+
+  char *creator_id;
+  uuid_t creator_as_uuid;
+  char *description;
+
+  uint32_t next_perms, current_perms, base_perms;
+  uint32_t everyone_perms, group_perms;
+
+  int8_t inv_type, asset_type;
+  uint8_t sale_type;
+  int8_t group_owned; // a boolean
+
+  uuid_t asset_id, group_id;
+
+  uint32_t flags;
+  int32_t sale_price;
+  int32_t creation_date;
+  // ...
+
+  void *priv; // used for scripts
+};
+
 void sim_shutdown_hold(struct simulator_ctx *sim);
 void sim_shutdown_release(struct simulator_ctx *sim);
 
@@ -192,6 +227,30 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
 void sim_texture_finished_load(texture_desc *desc);
 struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
 void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
+
+  // FIXME - Move these to their own header...
+#define ASSET_TEXTURE 0
+#define ASSET_SOUND 1
+#define ASSET_CALLING_CARD 2
+#define ASSET_LANDMARK 3
+  // 4 is some old scripting system
+#define ASSET_CLOTHING 5
+#define ASSET_OBJECT 6
+#define ASSET_NOTECARD 7
+#define ASSET_CATEGORY 8 // inventory folder
+#define ASSET_ROOT 9 // inventory root folder
+#define ASSET_LSL_TEXT 10
+#define ASSET_LSL_BYTECODE 11
+#define ASSET_TGA_TEXTURE 12
+#define ASSET_BODY_PART 13
+#define ASSET_TRASH 14 // category marker
+#define ASSET_SNAPSHOT 15 // category marker
+#define ASSET_LOST_FOUND 16 // category marker
+#define ASSET_WAV_SOUND 17
+#define ASSET_TGA_IMAGE 18
+#define ASSET_JPEG_IMAGE 19
+#define ASSET_ANIMATION 20
+#define ASSET_GESTURE 21
 
 #ifdef __cplusplus
 }

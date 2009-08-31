@@ -767,6 +767,7 @@ static void handle_AgentThrottle_msg(struct omuser_ctx* lctx, struct sl_message*
 			   throt->Throttles.len);
 }
 
+
 static unsigned char* build_dummy_texture_entry(uuid_t texture, int *len) {
   unsigned char* data = (unsigned char*)malloc(46);
   float repeat_uv = 1.0f;
@@ -1155,9 +1156,9 @@ static void send_object_properties(struct omuser_ctx* lctx, uint32_t localid) {
   propdat->Category = 0; // FIXME - what is this?
   uuid_clear(propdat->LastOwnerID); // FIXME - what?
 
-  // FIXME - what exactly are these?
-  propdat->InventorySerial = 0;
-  uuid_clear(propdat->ItemID);
+
+  propdat->InventorySerial = prim->inv.serial;
+  uuid_clear(propdat->ItemID); // FIXME - what exactly is this?
   uuid_clear(propdat->FolderID);
   uuid_clear(propdat->FromTaskID);
 
@@ -1182,9 +1183,169 @@ static void handle_ObjectSelect_msg(struct omuser_ctx* lctx, struct sl_message* 
       SL_GETBLKI(ObjectSelect, ObjectData, msg, i);
     send_object_properties(lctx, objd->ObjectLocalID);
     // FIXME - actually track object selection state!
-  }
+  }  
+}
 
+static void task_inv_str(std::string &task_inv, const char* key, const char* val) {
+  task_inv.append("\t\t"); task_inv.append(key);
+  task_inv.append("\t"); task_inv.append(val); task_inv.append("\n");
+}
+static void task_inv_strlit(std::string &task_inv, const char* key, const char* val) {
+  task_inv.append("\t\t"); task_inv.append(key);
+  task_inv.append("\t"); task_inv.append(val); task_inv.append("|\n");
+}
+static void task_inv_uuid(std::string &task_inv, const char* key, const uuid_t u) {
+  char buf[40]; uuid_unparse(u, buf);
+  task_inv_str(task_inv, key, buf);
+}
+
+static void task_inv_hex(std::string &task_inv, const char* key, uint32_t v) {
+  char buf[40]; sprintf(buf, "%lx",(long unsigned)v);
+  task_inv_str(task_inv, key, buf);
+}
+
+#define NUM_LL_ASSET_TYPES 22
+static const char* ll_asset_typenames[NUM_LL_ASSET_TYPES] = {
+  "texture", "sound", "callcard", "landmark",
+  "script", // allegedly, not used anymore
+  "clothing", "object", "notecard", "category",
+  "root", "lsltext", "lslbyte", "txtr_tga", "bodypart",
+  "trash", "snapshot", "lstndfnd", "snd_wav", "img_tga",
+  "jpeg", "animatn", "gesture",
+};
+
+static const char* ll_asset_type_name(int8_t asset_type) {
+  if(asset_type < 0 || asset_type >= NUM_LL_ASSET_TYPES) return "?";
+  return ll_asset_typenames[asset_type];
+}
+
+#define NUM_LL_INV_TYPES 21
+static const char* ll_inv_typenames[NUM_LL_INV_TYPES] = {
+  "texture", "sound", "callcard", "landmark", "?",
+  "?", "object", "notecard", "category", "root",
+  "script", "?", "?", "?", "?",
+  "snapshot", "?", "attach", "wearable", "animation",
+        "gesture", 
+};
+
+static const char* ll_inv_type_name(int8_t inv_type) {
+  if(inv_type < 0 || inv_type >= NUM_LL_ASSET_TYPES) return "?";
+  return ll_inv_typenames[inv_type];
+}
+
+// FIXME - need to actually do something with the available xfers
+static void add_xfer_file(struct omuser_ctx* lctx, const char *fname, 
+			  const char* data, int len) {
+  std::map<std::string, om_xfer_file>::iterator iter = 
+    lctx->xfer_files.find(fname);
+  if(iter == lctx->xfer_files.end()) {
+    om_xfer_file file; 
+    sl_string_set_bin(&file.data, (const unsigned char*)data, len);
+    lctx->xfer_files[fname] = file;
+  } else {
+    sl_string_free(&iter->second.data);
+    sl_string_set_bin(&iter->second.data, (const unsigned char*)data, len);
+  }
+}
+
+static void handle_RequestTaskInventory_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RequestTaskInventory, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RequestTaskInventory, InventoryData, idata, msg);
+  if(ad == NULL || idata == NULL || VALIDATE_SESSION(ad))
+    return;
   
+  struct world_obj* obj = world_object_by_localid(lctx->u->sim, idata->LocalID);
+  if(obj == NULL) {
+    printf("ERROR: wanted inventory for non-existent object\n");
+    return; // FIXME - think OpenSim sends same thing as for empty inv in this case
+  } else if(obj->type != OBJ_TYPE_PRIM) {
+    printf("ERROR: wanted inventory for non-prim object\n");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  {
+    SL_DECLMSG(ReplyTaskInventory, tinv);
+    SL_DECLBLK(ReplyTaskInventory, InventoryData, idresp, &tinv);
+    uuid_copy(idresp->TaskID, obj->id);
+    if(prim->inv.num_items == 0) {
+      idresp->Serial = 0; 
+      idresp->Filename.len = 0;
+    } else {
+      uuid_t zero_id; uuid_clear(zero_id);
+      std::string task_inv = "\tinv_object\t0\n\t{\n";
+      task_inv_uuid(task_inv, "obj_id", prim->ob.id);
+      task_inv_uuid(task_inv, "parent_id", zero_id);
+      task_inv_str(task_inv, "type", "category");
+      task_inv_strlit(task_inv, "name","Contents");
+      task_inv.append("\t}\n");
+      
+      for(int i = 0; i < prim->inv.num_items; i++) {
+	inventory_item *item = prim->inv.items[i];
+	task_inv.append("\tinv_item\t0\n\t{\n");
+	task_inv_uuid(task_inv, "item_id", item->item_id);
+	task_inv_uuid(task_inv, "parent_id", prim->ob.id);
+
+	task_inv.append("\tpermissions 0\n\t{\n"); // yes, a space. Really.
+	task_inv_hex(task_inv, "base_mask", prim->base_perms);
+	task_inv_hex(task_inv, "owner_mask", prim->owner_perms);
+	task_inv_hex(task_inv, "group_mask", prim->group_perms);
+	task_inv_hex(task_inv, "everyone_mask", prim->everyone_perms);
+	task_inv_hex(task_inv, "next_owner_mask", prim->next_perms);
+	
+	task_inv_uuid(task_inv, "creator_id", item->creator_as_uuid);
+	task_inv_uuid(task_inv, "owner_id", item->owner_id);
+	task_inv_uuid(task_inv, "last_owner_id", zero_id); // FIXME!!!
+	task_inv_uuid(task_inv, "group_id", zero_id); // FIXME!!!
+	task_inv.append("\t}\n");
+	
+	task_inv_uuid(task_inv, "asset_id", item->asset_id);
+	task_inv_str(task_inv, "type", ll_asset_type_name(item->asset_type));
+	task_inv_str(task_inv, "inv_type", ll_inv_type_name(item->inv_type));
+	
+	task_inv.append("\tsale_info\t0\n\t{\n\t\tsale_type\tnot\n"
+			"\t\tsale_price\t0\n\t}\n");
+
+	task_inv_strlit(task_inv, "name", item->name);
+	task_inv_strlit(task_inv, "desc", item->description);
+	task_inv_str(task_inv, "creation_date","0"); // FIXME!!
+	task_inv.append("\t}\n");
+      }
+
+      char *fname = world_prim_upd_inv_filename(prim);
+
+      add_xfer_file(lctx, fname, task_inv.c_str(), task_inv.length());
+
+      idresp->Serial = prim->inv.serial; 
+      sl_string_set(&idresp->Filename, fname);      
+    }
+    sl_send_udp(lctx, &tinv);
+  }
+}
+
+static void handle_RezScript_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RezScript, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RezScript, UpdateBlock, upd, msg);
+  SL_DECLBLK_GET1(RezScript, InventoryBlock, invd, msg);
+  if(ad == NULL || upd == NULL || invd == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  struct primitive_obj* prim = get_prim_for_update(lctx, 
+						   upd->ObjectLocalID);
+  if(prim == NULL)
+    return;
+
+  if(uuid_is_null(invd->ItemID)) {
+    user_rez_script(lctx->u, prim, (char*)invd->Name.data, (char*)invd->Description.data,
+		    invd->Flags);
+
+    // updates the inventory serial
+    send_object_properties(lctx, upd->ObjectLocalID);
+  } else {
+    printf("FIXME: need to handle RezScript from inventory\n");
+  }
+  sl_dump_packet(msg);
+
 }
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
@@ -1240,6 +1401,7 @@ static void helper_combine_uuids(uuid_t out, const uuid_t u1, const uuid_t u2) {
   g_checksum_get_digest(csum, out, &len);
   g_checksum_free(csum);
 }
+
 
 // FIXME - need to free old transfers properly
 
@@ -1384,6 +1546,96 @@ static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_mes
     uuid_copy(xferid->VFileID, xfer->asset_id);
     xferreq.flags |= MSG_RELIABLE;
     sl_send_udp(lctx, &xferreq);
+  }
+}
+
+struct xfer_send {
+  uint64_t xfer_id;
+  uint32_t packet_no;
+  sl_string data;
+};
+
+static void send_xfer_packet(struct omuser_ctx* lctx, xfer_send *send) {
+  int offset = send->packet_no*1000;
+  int len = send->data.len - offset, last = 1;
+  if(len > 1000) { len = 1000; last = 0; }
+
+  SL_DECLMSG(SendXferPacket, xferpkt);
+  SL_DECLBLK(SendXferPacket, XferID, pktid, &xferpkt);
+  SL_DECLBLK(SendXferPacket, DataPacket, datapkt, &xferpkt);
+  pktid->ID = send->xfer_id;
+
+  if(send->packet_no == 0) {
+    unsigned char* buf = (unsigned char*)malloc(len+4);
+    buf[0] = send->data.len & 0xff;
+    buf[1] = (send->data.len >> 8) & 0xff;
+    buf[2] = (send->data.len >> 16) & 0xff;
+    buf[3] = (send->data.len >> 24) & 0xff;
+    memcpy(buf+4, send->data.data, len);
+    datapkt->Data.len = len+4; datapkt->Data.data = buf;
+  } else {
+    sl_string_set_bin(&datapkt->Data, send->data.data + offset, len);
+  }
+  pktid->Packet = send->packet_no | (last ? 0x80000000 : 0);
+  sl_send_udp(lctx, &xferpkt);
+}
+
+// warning - this steals the SL string you give it!
+static void send_by_xfer(struct omuser_ctx* lctx, uint64_t xfer_id, sl_string *data) {
+  if(lctx->xfer_sends.count(xfer_id)) { 
+    printf("ERROR: xfer request ID collision\n");
+    sl_string_free(data); return;
+  }
+
+  xfer_send *send = new xfer_send();
+  send->xfer_id = xfer_id;
+  send->packet_no = 0; 
+  sl_string_steal(&send->data, data);
+  lctx->xfer_sends[xfer_id] = send;
+  send_xfer_packet(lctx, send);
+}
+
+// doesn't remove from list of sends
+static void free_xfer_send(struct omuser_ctx* lctx, xfer_send *send) {
+  sl_string_free(&send->data); delete send;
+}
+
+static void handle_ConfirmXferPacket_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ConfirmXferPacket, XferID, xfer_id, msg);
+  if(xfer_id == NULL) return;
+  std::map<uint64_t,xfer_send*>::iterator iter = lctx->xfer_sends.find(xfer_id->ID);
+  if(iter == lctx->xfer_sends.end()) {
+    printf("WARNING: ConfirmXferPacket for non-existent xfer\n");
+  } else if(xfer_id->Packet != iter->second->packet_no) {
+    printf("WARNING: ConfirmXferPacket with wrong xfer packet number: got %u, expect %u\n",
+	   (unsigned)xfer_id->Packet, (unsigned)iter->second->packet_no);
+  } else {
+    xfer_send *send = iter->second;
+    send->packet_no++;
+    if(send->packet_no * 1000 >= send->data.len) {
+      free_xfer_send(lctx, send); lctx->xfer_sends.erase(iter);
+    } else {
+      send_xfer_packet(lctx, send);
+    }
+  }
+}
+
+static void handle_RequestXfer_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RequestXfer, XferID, xfer_id, msg);
+  if(xfer_id == NULL) return;
+  
+  if(xfer_id->Filename.len != 0 && xfer_id->Filename.data[0] != 0) {
+    std::map<std::string, om_xfer_file>::iterator iter = 
+      lctx->xfer_files.find((char*)xfer_id->Filename.data);
+    if(iter != lctx->xfer_files.end()) {
+      send_by_xfer(lctx, xfer_id->ID, &iter->second.data);
+      lctx->xfer_files.erase(iter);
+    } else {
+      printf("ERROR: RequestXfer for unknown file %s\n", (char*)xfer_id->Filename.data);
+    }
+  } else {
+    printf("FIXME: non-file based RequestXfer not supported\n");
+    // TODO - FIXME!
   }
 }
 
@@ -1872,12 +2124,22 @@ static void remove_user(void *user_priv) {
 
   free_resend_data(lctx);
 
+  // FIXME - move to own func?
+  for(std::map<std::string, om_xfer_file>::iterator iter = lctx->xfer_files.begin();
+      iter != lctx->xfer_files.end(); iter++) {
+    sl_string_free(&iter->second.data);
+  }
+
+  for(std::map<uint64_t,xfer_send*>::iterator iter = lctx->xfer_sends.begin();
+      iter != lctx->xfer_sends.end(); iter++) {
+    free_xfer_send(lctx, iter->second);
+  }
+
   for(omuser_ctx** luser = &lctx->lsim->ctxts; *luser != NULL; ) {
     if(*luser == lctx) {
       *luser = lctx->next; break;
     } else luser = &(*luser)->next;
   }
-
 
   delete lctx;
 }
@@ -2008,7 +2270,7 @@ static gboolean got_packet(GIOChannel *source,
  out:
     sl_free_msg(&msg);
 
-    // FIXME - what should I return?
+    return TRUE;
 }
 
 static void shutdown_handler(simulator_ctx *sim, void *priv) {
@@ -2041,6 +2303,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(AgentWearablesRequest);
   ADD_HANDLER(AssetUploadRequest);
   ADD_HANDLER(SendXferPacket);
+  ADD_HANDLER(RequestXfer);
+  ADD_HANDLER(ConfirmXferPacket);
   // FIXME - handle AbortXfer
   ADD_HANDLER(RequestImage);
   ADD_HANDLER(AgentDataUpdateRequest);
@@ -2063,6 +2327,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectDescription);
   ADD_HANDLER(ObjectMaterial);
   ADD_HANDLER(ObjectShape);
+  ADD_HANDLER(RezScript);
+  ADD_HANDLER(RequestTaskInventory);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

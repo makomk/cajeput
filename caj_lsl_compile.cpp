@@ -1,7 +1,6 @@
 #include "caj_lsl_parse.h"
 #include "caj_vm.h"
 #include "caj_vm_asm.h"
-#include "caj_vm_exec.h" // FOR DEBUGGING
 #include "caj_vm_ops.h"
 
 #include <map>
@@ -10,6 +9,7 @@
 #include <cassert>
 #include <stdio.h>
 #include <stdarg.h>
+#include <fcntl.h>
 
 // Possible Linden dain bramage:
 // Order of operations (second operand, first operand)
@@ -728,8 +728,8 @@ int main(int argc, char** argv) {
   lsl_compile_state st;
   st.error = 0;
 
-  if(argc != 2) {
-    printf("Usage: %s input.lsl\n",argv[0]);
+  if(argc != 3) {
+    printf("Usage: %s input.lsl output.cvm\n",argv[0]);
     return 1;
   }
 
@@ -844,14 +844,20 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // HACK!
-  printf("DEBUG: deserialising script\n");
-  script_state* scr = vm_load_script(data, len);
-  if(scr != NULL) {
-    caj_vm_test(scr); vm_free_script(scr);
-  } else { 
-    printf("ERROR: deserialise failed, not running\n");
+  int fd = open(argv[2], O_WRONLY|O_CREAT|O_EXCL, 0644);
+  if(fd < 0) {
+    perror("opening output file");
+    printf("Error: couldn't open output file!\n"); return 1;
   }
+  size_t cnt = 0; ssize_t ret;
+  while(cnt < len) {
+    ret = write(fd, data+cnt, len-cnt);
+    if(ret <= 0) {
+      perror("writing output file"); return 1;
+    }
+    cnt += len;
+  }
+  free(data);  close(fd);
   
   return 0;
 }

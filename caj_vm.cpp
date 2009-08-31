@@ -21,9 +21,7 @@
  */
 
 #include "caj_vm.h"
-// #include "caj_vm_asm.h"
 #include "caj_vm_internal.h"
-#include "caj_vm_exec.h"
 #include <cassert>
 
 struct heap_header {
@@ -42,11 +40,13 @@ struct script_state {
   uint16_t num_gvals, num_gptrs;
   uint16_t num_funcs;
   uint16_t* bytecode;
-  int32_t* stack_top;
+  int32_t *stack_start, *stack_top;
   int32_t* gvals;
   heap_header** gptrs;
   uint8_t* gptr_types;
   vm_function *funcs;
+  vm_native_func_cb *nfuncs;
+  void *priv; // for the user of the VM
   int scram_flag;
 };
 
@@ -65,7 +65,8 @@ static script_state *new_script(void) {
   st->ip = 0;  st->mem_use = 0; st->scram_flag = 0;
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
-  st->bytecode = NULL; st->stack_top = NULL;
+  st->bytecode = NULL; st->nfuncs = NULL;
+  st->stack_start = st->stack_top = NULL;
   st->gvals = NULL; st->gptr_types = NULL;
   st->gptrs = NULL; st->funcs = NULL;
   return st;
@@ -107,9 +108,9 @@ static inline void *script_getptr(heap_header *p) {
 }
 
 void vm_free_script(script_state * st) {
-  if(st->stack_top != NULL) {
-    // FIXME!
-    printf("WARNING: vm_free_script doesn't free script stacks yet\n");
+  if(st->stack_start != NULL) {
+    // FIXME - need to find pointers on stack and free them...
+    printf("WARNING: vm_free_script doesn't free script stacks right yet\n");
   }
   for(unsigned i = 0; i < st->num_gptrs; i++) {
     heap_header *p = st->gptrs[i];
@@ -121,14 +122,13 @@ void vm_free_script(script_state * st) {
     heap_ref_decr(p, st);
   }
   delete[] st->gvals; delete[] st->gptrs; delete[] st->gptr_types;
-
   delete[] st->bytecode; // FIXME - will want to add bytecode sharing
 
   for(unsigned i = 0; i < st->num_funcs; i++) {
     delete[] st->funcs[i].arg_types; delete[] st->funcs[i].name;
   }
   delete[] st->funcs;
-  
+  delete[] st->stack_start;
   delete st;
 }
 
@@ -216,7 +216,7 @@ public:
     if(st != NULL) vm_free_script(st);
   }
 
-  script_state *load(unsigned char* dat, int len) { // FIXME - leaks masses of memory
+  script_state *load(unsigned char* dat, int len) {
     data = dat; data_len = len; pos = 0; has_failed = false;
 
     if(read_u32() != 0xf0b17ecd || has_failed) {
@@ -603,7 +603,11 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
   return 1;
 }
 
-
+// !!!!!!!!! FIXME !!!!!!!!!!!!
+// We need to prevent the user overflowing the stack. This has nasty security
+// implications (probably arbitrary code execution, if they play their cards
+// right!) 
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!
 static int verify_code(script_state *st) {
   if(st->stack_top != NULL) return 0;
   {
@@ -622,6 +626,8 @@ static int verify_code(script_state *st) {
     }
     if(last_func >= 0) st->funcs[last_func].insn_end = st->bytecode_len;
   }
+
+  // FIXME - need to verify first insn is INSN_QUIT!
 
   unsigned char *visited = new uint8_t[st->bytecode_len];
   memset(visited, 0, st->bytecode_len);
@@ -767,7 +773,7 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top += 3; break;
       case INSN_DROP_I4:
 	stack_top += 4; break;
-      case INSN_QUIT: // FIXME - fake insn, remove
+      case INSN_QUIT: // dirty dirty hack!
 	ip = 0; goto out;
       case INSN_PRINT_I:
 	printf("DEBUG: int %i\n", (int)*(++stack_top));
@@ -822,6 +828,7 @@ static void step_script(script_state* st, int num_steps) {
 	assert(stack_top[st->funcs[ival].frame_sz] == 0x1231234);
 	stack_top[st->funcs[ival].frame_sz] = ip;
 	ip = st->funcs[ival].insn_ptr;
+	if(ip == 0) goto abort_exec; // unbound native function
       }
       break;
     case ICLASS_RDG_I:
@@ -861,6 +868,32 @@ static void step_script(script_state* st, int num_steps) {
   st->ip = 0; st->scram_flag = 1;
 }
 
+int vm_script_is_idle(script_state *st) {
+  return st->ip == 0 && st->scram_flag == 0;
+}
+
+int vm_script_is_runnable(script_state *st) {
+  return st->ip == 0 && st->scram_flag == 0;
+}
+
+// the native funcs array is generally global so we don't free it
+void vm_prepare_script(script_state *st, void *priv, vm_native_func_cb* nfuncs,
+		       vm_get_func_cb get_func) {
+  assert(st->stack_top == NULL);
+  st->stack_start = new int32_t[1024]; // FIXME - pick this properly;
+  st->stack_top = st->stack_start+1023;
+  st->nfuncs = nfuncs; st->priv = priv;
+ 
+  // FIXME - need to bind native funcs!
+}
+
+void vm_run_script(script_state *st, int num_steps) {
+  if(st->scram_flag != 0 || st->ip == 0) return;
+  assert(st->stack_top != NULL);
+  
+}
+
+// FIXME - remove this
 void caj_vm_test(script_state *st) {
   int32_t stack[128];
   stack[127] = 0;
@@ -869,69 +902,3 @@ void caj_vm_test(script_state *st) {
   step_script(st, 1000);
 }
 
-
-#if 0
-int main(void) {
-#if 1
-  // Test function - calculates the GCD of 1071 and 462
-  
-  uint8_t arg_types[2]; 
-  arg_types[0] = VM_TYPE_INT;
-  arg_types[1] = VM_TYPE_INT;
-  
-  vm_asm vasm;
-  vasm.begin_func(arg_types, 2);
-  loc_atom start_lab = vasm.make_loc();
-  loc_atom ret_lab = vasm.make_loc();
-  vasm.do_label(start_lab); // label start
-  // Right now, stack looks like [TOP] b a
-  vasm.rd_local_int(1); // b
-  vasm.insn(INSN_NCOND);
-  vasm.do_jump(ret_lab); // if b != 0 goto ret
-  vasm.rd_local_int(0); // a
-  vasm.rd_local_int(1); // b
-  vasm.insn(INSN_MOD_II);
-  // stack: [TOP] t=a%b b a
-  vasm.rd_local_int(1); // b
-  // stack: [TOP] b t=a%b b a
-  vasm.wr_local_int(0);
-  // stack: [TOP] t b a
-  vasm.wr_local_int(1);
-  vasm.do_jump(start_lab); // goto start
-  vasm.do_label(ret_lab); // label ret
-  vasm.insn(INSN_POP_I);
-  vasm.insn(INSN_PRINT_I);
-  vasm.insn(INSN_RET);
-  vasm.end_func();
-#else
-  vm_asm vasm;
-  vasm.begin_func();
-  loc_atom lab1 = vasm.make_loc();
-  loc_atom lab2 = vasm.make_loc();  
-  vasm.const_real(2.0f);
-  vasm.do_jump(lab1);
-  vasm.const_real(2.0f);
-  vasm.do_label(lab1);
-  vasm.const_real(2.0f);
-  vasm.insn(INSN_ADD_FF);
-  vasm.insn(INSN_PRINT_F);
-  vasm.insn(INSN_RET); 
-  vasm.end_func();
-#endif
-
-  script_state *st = vasm.finish();
-  if(st == NULL) {
-    printf("Error assembling: %s\n", vasm.get_error());
-    return 1;
-  }
-  int32_t stack[128];
-  stack[127] = 0;
-  stack[126] = 1071;
-  stack[125] = 462;
-  st->frame = st->stack_top = stack+124;
-  st->ip = 1;
-  step_script(st, 100);
-  delete[] st->bytecode; delete[] st->globals;
-  delete st;
-}
-#endif

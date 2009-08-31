@@ -55,6 +55,16 @@ static inline void sl_string_copy(struct sl_string *dest,
   }
 }
 
+static inline void sl_string_steal(struct sl_string *dest, 
+				   struct sl_string *src) {
+  if(src->data == NULL) {
+    dest->data = NULL; dest->len = 0;
+  } else {
+    dest->data = src->data; dest->len = src->len;
+    src->data = NULL; src->len = 0;
+  }
+}
+
 static inline void sl_string_free(struct sl_string* str) {
   free(str->data); str->data = NULL;
 }

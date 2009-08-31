@@ -48,6 +48,12 @@ struct udp_resend_desc {
   struct sl_message msg;
 };
 
+struct om_xfer_file {
+  sl_string data;
+};
+
+struct xfer_send;
+
 struct omuser_ctx {
   struct user_ctx *u;
   struct omuser_sim_ctx *lsim;
@@ -65,10 +71,11 @@ struct omuser_ctx {
 
   // icky Linden stuff
   std::map<uint64_t,asset_xfer*> xfers;
+  std::map<std::string, om_xfer_file> xfer_files;
+  std::map<uint64_t,xfer_send*> xfer_sends;
 
   // Image transfers
   std::map<obj_uuid_t,image_request*> image_reqs;
-
 };
 
 struct omuser_sim_ctx {

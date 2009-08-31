@@ -81,7 +81,25 @@ struct primitive_obj {
   int32_t sale_price;
   char *name, *description;
   sl_string tex_entry;
+
+  struct {
+    unsigned int num_items, alloc_items;
+    struct inventory_item** items;
+    uint32_t serial; // FIXME - uint16_t
+    char *filename; // ick. For working with the horrible Xfer system.
+    // Clear filename and increment serial on inv updates
+  } inv;
 };
+
+  // -------- SCRIPTING GLUE --------------------
+
+  struct cajeput_script_hooks {
+    void(*shutdown)(struct simulator_ctx *sim, void *priv);
+  };
+
+  int caj_scripting_init(int api_version, struct simulator_ctx* sim, 
+			 void **priv, struct cajeput_script_hooks *hooks);
+
 
 // ----- PHYSICS GLUE -------------
 
@@ -117,6 +135,13 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			const sl_vector3 &new_pos);
+
+  // don't ask. Really. Also, don't free or store returned string.
+  char* world_prim_upd_inv_filename(struct primitive_obj* prim);
+
+void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
+		     const char *name, const char *descrip, uint32_t flags);
+
 #ifdef __cplusplus
 }
 #endif

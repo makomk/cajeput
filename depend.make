@@ -2,19 +2,20 @@ cajeput_evqueue.o: cajeput_evqueue.cpp sl_types.h sl_llsd.h \
   cajeput_core.h cajeput_int.h cajeput_world.h cajeput_user.h
 cajeput_hooks.o: cajeput_hooks.cpp cajeput_int.h sl_llsd.h sl_types.h \
   cajeput_core.h cajeput_world.h cajeput_user.h
-cajeput_inventory.o: cajeput_inventory.cpp cajeput_user.h sl_types.h
+cajeput_inventory.o: cajeput_inventory.cpp cajeput_core.h sl_types.h \
+  cajeput_user.h
 cajeput_main.o: cajeput_main.cpp sl_messages.h sl_types.h sl_llsd.h \
   cajeput_core.h cajeput_int.h cajeput_world.h cajeput_user.h \
   cajeput_j2k.h cajeput_prim.h cajeput_anims.h terrain_compress.h \
   caj_parse_nini.h
 caj_lsl_compile.o: caj_lsl_compile.cpp caj_lsl_parse.h caj_vm.h \
-  caj_vm_insns.h caj_vm_asm.h caj_vm_internal.h caj_vm_exec.h \
-  caj_vm_ops.h
+  caj_vm_insns.h caj_vm_asm.h caj_vm_internal.h caj_vm_ops.h
 caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h sl_types.h sl_udp_proto.h \
   cajeput_core.h cajeput_int.h sl_llsd.h cajeput_world.h cajeput_user.h \
   cajeput_anims.h caj_omv.h terrain_compress.h
-caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_internal.h \
-  caj_vm_exec.h
+caj_scripting.o: caj_scripting.cpp cajeput_core.h sl_types.h \
+  cajeput_world.h caj_vm.h caj_vm_insns.h
+caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_internal.h
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h sl_types.h \
   cajeput_user.h opensim_grid_glue.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h sl_types.h \

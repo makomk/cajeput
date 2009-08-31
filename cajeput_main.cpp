@@ -87,6 +87,12 @@ void* sim_get_grid_priv(struct simulator_ctx *sim) {
 void sim_set_grid_priv(struct simulator_ctx *sim, void* p) {
   sim->grid_priv = p;
 }
+void* sim_get_script_priv(struct simulator_ctx *sim) {
+  return sim->script_priv;
+}
+void sim_set_script_priv(struct simulator_ctx *sim, void* p) {
+  sim->script_priv = p;
+}
 float* sim_get_heightfield(struct simulator_ctx *sim) {
   return sim->terrain;
 }
@@ -435,7 +441,68 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->description = strdup("");
   prim->next_perms = prim->owner_perms = prim->base_perms = 0x7fffffff;
   prim->group_perms = prim->everyone_perms = 0;
+  prim->inv.num_items = prim->inv.alloc_items = 0;
+  prim->inv.items = NULL; prim->inv.serial = 0;
+  prim->inv.filename = NULL;
   return prim;
+}
+
+
+char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
+  if(prim->inv.filename != NULL) return prim->inv.filename;
+
+  // knowing LL, they probably rely on the exact format of this somewhere.
+  
+  char buf[40]; uuid_t u;
+  uuid_generate_random(u);   uuid_unparse_lower(u, buf);
+  prim->inv.filename = (char*)malloc(51);
+  snprintf(prim->inv.filename, 51, "inventory_%s.tmp", buf);
+  return prim->inv.filename;
+}
+
+static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) {
+  if(prim->inv.num_items >= prim->inv.alloc_items) {
+    prim->inv.alloc_items = prim->inv.alloc_items == 0 ? 8 : prim->inv.alloc_items*2;
+    prim->inv.items = (inventory_item**)realloc(prim->inv.items, 
+						prim->inv.alloc_items*sizeof(inventory_item**));
+    if(prim->inv.items == NULL) abort();
+  }
+
+  prim->inv.items[prim->inv.num_items++] = inv;
+  prim->inv.serial++; free(prim->inv.filename); prim->inv.filename = NULL;
+}
+
+// FIXME - need to make the item name unique!!
+void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
+		     const char *name, const char *descrip, uint32_t flags) {
+  inventory_item *inv = new inventory_item();
+  
+  inv->name = strdup(name); inv->description = strdup(descrip);
+
+  uuid_copy(inv->folder_id, prim->ob.id);
+  uuid_copy(inv->owner_id, ctx->user_id);
+  uuid_copy(inv->creator_as_uuid, ctx->user_id);
+  
+  uuid_generate(inv->item_id);
+  uuid_generate(inv->asset_id);
+
+  inv->creator_id = (char*)malloc(40); uuid_unparse(ctx->user_id, inv->creator_id);
+
+  // FIXME - use client-provided perms
+  inv->base_perms = inv->current_perms = inv->next_perms = 0x7fffffff;
+  inv->group_perms = inv->everyone_perms = 0;
+
+  inv->asset_type = ASSET_LSL_TEXT; 
+  inv->inv_type = 10; // FIXME
+  inv->sale_type = 0; // FIXME
+  inv->group_owned = 0;
+  inv->sale_price = 0;
+  inv->creation_date = 0; // FIXME FIXME
+  inv->flags = flags;
+
+  // FIXME - create fake asset for script
+
+  prim_add_inventory(prim, inv);
 }
 
 static void world_insert_demo_objects(struct simulator_ctx *sim) {
@@ -1915,6 +1982,11 @@ int main(void) {
   if(!cajeput_physics_init(CAJEPUT_API_VERSION, sim, 
 			     &sim->phys_priv, &sim->physh)) {
     printf("Couldn't init physics engine!\n"); return 1;
+  }
+
+  if(!caj_scripting_init(CAJEPUT_API_VERSION, sim, &sim->script_priv,
+			 &sim->scripth)) {
+    printf("Couldn't init script engine!\n"); return 1;
   }
 
   world_insert_demo_objects(sim);

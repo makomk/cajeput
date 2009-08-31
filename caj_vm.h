@@ -129,10 +129,25 @@ struct vm_function {
   int frame_sz; // only used by VM
 };
 
+struct vm_nfunc_desc { // native function
+  char* name;
+  uint8_t ret_type;
+  int arg_count;
+  uint8_t* arg_types;
+};
+
 struct script_state;
+
+typedef void(*vm_native_func_cb)(script_state *st, void *priv);
+typedef vm_nfunc_desc* (*vm_get_func_cb)(const char* name, void *priv);
 
 script_state* vm_load_script(void* data, int data_len);
 void vm_free_script(script_state * st);
 
+int vm_script_is_idle(script_state *st);
+int vm_script_is_runnable(script_state *st);
+void vm_prepare_script(script_state *st, void *priv, vm_native_func_cb* nfuncs,
+		       vm_get_func_cb get_func);
+void vm_run_script(script_state *st, int num_steps);
 
 #endif
