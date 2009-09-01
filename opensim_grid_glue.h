@@ -68,6 +68,12 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 				      void* priv),
 			    void *cb_priv);
 
+void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
+			  void *user_priv, uuid_t item_id,
+			  void(*cb)(struct inventory_item* item, 
+				    void* priv),
+			  void *cb_priv);
+
 void osglue_agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
 			       const char *path,

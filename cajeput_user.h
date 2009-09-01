@@ -155,7 +155,12 @@ void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
-
+void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user, 
+			       uuid_t item_id,
+			       void(*cb)(struct inventory_item* item, 
+					 void* priv),
+			       void *cb_priv);
+  
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much
 #define TELEPORT_FLAG_SET_LAST 0x2 // ???

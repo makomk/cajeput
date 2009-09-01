@@ -713,6 +713,38 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
   }
 }
 
+// ------------- asset-related fun --------------------------
+
+void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
+		   void(*cb)(struct simulator_ctx *sim, void *priv,
+			     struct simple_asset *asset), void *cb_priv) {
+  asset_desc *desc;
+  std::map<obj_uuid_t,asset_desc*>::iterator iter =
+    sim->assets.find(asset_id);
+  if(iter != sim->assets.end()) {
+    desc = iter->second;
+  } else {
+    desc = new asset_desc();
+    uuid_copy(desc->asset.id, asset_id);
+    desc->status = CAJ_ASSET_PENDING;
+    sim->assets[asset_id] = desc;
+
+    // FIXME - need to actually do the fetch!!
+  }
+  
+  switch(desc->status) {
+  case CAJ_ASSET_PENDING:
+    desc->cbs.insert(new asset_cb_desc(cb, cb_priv));
+    break;
+  case CAJ_ASSET_READY:
+    cb(sim, cb_priv, &desc->asset); break;
+  case CAJ_ASSET_MISSING:
+    cb(sim, NULL, &desc->asset); break;
+  default: assert(0);
+  }
+}
+
+
 
 // FIXME - remove these!
 #define PCODE_PRIM 9
@@ -977,6 +1009,28 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
   }
 }
 
+static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  if (msg->method != SOUP_METHOD_POST) {
+    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    return;
+  }
+
+  sl_llsd *llsd, *resp; 
+  if(msg->request_body->length > 65536) goto fail;
+  llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
+  if(llsd == NULL) goto fail;
+  if(!LLSD_IS(llsd, LLSD_MAP)) goto free_fail;
+
+  // FIXME - need to implement this
+  printf("Got UpdateScriptTask:\n");
+  llsd_pretty_print(llsd, 1);
+
+ free_fail:
+  llsd_free(llsd);
+ fail:
+  soup_message_set_status(msg,400);
+  
+}
 
 // -- END of caps code --
 
@@ -1458,6 +1512,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   user_int_event_queue_init(ctx);
 
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
+  user_add_named_cap(sim,"UpdateScriptTask",update_script_task,ctx,NULL);
 
   return ctx;
 }

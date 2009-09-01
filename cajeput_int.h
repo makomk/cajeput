@@ -251,11 +251,28 @@ struct obj_chat_listener {
   std::set<int32_t> channels;
 };
 
+struct asset_cb_desc {
+   void(*cb)(struct simulator_ctx *sim, void *priv,
+	     struct simple_asset *asset);
+  void *cb_priv;
+  
+  asset_cb_desc( void(*cb_)(struct simulator_ctx *sim, void *priv,
+			    struct simple_asset *asset), void *cb_priv_) :
+    cb(cb_), cb_priv(cb_priv_) { };
+};
 
+#define CAJ_ASSET_PENDING 0
+#define CAJ_ASSET_READY 1
+#define CAJ_ASSET_MISSING 2
+
+struct asset_desc {
+  simple_asset asset;
+  int status; // CAJ_ASSET_*
+  std::set<asset_cb_desc*> cbs;
+};
 
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SIM_SHUTTING_DOWN 2
-
 
 struct simulator_ctx {
   struct user_ctx* ctxts;
@@ -278,6 +295,7 @@ struct simulator_ctx {
   std::map<obj_uuid_t,inventory_contents*> inv_lib;
 
   std::map<obj_uuid_t,texture_desc*> textures;
+  std::map<obj_uuid_t,asset_desc*> assets;
 
   char *release_notes;
   int release_notes_len;

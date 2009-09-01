@@ -1401,6 +1401,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->map_name_request = map_name_request;
   hooks->do_teleport = do_teleport;
   hooks->fetch_inventory_folder = fetch_inventory_folder;
+  hooks->fetch_inventory_item = fetch_inventory_item;
   hooks->uuid_to_name = uuid_to_name;
 
   hooks->get_texture = get_texture;

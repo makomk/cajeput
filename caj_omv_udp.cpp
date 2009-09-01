@@ -189,6 +189,7 @@ static void send_pending_acks(struct omuser_sim_ctx *sim) {
 }
 
 #define VALIDATE_SESSION(ad) (uuid_compare(lctx->u->user_id, ad->AgentID) != 0 || uuid_compare(lctx->u->session_id, ad->SessionID) != 0)
+#define VALIDATE_SESSION_2(aid,sid) (uuid_compare(lctx->u->user_id, aid) != 0 || uuid_compare(lctx->u->session_id, sid) != 0)
 
 // FIXME - move this somewhere saner!
 static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
@@ -631,6 +632,182 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
   
   user_fetch_inventory_folder(lctx->u->sim, lctx->u, inv->FolderID,
 			      inventory_descendents_cb, req);
+}
+
+// for debugging purposes ontly
+static void print_uuid_with_msg(const char* msg, uuid_t u) {
+  char uuid_str[40];
+  uuid_unparse(u,uuid_str);
+  printf("%s: %s\n",msg, uuid_str);
+}
+
+
+struct asset_request {
+  user_ctx *ctx;
+  omuser_ctx* lctx;
+  uuid_t asset_id, transfer_id;
+  int32_t channel_type;
+  sl_string params; // FIXME - not right. For a start, don't want to send SessionID
+};
+
+// Note: as well as being a callback, this is called directly in one situation
+static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
+			     struct simple_asset *asset) {
+  asset_request *req = (asset_request*)priv;
+  if(req->ctx != NULL) {
+    if(asset == NULL) {
+      printf("ERROR: couldn't get asset\n"); // FIXME - how to handle
+    } else {
+      {
+	SL_DECLMSG(TransferInfo, transinfo);
+	SL_DECLBLK(TransferInfo, TransferInfo, tinfo, &transinfo);
+	uuid_copy(tinfo->TransferID, req->transfer_id);
+	tinfo->ChannelType = 2; tinfo->Status = 0;
+	tinfo->TargetType = 0; // think this is the only possible type...
+	tinfo->Size = asset->data.len;
+	sl_string_steal(&tinfo->Params, &req->params);
+	sl_send_udp(req->lctx, &transinfo);
+      }
+
+      int offset = 0, packet_no = 0, last = 0;
+      while(!last) {
+	int len = asset->data.len - offset;
+	if(len > 1000) len = 1000;
+	last = (offset + len >= asset->data.len);
+	SL_DECLMSG(TransferPacket, trans);
+	SL_DECLBLK(TransferPacket, TransferData, tdata, &trans);
+	uuid_copy(tdata->TransferID, req->transfer_id);
+	tdata->ChannelType = 2; 
+	tdata->Status = last ? 1 : 0;
+	tdata->Packet = packet_no++;
+	sl_string_set_bin(&tdata->Data, asset->data.data+offset, len);
+	sl_send_udp(req->lctx, &trans); // FIXME - this *really* needs throttling
+      }
+    }
+
+    user_del_self_pointer(&req->ctx);
+  }
+  sl_string_free(&req->params);
+  delete req;
+}
+
+static void do_send_asset(asset_request *req) {
+  sim_get_asset(req->lctx->u->sim, req->asset_id, do_send_asset_cb, req);
+}
+
+static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(TransferRequest, TransferInfo, tinfo, msg);
+  if(tinfo == NULL) return;
+
+  // FIXME - TODO!!!
+  sl_dump_packet(msg);
+
+  if(tinfo->ChannelType != 2) {
+    // shouldn't ever happen, I think
+    user_send_message(lctx->u, "FIXME: TransferRequest with unexpected ChannelType");
+    return;
+  }
+  // want to do something with tinfo->Priority
+
+  uuid_t asset_id;
+  if(tinfo->SourceType == 2) {
+    if(tinfo->Params.len < 16) {
+      user_send_message(lctx->u, "ERROR: TransferRequest with too-short params");
+      printf("ERROR: TransferRequest with too-short params\n");
+      return;
+    }
+    
+    asset_request *req = new asset_request();
+    req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
+    req->lctx = lctx;
+    memcpy(req->asset_id, tinfo->Params.data+0, 16);
+    print_uuid_with_msg("DEBUG: AssetID",req->asset_id);
+    
+    uuid_copy(req->transfer_id, tinfo->TransferID);
+    req->channel_type = tinfo->ChannelType;
+    sl_string_copy(&req->params, &tinfo->Params);
+    
+    do_send_asset(req);
+    
+  } else if(tinfo->SourceType == 3) {
+    if(tinfo->Params.len < 100) {
+      user_send_message(lctx->u, "ERROR: TransferRequest with too-short params");
+      printf("ERROR: TransferRequest with too-short params\n");
+      return;
+    }
+
+    uuid_t agent_id, session_id, owner_id, task_id, item_id;
+    memcpy(agent_id, tinfo->Params.data+0, 16);
+    memcpy(session_id, tinfo->Params.data+16, 16);
+    memcpy(owner_id, tinfo->Params.data+32, 16);
+    memcpy(task_id, tinfo->Params.data+48, 16);
+    memcpy(item_id, tinfo->Params.data+64, 16);
+    memcpy(asset_id, tinfo->Params.data+80, 16);
+    // last 4 bytes are asset type
+    
+    print_uuid_with_msg("DEBUG: AgentID",agent_id);
+    print_uuid_with_msg("DEBUG: SessionID",session_id);
+    print_uuid_with_msg("DEBUG: OwnerID",owner_id);
+    print_uuid_with_msg("DEBUG: TaskID",task_id);
+    print_uuid_with_msg("DEBUG: ItemID",item_id);
+    print_uuid_with_msg("DEBUG: AssetID",asset_id);
+    
+    if(VALIDATE_SESSION_2(agent_id,session_id)) {
+      printf("ERROR: session validation failure for TransferRequest\n"); return;
+    }
+    
+    if(uuid_is_null(task_id)) {
+      printf("FIXME: TransferRequest for item in user's inventory\n");
+      // non-prim inventory items - TODO
+    } else {
+      struct world_obj* obj = world_object_by_id(lctx->u->sim, task_id);
+      if(obj == NULL) {
+	printf("ERROR: wanted inventory item from non-existent object\n");
+	return; 
+      } else if(obj->type != OBJ_TYPE_PRIM) {
+	printf("ERROR: wanted inventory item from non-prim object\n");
+	return;
+      }
+      struct primitive_obj* prim = (primitive_obj*)obj;
+
+      inventory_item *inv = NULL;
+      for(unsigned i = 0; i < prim->inv.num_items; i++) {
+	if(uuid_compare(prim->inv.items[i]->item_id, item_id) == 0) {
+	  printf("DEBUG: found prim inventory item\n");
+	  inv = prim->inv.items[i];
+	}
+      }
+      
+      if(inv == NULL) {
+	printf("ERROR: TransferRequest for non-existent prim inv item\n"); return; 
+      }
+      if(uuid_compare(inv->asset_id, asset_id)) {
+	printf("ERROR: TransferRequest for prim inv item has mismatching asset_id\n"); 
+	return; 
+      }
+      if(inv->asset_hack == NULL) {
+	printf("FIXME: prim inv is real inventory item?\n"); 
+	return; 	
+      }
+      
+      asset_request *req = new asset_request();
+      req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
+      req->lctx = lctx;
+      memcpy(req->asset_id, tinfo->Params.data+0, 16);
+      uuid_copy(req->transfer_id, tinfo->TransferID);
+      req->channel_type = tinfo->ChannelType;
+      sl_string_copy(&req->params, &tinfo->Params);
+    
+      do_send_asset_cb(lctx->u->sim, req, inv->asset_hack); // HACK
+      
+      // prim inventory items - TODO
+    }
+  } else {
+    // I suspect this could happen, though.
+    user_send_message(lctx->u, "FIXME: TransferRequest with unexpected SourceType");
+    return;
+  }
+
 }
 
 static void handle_RegionHandshakeReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1280,7 +1457,7 @@ static void handle_RequestTaskInventory_msg(struct omuser_ctx* lctx, struct sl_m
       task_inv_strlit(task_inv, "name","Contents");
       task_inv.append("\t}\n");
       
-      for(int i = 0; i < prim->inv.num_items; i++) {
+      for(unsigned i = 0; i < prim->inv.num_items; i++) {
 	inventory_item *item = prim->inv.items[i];
 	task_inv.append("\tinv_item\t0\n\t{\n");
 	task_inv_uuid(task_inv, "item_id", item->item_id);
@@ -2329,6 +2506,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectShape);
   ADD_HANDLER(RezScript);
   ADD_HANDLER(RequestTaskInventory);
+  ADD_HANDLER(TransferRequest);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

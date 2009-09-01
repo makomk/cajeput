@@ -32,7 +32,7 @@
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x0006
+#define CAJEPUT_API_VERSION 0x0007 // The name's Bond. James Bond.
 
 struct user_ctx;
 struct simulator_ctx;
@@ -131,6 +131,11 @@ struct cajeput_grid_hooks {
 				void(*cb)(struct inventory_contents* inv, 
 					  void* priv),
 				void *cb_priv);
+  void (*fetch_inventory_item)(simulator_ctx *sim, user_ctx *user,
+			       void *user_priv, uuid_t item_id,
+			       void(*cb)(struct inventory_item* item, 
+					 void* priv),
+			       void *cb_priv);
 
   void(*uuid_to_name)(struct simulator_ctx *sim, uuid_t id, 
 		      void(*cb)(uuid_t uuid, const char* first, 
@@ -253,6 +258,10 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 #define ASSET_ANIMATION 20
 #define ASSET_GESTURE 21
 
+
+void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
+		   void(*cb)(struct simulator_ctx *sim, void *priv,
+			     struct simple_asset *asset), void *cb_priv);
 #ifdef __cplusplus
 }
 #endif

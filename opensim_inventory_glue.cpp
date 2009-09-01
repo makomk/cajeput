@@ -204,6 +204,49 @@ static int deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
   return 1;
 }
 
+static int serialise_xml(xmlTextWriterPtr writer,
+			 xml_serialisation_desc* serial,
+			 void* in) {
+  unsigned char* inbuf = (unsigned char*)in;
+  for(int i = 0; serial[i].name != NULL; i++) {
+    /* if(!check_node(node,serial[i].name)) {
+      free_partial_deserial_xml(serial, out, i);
+      return 0;
+      } */
+    switch(serial[i].type) {
+    case XML_STYPE_STRING:
+      if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
+				       "%s",*(char**)(inbuf+serial[i].offset)) < 0) 
+	return 0;
+      break;
+    case XML_STYPE_UUID:
+      {
+	char buf[40]; uuid_unparse((unsigned char*)(inbuf+serial[i].offset), buf);
+	 if(xmlTextWriterStartElement(writer, BAD_CAST serial[i].name) < 0) 
+	   return 0;
+	if(xmlTextWriterWriteFormatElement(writer,BAD_CAST "Guid",
+					   "%s",buf) < 0) 
+	  return 0;
+	if(xmlTextWriterEndElement(writer) < 0) 
+	  return 0;
+      }
+      break;
+    case XML_STYPE_INT:
+      {
+	 if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
+					    "%i",*(int*)(inbuf+serial[i].offset)) < 0) 
+	   return 0;
+      }
+      break;
+    case XML_STYPE_SKIP:
+    default:
+      printf("ERROR: bad type passed to deserialise_xml");
+      return 0;
+    }
+  }
+  return 1;
+}
+
 struct os_inv_folder {
   char *name;
   uuid_t folder_id, owner_id, parent_id;
@@ -473,4 +516,153 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
   printf("DEBUG: ran into issues sending inventory request\n");
   cb(NULL, cb_priv);
   // FIXME - handle this
+}
+
+struct inv_item_req {
+  user_grid_glue* user_glue;
+  uuid_t item_id;
+  void(*cb)(struct inventory_item* item, 
+	    void *cb_priv);
+  void *cb_priv;
+};
+
+// FIXME - deal with whitespace!
+static void got_inventory_item_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  //USER_PRIV_DEF(user_data);
+  //GRID_PRIV_DEF(sim);
+  inv_items_req *req = (inv_items_req*)user_data;
+  user_grid_glue* user_glue = req->user_glue;
+  xmlDocPtr doc;
+  xmlNodePtr node;
+  struct inventory_item invit;
+  user_grid_glue_deref(user_glue);
+  if(msg->status_code != 200) {
+    printf("Inventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto fail;
+  }
+
+  printf("DEBUG: inventory item query resp {{%s}}\n",
+	 msg->response_body->data);
+
+  doc = xmlReadMemory(msg->response_body->data,
+		      msg->response_body->length,
+		      "inventory.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: inventory XML parse failed\n");
+    goto fail;    
+  }
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "???") != 0) {
+    printf("ERROR: unexpected root node %s\n",(char*)node->name);
+    goto free_fail;
+  }
+
+  node = node->children;
+  if(!check_node(node,"Folders")) goto free_fail;
+
+#if 0
+  req->cb(invit, req->cb_priv);
+  xmlFreeDoc(doc);
+  delete req;
+  return;
+#endif
+
+ free_fail:
+  xmlFreeDoc(doc);
+ fail:
+  req->cb(NULL, req->cb_priv);
+  delete req;
+  printf("ERROR: inventory item response parse failure\n");
+  return;
+}
+
+
+void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
+			    void *user_priv, uuid_t item_id,
+			    void(*cb)(struct inventory_item* item, 
+				      void* priv),
+			    void *cb_priv) {
+  uuid_t u; char tmp[40]; char uri[256];
+  GRID_PRIV_DEF(sim);
+  USER_PRIV_DEF(user_priv);
+  xmlTextWriterPtr writer;
+  xmlBufferPtr buf;
+  SoupMessage *msg;
+  inv_item_req *req;
+  struct os_inv_item invitem; // don't ask. Please.
+  
+  assert(grid->inventoryserver != NULL);
+
+  buf = xmlBufferCreate();
+  if(buf == NULL) goto fail;
+  writer = xmlNewTextWriterMemory(buf, 0);
+  if(writer == NULL) goto free_fail_1;
+  
+  if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0) 
+    goto free_fail;
+  if(xmlTextWriterStartElement(writer, BAD_CAST "RestSessionObjectOfGuid") < 0) 
+    goto free_fail;
+  user_get_session_id(user, u);
+  uuid_unparse(u, tmp);
+  if(xmlTextWriterWriteFormatElement(writer,BAD_CAST "SessionID",
+				       "%s",tmp) < 0) goto free_fail;
+
+
+  user_get_uuid(user, u);
+  uuid_unparse(u, tmp);
+  if(xmlTextWriterWriteFormatElement(writer,BAD_CAST "AvatarID",
+				       "%s",tmp) < 0) goto free_fail;
+
+  // okay, this is just painful... we have to serialise an entire complex
+  // object in this cruddy .Net XML serialisation format... and the only bit
+  // they actually use or need is a single UUID. Bletch  *vomit*.
+  if(xmlTextWriterStartElement(writer,BAD_CAST "InventoryItemBase") < 0) 
+    goto free_fail;
+  memset(&invitem, 0, sizeof(invitem));
+  invitem.name = ""; invitem.description = ""; invitem.creator_id = "";
+  uuid_copy(invitem.item_id, item_id);
+
+  serialise_xml(writer, deserialise_inv_item, &invitem);
+
+  if(xmlTextWriterEndElement(writer) < 0) 
+    goto free_fail;
+
+  // now we should be done serialising the XML crud.
+
+  if(xmlTextWriterEndElement(writer) < 0) 
+    goto free_fail;
+
+  if(xmlTextWriterEndDocument(writer) < 0) {
+    printf("DEBUG: couldn't end XML document\n"); goto fail;
+  }
+
+  // FIXME - don't use fixed-length buffer, and handle missing trailing /
+  snprintf(uri, 256, "%sQueryItem/", grid->inventoryserver);
+  printf("DEBUG: sending inventory request to %s\n", uri);
+  msg = soup_message_new ("POST", uri);
+  // FIXME - avoid unnecessary strlen
+  soup_message_set_request (msg, "application/xml",
+			    SOUP_MEMORY_COPY, (char*)buf->content, 
+			    strlen ((char*)buf->content));
+  req = new inv_item_req();
+  req->user_glue = user_glue; req->cb = cb;
+  req->cb_priv = cb_priv;
+  uuid_copy(req->item_id, item_id);
+  user_grid_glue_ref(user_glue);
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 got_inventory_item_resp, req);
+    
+  xmlFreeTextWriter(writer);  
+  xmlBufferFree(buf);
+  return;
+
+ free_fail:
+  xmlFreeTextWriter(writer);  
+ free_fail_1:
+  xmlBufferFree(buf);
+ fail:
+  printf("DEBUG: ran into issues sending inventory QueryItem request\n");
+  cb(NULL, cb_priv);
+  // FIXME - handle this
+  
 }
