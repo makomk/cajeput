@@ -240,7 +240,7 @@ typedef struct func_args {
 
 %}
 %locations
- /* %debug */
+%debug
 %error-verbose
 %union {
   struct expr_node *enode;
@@ -251,6 +251,7 @@ typedef struct func_args {
   struct function *func;
   struct list_head *list;
   struct lsl_globals *prog;
+  struct lsl_state *state;
   struct global *glob;
   char *str;
   uint8_t vtype;
@@ -282,7 +283,8 @@ typedef struct func_args {
 %type <bblock> statements function_body
 %type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local
 %type <stat> jump_stmt label_stmt block_stmt
-%type <func> function 
+%type <func> function state_func
+%type <state> state_funcs states
 %type <prog> program functions
 %type <glob> global
 %type <arg> arguments argument
@@ -292,6 +294,7 @@ typedef struct func_args {
 %%
 program : functions states { 
   $$ = NULL; global_prog.funcs = $1->funcs; global_prog.globals = $1->globals;
+  global_prog.states = $2;
   free($1);
 }; 
 global : type IDENTIFIER ';'  {
@@ -320,11 +323,21 @@ function : type IDENTIFIER '(' arguments ')' function_body {
   $$->ret_type = VM_TYPE_NONE; $$->next = NULL;
   $$->name = $1; $$->args = $3; $$->code = $5;
   } ;
-states : /* nothing */ | states state_id '{' state_funcs '}';
+/* definition of states loses state ordering */
+states : /* nothing */ { $$=NULL; } 
+       | states state_id '{' state_funcs '}' { $4->next = $1; $4->name = $2; $$ = $4; };
 state_id : DEFAULT { $$ = NULL; }
          | STATE IDENTIFIER { $$ = $2; } ;
-state_funcs : /* nothing */ | state_funcs state_func ;
-state_func : IDENTIFIER '(' arguments ')' function_body;
+state_funcs : /* nothing */ { 
+  $$ = malloc(sizeof(lsl_state)); $$->funcs = NULL; $$->add_func = &$$->funcs; 
+}
+            | state_funcs state_func { *$1->add_func = $2; $1->add_func = &$2->next; $$ = $1 } ;
+state_func : IDENTIFIER '(' arguments ')' function_body{
+  /* FIXME - code duplication! */
+  $$ = malloc(sizeof(function));
+  $$->ret_type = VM_TYPE_NONE; $$->next = NULL;
+  $$->name = $1; $$->args = $3; $$->code = $5;
+  } ;
 arguments : /* nothing */ { $$ = NULL; }
           | arglist { $$ = $1->first; free($1); } ;
 arglist : argument { $$ = malloc(sizeof(func_args)); $$->first = $1; $$->add = &$1->next; }
@@ -368,7 +381,7 @@ local : type IDENTIFIER {
  }; 
 if_stmt : IF '(' expr ')' '{' statements '}' {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
-  $$->child[0] = $6->first; $$->child[1] = NULL; /* FIXME */
+  $$->child[0] = $6->first; $$->child[1] = NULL;
  }
         | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}' {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
@@ -690,16 +703,16 @@ static void print_stmts(statement *statem, int indent) {
 }
 
 lsl_program *caj_parse_lsl(const char* fname) {
-  extern FILE *yyin; function *func;
+  extern FILE *yyin; function *func; yydebug = 1;
   yyin = fopen(fname,"r");
   if(yyin == NULL) {
     printf("ERROR: file not found\n");
     return NULL;
   }
   global_prog.funcs = NULL;
-  yyparse();
-  if(global_prog.funcs == NULL) return NULL;
+  if(yyparse()) return NULL;
 
+#if 0 // debugging code
    for(func = global_prog.funcs; func != NULL; func = func->next) {
      statement* statem; func_arg *arg;
      printf("%s %s(", type_names[func->ret_type],
@@ -712,7 +725,7 @@ lsl_program *caj_parse_lsl(const char* fname) {
      print_stmts(statem, 1);
      printf("}\n");
    }
-
+#endif
 
   return &global_prog;
 }

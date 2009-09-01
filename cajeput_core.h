@@ -202,6 +202,7 @@ struct inventory_item {
   int32_t creation_date;
   // ...
 
+  simple_asset *asset_hack; // evil HACK for prim scripts
   void *priv; // used for scripts
 };
 

@@ -632,6 +632,7 @@ static int verify_code(script_state *st) {
   unsigned char *visited = new uint8_t[st->bytecode_len];
   memset(visited, 0, st->bytecode_len);
   for(int i = 0; i < st->num_funcs; i++) {
+    if(st->funcs[i].insn_ptr == 0) continue;
     if(!verify_pass1(visited, st->bytecode, &st->funcs[i])) goto out_fail;
     if(!verify_pass2(visited, st->bytecode, &st->funcs[i], st)) goto out_fail;
   }

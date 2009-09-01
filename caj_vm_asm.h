@@ -377,7 +377,7 @@ public:
     switch(GET_ICLASS(val)) {
     case ICLASS_NORMAL:
       {
-	int16_t ival = GET_IVAL(val);
+	uint16_t ival = GET_IVAL(val);
 	if(ival >= NUM_INSNS) { err = "Invalid instruction"; return; }
 	insn_info info = vm_insns[ival];
 	verify->pop_val(info.arg1); verify->pop_val(info.arg2);
@@ -401,7 +401,7 @@ public:
       break;
     case ICLASS_RDG_I:
       {
-	int16_t ival = GET_IVAL(val); 
+	uint16_t ival = GET_IVAL(val); 
 	if(ival >= gval_types.size() || 
 	   caj_vm_check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
 	   err = "Bad global variable read"; return;
@@ -411,7 +411,7 @@ public:
       }
     case ICLASS_WRG_I:
       {
-	int16_t ival = GET_IVAL(val);
+	uint16_t ival = GET_IVAL(val);
 	if(ival >= gval_types.size() || 
 	   caj_vm_check_types(gval_types[ival], VM_TYPE_INT)) {// FIXME - type check redundant
 	   err = "Bad global variable write"; return;
@@ -421,7 +421,7 @@ public:
       }
     case ICLASS_RDG_P:
       {
-	int16_t ival = GET_IVAL(val);
+	uint16_t ival = GET_IVAL(val);
 	if(ival >= gptr_types.size() || 
 	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer read"; return;
@@ -431,7 +431,7 @@ public:
       }
     case ICLASS_WRG_P:
       {
-	int16_t ival = GET_IVAL(val);
+	uint16_t ival = GET_IVAL(val);
 	if(ival >= gptr_types.size() || 
 	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
 	   err = "Bad global pointer write"; return;
@@ -461,12 +461,10 @@ public:
     bytecode.push_back(val);
   }
 
-  void rd_local_int(int offset) {
+  void rd_local_int(unsigned offset) {
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
-    if(offset < 0 || offset >= verify->stack_types.size()) {
-      printf("DEBUG: rd var out of bounds @ %i, stack size %i\n",
-	     offset, verify->stack_types.size());
+    if(offset >= verify->stack_types.size()) {
       err = "Local variable out of bounds"; return;
     }
     if(caj_vm_check_types(verify->stack_types[offset], VM_TYPE_INT)) {
@@ -476,12 +474,10 @@ public:
     insn(MAKE_INSN(ICLASS_RDL_I, offset));
   }
 
-  void wr_local_int(int offset) {
+  void wr_local_int(unsigned offset) {
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
-    if(offset < 0 || offset >= verify->stack_types.size()-1) {
-      printf("DEBUG: wr var out of bounds @ %i, stack size %i\n",
-	     offset, verify->stack_types.size());
+    if(offset >= verify->stack_types.size()-1) {
       err = "Local variable out of bounds"; return;
     }
     if(caj_vm_check_types(verify->stack_types[offset], VM_TYPE_INT)) {
@@ -491,13 +487,11 @@ public:
     insn(MAKE_INSN(ICLASS_WRL_I, offset));
   }
 
-  void rd_local_ptr(int offset) {
+  void rd_local_ptr(unsigned offset) {
 
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
-    if(offset < 0 || offset >= verify->stack_types.size()) {
-      printf("DEBUG: rd ptr var out of bounds @ %i, stack size %i\n",
-	     offset, verify->stack_types.size());
+    if(offset >= verify->stack_types.size()) {
       err = "Local variable out of bounds"; return;
     }
     if(verify->stack_types[offset] != VM_TYPE_STR /* && 
@@ -509,12 +503,10 @@ public:
 
   }
 
-  void wr_local_ptr(int offset) {
+  void wr_local_ptr(unsigned offset) {
     if(err != NULL) return;
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }
-    if(offset < 0 || offset >= verify->stack_types.size()-1) {
-      printf("DEBUG: wr var out of bounds @ %i, stack size %i\n",
-	     offset, verify->stack_types.size());
+    if(offset >= verify->stack_types.size()-1) {
       err = "Local variable out of bounds"; return;
     }
     if(verify->stack_types[offset] != VM_TYPE_STR /* && 
@@ -593,21 +585,21 @@ public:
     }
    
     uint16_t *s_bytecode = new uint16_t[bytecode.size()];
-    for(int i = 0; i < bytecode.size(); i++)
+    for(unsigned i = 0; i < bytecode.size(); i++)
       s_bytecode[i] = bytecode[i];
     serial.set_bytecode(s_bytecode, bytecode.size());
 
     int32_t *s_gvals = new int32_t[gvals.size()];
-    for(int i = 0; i < gvals.size(); i++)
+    for(unsigned i = 0; i < gvals.size(); i++)
       s_gvals[i] = gvals[i];
     serial.set_gvals(s_gvals, gvals.size());
 
     uint32_t *s_gptrs = new uint32_t[gptrs.size()];
-    for(int i = 0; i < gptrs.size(); i++)
+    for(unsigned i = 0; i < gptrs.size(); i++)
       s_gptrs[i] = gptrs[i];
     serial.set_gptrs(s_gptrs, gptrs.size());
 
-    for(int i = 0; i < funcs.size(); i++) {
+    for(unsigned i = 0; i < funcs.size(); i++) {
       serial.add_func(funcs[i]);
     }
     

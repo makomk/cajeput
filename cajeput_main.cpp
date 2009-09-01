@@ -500,9 +500,21 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   inv->creation_date = 0; // FIXME FIXME
   inv->flags = flags;
 
-  // FIXME - create fake asset for script
+  // FIXME - bit iffy here
+  simple_asset *asset = new simple_asset();
+  asset->name = strdup(name); 
+  asset->description = strdup(descrip);
+  uuid_copy(asset->id, inv->asset_id);
+  asset->type = ASSET_LSL_TEXT;
+  sl_string_set(&asset->data, "default\n{  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
+  inv->asset_hack = asset;
 
   prim_add_inventory(prim, inv);
+  
+  // FIXME - check whether it should be created running...
+  if(ctx->sim->scripth.add_script != NULL) {
+    ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, prim, inv, asset);
+  }
 }
 
 static void world_insert_demo_objects(struct simulator_ctx *sim) {

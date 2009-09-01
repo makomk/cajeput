@@ -2,6 +2,10 @@
 #include <string.h>
 #include <stdint.h>
 #include "lsl.tab.h"
+
+  /* # define YY_USER_ACTION  yylloc->??? = ??? + yyleng; */
+
+
 %}
 %option   yylineno
 %%

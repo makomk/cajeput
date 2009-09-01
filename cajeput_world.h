@@ -94,6 +94,10 @@ struct primitive_obj {
   // -------- SCRIPTING GLUE --------------------
 
   struct cajeput_script_hooks {
+    
+    void* (*add_script)(simulator_ctx *sim, void *priv, primitive_obj *prim, 
+			inventory_item *inv, simple_asset *asset);
+
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
 

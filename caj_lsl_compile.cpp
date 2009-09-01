@@ -25,8 +25,12 @@ struct lsl_compile_state {
   std::map<std::string, var_desc> globals;
   std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
+  std::map<std::string, function*> sys_funcs;
+  std::map<std::string, int> states;
   loc_atom var_stack;
 };
+
+static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
 
 static void update_loc(lsl_compile_state &st, expr_node *expr) {
   st.line_no = expr->line_no;
@@ -115,7 +119,7 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
   }
 }
 
-static void propagate_types(lsl_compile_state &st, expr_node *expr) {
+static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
   uint16_t insn; uint8_t ltype, rtype; list_node *lnode;
   update_loc(st, expr);
   switch(expr->node_type) {
@@ -126,9 +130,9 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     break;
   case NODE_ASSIGN:
     assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
-    propagate_types(st, expr->u.child[0]); // finds variable's type
+    propagate_types(vasm, st, expr->u.child[0]); // finds variable's type
     if(st.error != 0) return;
-    propagate_types(st, expr->u.child[1]);
+    propagate_types(vasm, st, expr->u.child[1]);
     if(st.error != 0) return;
     expr->vtype = VM_TYPE_NONE /* expr->u.child[0]->vtype */; // FIXME
     // FIXME - do we really always want to auto-cast?
@@ -142,7 +146,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_ASSIGNMOD:
     enode_split_assign(expr);
     assert(expr->node_type == NODE_ASSIGN);
-    propagate_types(st, expr);
+    propagate_types(vasm, st, expr);
     return;
   case NODE_VECTOR:
   case NODE_ROTATION:
@@ -150,7 +154,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       float v[4]; 
       int count = ( expr->node_type == NODE_VECTOR ? 3 : 4);
       for(int i = 0; i < count; i++) {
-	propagate_types(st, expr->u.child[i]);
+	propagate_types(vasm, st, expr->u.child[i]);
 	if(st.error != 0) return;
 	// FIXME - do we really always want to auto-cast?
 	expr->u.child[i] = enode_cast(expr->u.child[i], VM_TYPE_FLOAT); 
@@ -192,9 +196,9 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_L_AND:
   case NODE_SHR:
   case NODE_SHL:
-    propagate_types(st, expr->u.child[0]);
+    propagate_types(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
-    propagate_types(st, expr->u.child[1]);
+    propagate_types(vasm, st, expr->u.child[1]);
     if(st.error != 0) return;
     update_loc(st, expr);
 
@@ -231,7 +235,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     break;
     /* FIXME - need to implement a bunch of stuff */
   case NODE_NOT:
-    propagate_types(st, expr->u.child[0]);
+    propagate_types(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     update_loc(st, expr);
     if(expr->u.child[0]->vtype != VM_TYPE_INT) {
@@ -240,7 +244,7 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
     expr->vtype = VM_TYPE_INT; 
     break;
   case NODE_L_NOT:
-    propagate_types(st, expr->u.child[0]);
+    propagate_types(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     update_loc(st, expr);
     // no type enforcement, boolean context
@@ -250,17 +254,17 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
   case NODE_POSTINC:
   case NODE_PREDEC:
   case NODE_POSTDEC:
-    propagate_types(st, expr->u.child[0]);
+    propagate_types(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     expr->vtype = expr->u.child[0]->vtype;
     break;
   case NODE_CAST:
-    propagate_types(st, expr->u.child[0]);
+    propagate_types(vasm, st, expr->u.child[0]);
     break;
   case NODE_CALL:
     /* FIXME - this is incomplete (doesn't verify args) */
     for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
-      propagate_types(st, lnode->expr);
+      propagate_types(vasm, st, lnode->expr);
       if(st.error != 0) return;
     }
     update_loc(st, expr);
@@ -271,8 +275,17 @@ static void propagate_types(lsl_compile_state &st, expr_node *expr) {
       std::map<std::string, const vm_function*>::iterator iter =
 	st.funcs.find(expr->u.call.name);
       if(iter == st.funcs.end()) {
-	do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
-	return;
+	std::map<std::string, function*>::iterator sfiter = 
+	  st.sys_funcs.find(expr->u.call.name);
+	
+	if(sfiter == st.sys_funcs.end()) {
+	  do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
+	  return;
+	} else {
+	  st.funcs[expr->u.call.name] = make_function(vasm, sfiter->second);
+	  iter = st.funcs.find(expr->u.call.name); // HACK.
+	  assert(iter != st.funcs.end());
+	}
       }
       expr->vtype = iter->second->ret_type;
     }
@@ -612,7 +625,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
     case STMT_DECL:
       break; // FIXME!
     case STMT_EXPR:
-      propagate_types(st, statem->expr[0]);
+      propagate_types(vasm, st, statem->expr[0]);
       if(st.error) return;
       statem->expr[0] = cast_to_void(statem->expr[0]);
       assemble_expr(vasm, st, statem->expr[0]);
@@ -621,7 +634,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
       {
 	loc_atom else_cl = vasm.make_loc();
 	loc_atom end_if = vasm.make_loc();
-	propagate_types(st, statem->expr[0]); // FIXME - horrid code duplication
+	propagate_types(vasm, st, statem->expr[0]); // FIXME - horrid code duplication
 	if(st.error) return;
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
@@ -646,7 +659,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
       break;
     case STMT_RET:
       if(statem->expr[0] != NULL) {
-	propagate_types(st, statem->expr[0]);
+	propagate_types(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	// FIXME FIXME - check return type, do implicit cast
 	
@@ -673,7 +686,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	loc_atom loop_start = vasm.make_loc();
 	loc_atom loop_end = vasm.make_loc();
 	vasm.do_label(loop_start);
-	propagate_types(st, statem->expr[0]);
+	propagate_types(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
@@ -701,7 +714,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	}
 	produce_code(vasm, st, statem->child[0]);
 	if(st.error) return;
-	propagate_types(st, statem->expr[0]);
+	propagate_types(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
 	assemble_expr(vasm, st, statem->expr[0]);
@@ -720,6 +733,51 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
   } 
 }
 
+// note - also used for runtime-provided funcs
+static const vm_function *make_function(vm_asm &vasm, function *func, int state_no) {
+  char *name = func->name;
+  int num_args = 0, j = 0;
+  for(func_arg* arg = func->args; arg != NULL; arg = arg->next) num_args++;
+  uint8_t *args = new uint8_t[num_args];
+  for(func_arg* arg = func->args; arg != NULL; arg = arg->next) 
+    args[j++] = arg->vtype;
+  
+  if(state_no > -1) {
+    // FIXME - this leaks memory (but then, so does everything...
+    int len = strlen(func->name)+10; name = (char*)malloc(len);
+    snprintf(name, len, "%i:%s", state_no, name);
+  }
+  return  vasm.add_func(func->ret_type, args, num_args, name);
+    
+}
+
+static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func, 
+			     const vm_function *vfunc) {
+    vasm.begin_func(vfunc);
+
+    handle_arg_vars(vasm, st, func->args, vfunc);
+    if(st.error) return;
+    
+    extract_local_vars(vasm, st, func->code->first);
+    if(st.error) return;
+
+    st.var_stack = vasm.mark_stack();
+
+    produce_code(vasm, st, func->code->first);
+    if(st.error) return;
+
+    vasm.verify_stack(st.var_stack);
+    vasm.clear_stack();
+    vasm.insn(INSN_RET);
+    vasm.end_func();
+
+    st.vars.clear();
+  
+    if(vasm.get_error() != NULL) {
+      printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+      st.error = 1; return;
+    }
+}
 
 int main(int argc, char** argv) {
   int num_funcs = 0; int func_no;
@@ -733,11 +791,23 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // First, we load the LSL runtime functions
+  prog = caj_parse_lsl("runtime_funcs.lsl");
+  if(prog == NULL) {
+    printf("ERROR: couldn't parse function template\n"); return 1;
+  }
+
+  for(function *func = prog->funcs; func != NULL; func = func->next) {
+    st.sys_funcs[func->name] = func;
+  }
+
+  // Now, we can do the actual compile!
   prog = caj_parse_lsl(argv[1]);
   if(prog == NULL) {
     printf(" *** Compile failed.\n"); return 1;
   }
 
+  // The first step is to find all the global variables.
   for(global *g = prog->globals; g != NULL; g = g->next) {
     if(st.globals.count(g->name)) {
       printf("ERROR: duplicate definition of global var %s\n",g->name);
@@ -746,7 +816,7 @@ int main(int argc, char** argv) {
       var_desc var; var.type = g->vtype; var.is_global = 1;
       // FIXME - cast this, handle named constants.
       if(g->val != NULL) {
-	propagate_types(st, g->val);
+	propagate_types(vasm, st, g->val);
 	if(g->val->node_type != NODE_CONST ||
 			    g->val->vtype != g->vtype) {
 	  printf("FIXME: global var initialiser not const of expected type\n");
@@ -777,7 +847,7 @@ int main(int argc, char** argv) {
       default:
 	printf("ERROR: unknown type of global var %s\n",g->name);
 	st.error = 1; return 1;
-      // FIXME - handle this
+	// FIXME - handle this
       }
       printf("Adding global var %s %s\n", type_names[g->vtype], g->name);
       assert(g->vtype == var.type); // FIXME - something funny is going on..
@@ -787,8 +857,35 @@ int main(int argc, char** argv) {
     }
   }
 
+  // we want to make sure the default state is state 0
+  lsl_state* dflt_state = NULL; int num_states = 1;
+  st.states["default"] = 0;
+  for(lsl_state *lstate = prog->states; lstate != NULL; lstate = lstate->next) {
+    if(lstate->name == NULL) {
+      if(dflt_state != NULL) {
+	printf("ERROR: duplicate definition of default state\n"); return 1;
+      }
+
+      dflt_state = lstate;
+    } else {
+      if(st.states.count(lstate->name)) {
+	printf("ERROR: duplicate definition of state %s\n", lstate->name); return 1;
+      }
+
+      st.states[lstate->name] = num_states++;
+    }
+
+    for(function *func = lstate->funcs; func != NULL; func = func->next)
+      num_funcs++;
+  }
+
+  if(dflt_state == NULL) { printf("ERROR: no default state defined\n"); return 1; }
+
+  // count the normal, non-event functions too...
   for(function *func = prog->funcs; func != NULL; func = func->next)
     num_funcs++;
+
+  // Now we make a list of all functions - first the normal ones...
   const vm_function ** funcs = new const vm_function*[num_funcs]; // FIXME - use std::vector
   func_no = 0;
   for(function *func = prog->funcs; func != NULL; func = func->next) {
@@ -797,46 +894,41 @@ int main(int argc, char** argv) {
       st.error = 1; return 1;
     }
 
-    int num_args = 0, j = 0;
-    for(func_arg* arg = func->args; arg != NULL; arg = arg->next) num_args++;
-    uint8_t *args = new uint8_t[num_args];
-    for(func_arg* arg = func->args; arg != NULL; arg = arg->next) 
-      args[j++] = arg->vtype;
-
-    st.funcs[func->name] = funcs[func_no++] = 
-      vasm.add_func(func->ret_type, args, num_args, func->name);
+    st.funcs[func->name] = funcs[func_no++] = make_function(vasm, func);
   }
 
+  // ... and then the state events
+  int state_ctr = 1;
+  for(lsl_state *lstate = prog->states; lstate != NULL; lstate = lstate->next) {
+    int state_no = lstate->name == NULL ? 0 : state_ctr++;
+
+    // FIXME - this doesn't do type or duplicate checking!
+    for(function *func = lstate->funcs; func != NULL; func = func->next) {
+      funcs[func_no++] = make_function(vasm, func, state_no);
+    }
+  }
+
+  // now we build the code. It's important this is done in the same order as 
+  // above, since the code here assumes this to be the case.
   func_no = 0;
   for(function *func = prog->funcs; func != NULL; func = func->next, func_no++) {
     printf("DEBUG: assembling function %s\n", func->name);
 
-    vasm.begin_func(funcs[func_no]);
+    compile_function(vasm, st, func, funcs[func_no]);
+    if(st.error != 0) return 1;
+  }
 
-    handle_arg_vars(vasm, st, func->args, funcs[func_no]);
-    if(st.error) return 1;
-    
-    extract_local_vars(vasm, st, func->code->first);
-    if(st.error) return 1;
-
-    st.var_stack = vasm.mark_stack();
-
-    produce_code(vasm, st, func->code->first);
-    if(st.error) return 1;
-
-    vasm.verify_stack(st.var_stack);
-    vasm.clear_stack();
-    vasm.insn(INSN_RET);
-    vasm.end_func();
-
-    st.vars.clear();
-  
-    if(vasm.get_error() != NULL) {
-      printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-      st.error = 1; return 1;
+  state_ctr = 1;
+  for(lsl_state *lstate = prog->states; lstate != NULL; lstate = lstate->next) {
+    int state_no = lstate->name == NULL ? 0 : state_ctr++;
+    for(function *func = lstate->funcs; func != NULL; func = func->next) {
+      printf("DEBUG: assembling state func %i:%s\n", state_no, func->name);
+      compile_function(vasm, st, func, funcs[func_no]);
+      if(st.error != 0) return 1;
     }
   }
 
+  // finally, we serialise the whole thing and save it to disk
   size_t len;
   unsigned char *data = vasm.finish(&len);
   if(data == NULL) {
