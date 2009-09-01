@@ -745,7 +745,7 @@ static const vm_function *make_function(vm_asm &vasm, function *func, int state_
   if(state_no > -1) {
     // FIXME - this leaks memory (but then, so does everything...
     int len = strlen(func->name)+10; name = (char*)malloc(len);
-    snprintf(name, len, "%i:%s", state_no, name);
+    snprintf(name, len, "%i:%s", state_no, func->name);
   }
   return  vasm.add_func(func->ret_type, args, num_args, name);
     

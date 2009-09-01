@@ -399,15 +399,4 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 #define CHAT_SOURCE_AVATAR 1
 #define CHAT_SOURCE_OBJECT 2
 
-#define CHAT_TYPE_WHISPER 0
-#define CHAT_TYPE_NORMAL 1
-#define CHAT_TYPE_SHOUT 2
-/* 3 is say chat, which is obsolete */
-#define CHAT_TYPE_START_TYPING 4
-#define CHAT_TYPE_STOP_TYPING 5
-#define CHAT_TYPE_DEBUG 6 // what???
-/* no 7? */
-#define CHAT_TYPE_OWNER_SAY 8
-#define CHAT_TYPE_REGION_SAY 0xff // ???
-
 #endif

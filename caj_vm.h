@@ -129,25 +129,26 @@ struct vm_function {
   int frame_sz; // only used by VM
 };
 
-struct vm_nfunc_desc { // native function
-  char* name;
-  uint8_t ret_type;
-  int arg_count;
-  uint8_t* arg_types;
-};
-
 struct script_state;
+struct vm_world;
 
-typedef void(*vm_native_func_cb)(script_state *st, void *priv);
-typedef vm_nfunc_desc* (*vm_get_func_cb)(const char* name, void *priv);
+typedef void(*vm_native_func_cb)(script_state *st, void *sc_priv, int func_id);
+
+struct vm_world* vm_world_new(void);
+void vm_world_add_func(vm_world *w, const char* name, uint8_t ret_type, 
+		       vm_native_func_cb cb, int arg_count, ...);
+int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type, 
+		       int arg_count, ...);
 
 script_state* vm_load_script(void* data, int data_len);
 void vm_free_script(script_state * st);
 
 int vm_script_is_idle(script_state *st);
 int vm_script_is_runnable(script_state *st);
-void vm_prepare_script(script_state *st, void *priv, vm_native_func_cb* nfuncs,
-		       vm_get_func_cb get_func);
+void vm_prepare_script(script_state *st, void *priv, vm_world *w);
 void vm_run_script(script_state *st, int num_steps);
+void vm_call_event(script_state *st, const char* name, ...); // HACK
+void vm_func_get_args(script_state *st, int func_no, ...);
+void vm_func_return(script_state *st, int func_no);
 
 #endif

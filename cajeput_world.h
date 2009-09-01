@@ -91,12 +91,24 @@ struct primitive_obj {
   } inv;
 };
 
+#define CHAT_TYPE_WHISPER 0
+#define CHAT_TYPE_NORMAL 1
+#define CHAT_TYPE_SHOUT 2
+/* 3 is say chat, which is obsolete */
+#define CHAT_TYPE_START_TYPING 4
+#define CHAT_TYPE_STOP_TYPING 5
+#define CHAT_TYPE_DEBUG 6 // what???
+/* no 7? */
+#define CHAT_TYPE_OWNER_SAY 8
+#define CHAT_TYPE_REGION_SAY 0xff // ???
+
   // -------- SCRIPTING GLUE --------------------
 
   struct cajeput_script_hooks {
     
     void* (*add_script)(simulator_ctx *sim, void *priv, primitive_obj *prim, 
 			inventory_item *inv, simple_asset *asset);
+    void (*kill_script)(simulator_ctx *sim, void *priv, void *script);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
@@ -135,6 +147,9 @@ struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
+
+void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
+			  int32_t chan, char *msg, int chat_type);
 
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,

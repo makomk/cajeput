@@ -353,7 +353,6 @@ static void real_octree_send_chat(struct simulator_ctx *sim, struct world_octree
   }
 }
 
-
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat) {
   float range = 40.0f;
   switch(chat->chat_type) {
@@ -371,6 +370,22 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat) {
 }
 
 // ---- END of octree code ---
+
+void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
+			  int32_t chan, char *msg, int chat_type) {
+  struct chat_message chat;
+  chat.channel = chan;
+  chat.msg = msg;
+  chat.chat_type = chat_type;
+  chat.pos = prim->ob.pos;
+  chat.name = prim->name;
+  uuid_copy(chat.source,prim->ob.id);
+  uuid_copy(chat.owner,prim->owner);
+  chat.source_type = CHAT_SOURCE_OBJECT;
+  world_send_chat(sim, &chat);
+   
+}
+
 
 /* Note: listener is removed by world_remove_obj */
 void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,

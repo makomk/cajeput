@@ -27,8 +27,12 @@
 
 struct sim_scripts {
   GThread *thread;
-  GAsyncQueue *outq;
-  GAsyncQueue *inq;
+  simulator_ctx *sim;
+
+  // these are used by both main and scripting threads. Don't modify them.
+  GAsyncQueue *to_st;
+  GAsyncQueue *to_mt;
+  vm_world *vmw;
 };
 
 struct list_head {
@@ -59,11 +63,17 @@ struct sim_script {
 #define CAJ_SMSG_SHUTDOWN 0
 #define CAJ_SMSG_ADD_SCRIPT 1
 #define CAJ_SMSG_REMOVE_SCRIPT 2
+#define CAJ_SMSG_LLSAY 3
+#define CAJ_SMSG_KILL_SCRIPT 4
+#define CAJ_SMSG_SCRIPT_KILLED 5
 
 struct script_msg {
   int msg_type;
   sim_script *scr;
   union {
+    struct {
+      int32_t channel; char* msg;
+    } say;
   } u;
 };
 
@@ -106,15 +116,31 @@ static void st_load_script(sim_script *scr) {
   unsigned char *dat = read_file_data(scr->cvm_file, &len);
   if(dat == NULL) { printf("ERROR: can't read script file?!\n"); return; }
 
-  scr->vm = vm_load_script(dat, len);
+  scr->vm = vm_load_script(dat, len); free(dat);
   if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
 
-  vm_prepare_script(scr->vm, scr, NULL, NULL); // FIXME!!!
+  vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
 }
 
-static uint8_t empty_arglist[] = { VM_TYPE_NONE };
-static uint8_t detected_arglist[] = { VM_TYPE_INT, VM_TYPE_NONE };
+static void send_to_mt(sim_scripts *simscr, script_msg *msg) {
+  g_async_queue_push(simscr->to_mt, msg);
+}
 
+static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int chan; char* message;
+  vm_func_get_args(st, func_id, &chan, &message);
+
+  printf("DEBUG: llSay on %i: %s\n", chan, message);
+  script_msg *smsg = new script_msg();
+  smsg->msg_type = CAJ_SMSG_LLSAY;
+  smsg->scr = scr;
+  smsg->u.say.channel = chan;
+  smsg->u.say.msg = message;
+  send_to_mt(scr->simscr, smsg);
+
+  vm_func_return(st, func_id);
+}
 
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
@@ -122,21 +148,25 @@ static gpointer script_thread(gpointer data) {
   list_head_init(&running); list_head_init(&waiting);
   for(;;) {
     for(int i = 0; i < 20; i++) {
-      if(running.next == &running); break;
+      if(running.next == &running) break;
 
       sim_script *scr = (sim_script*)running.next; 
+      printf("DEBUG: handling script on run queue\n");
       assert(scr->is_running);
       if(vm_script_is_idle(scr->vm)) {
-#if 0
-	if(scr->_state_entry) {
-	  vm_call_func_hack(scr->vm,"0:state_entry",empty_arglist);
+	printf("DEBUG: script idle\n");
+	if(scr->state_entry) {
+	  printf("DEBUG: calling state_entry\n");
+	  scr->state_entry = 0;
+	  vm_call_event(scr->vm,"state_entry");
 	}
-#endif
 	// FIXME - schedule events
       }
       if(vm_script_is_runnable(scr->vm)) {
+	printf("DEBUG: script runnable\n");
 	vm_run_script(scr->vm, 100);
       } else {
+	printf("DEBUG: removing script from run queue\n");
 	// deschedule.
 	scr->is_running = 0;  list_remove(&scr->list);
 	list_insert_after(&scr->list, &waiting);
@@ -146,25 +176,46 @@ static gpointer script_thread(gpointer data) {
     script_msg *msg;
     for(;;) {
       if(running.next == &running)
-	msg = (script_msg*)g_async_queue_pop(simscr->outq);
-      else msg = (script_msg*)g_async_queue_try_pop(simscr->outq);
+	msg = (script_msg*)g_async_queue_pop(simscr->to_st);
+      else msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
       if(msg == NULL) break;
+
       switch(msg->msg_type) {
       case CAJ_SMSG_SHUTDOWN:
+	delete msg;
 	return NULL;
       case CAJ_SMSG_ADD_SCRIPT:
+	printf("DEBUG: handling ADD_SCRIPT\n");
 	st_load_script(msg->scr);
 	if(msg->scr->vm != NULL) {
+	  printf("DEBUG: adding to run queue\n");
 	  // FIXME - should insert at end of running queue
+	  msg->scr->is_running = 1;
 	  list_insert_after(&msg->scr->list, &running);
 	} else {
+	  printf("DEBUG: failed to load script\n");
 	  // FIXME - what to do?
+	  msg->scr->is_running = 0;
 	  list_insert_after(&msg->scr->list, &waiting);
 	}
 	break;
+      case CAJ_SMSG_KILL_SCRIPT:
+	printf("DEBUG: got KILL_SCRIPT\n");
+	list_remove(&msg->scr->list);
+	msg->msg_type = CAJ_SMSG_SCRIPT_KILLED;
+	send_to_mt(simscr, msg); msg = NULL;
+	break;
       }
+
+      delete msg;
     }
   }
+}
+
+// --------------- main thread code ------------------------
+
+static void send_to_script(sim_scripts *simscr, script_msg *msg) {
+  g_async_queue_push(simscr->to_st, msg);
 }
 
 static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
@@ -172,7 +223,7 @@ static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
   {
     script_msg *msg = new script_msg();
     msg->msg_type = CAJ_SMSG_SHUTDOWN;
-    g_async_queue_push(simscr->outq, msg);
+    g_async_queue_push(simscr->to_st, msg);
     g_thread_join(simscr->thread);
   }
 }
@@ -183,7 +234,7 @@ static void save_script_text_file(sl_string *dat, char *name) {
   if(fd < 0) {
     printf("ERROR: couldn't open script file for save\n"); return;
   }
-  size_t off = 0; ssize_t ret;
+  int off = 0; ssize_t ret;
   while(off < len) {
     ret = write(fd, dat->data+off, len-off);
     if(ret <= 0) { perror("ERROR: saving script file"); close(fd); return; }
@@ -195,15 +246,18 @@ static void save_script_text_file(sl_string *dat, char *name) {
 // internal function, main thread
 static void mt_free_script(sim_script *scr) {
   // FIXME - TODO!!!
+  free(scr->cvm_file);
+  delete scr;
 }
 
 static void mt_enable_script(sim_script *scr) {
   scr->mt_state = SCR_MT_RUNNING;
   
+  scr->state_entry = 1; // HACK!!!
   script_msg *msg = new script_msg();
   msg->msg_type = CAJ_SMSG_ADD_SCRIPT;
   msg->scr = scr;
-  g_async_queue_push(scr->simscr->outq, msg);
+  g_async_queue_push(scr->simscr->to_st, msg);
 }
 
 static void compile_done(GPid pid, gint status,  gpointer data) {
@@ -252,21 +306,69 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   return scr;
 }
 
+static void kill_script(simulator_ctx *sim, void *priv, void *script) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)scr;
+  scr->prim = NULL;
+  if(scr->mt_state == SCR_MT_RUNNING) {
+    script_msg *msg = new script_msg();
+    msg->msg_type = CAJ_SMSG_KILL_SCRIPT;
+    msg->scr = scr;
+    send_to_script(simscr, msg);  
+  } else if(scr->mt_state != SCR_MT_COMPILING) {
+    mt_free_script(scr);
+  }
+}
+
+static gboolean script_poll_timer(gpointer data) {
+  sim_scripts *simscr = (sim_scripts*)data;
+  script_msg* msg;
+  for(;;) {
+    msg = (script_msg*)g_async_queue_try_pop(simscr->to_mt);
+    if(msg == NULL) break;
+
+    switch(msg->msg_type) {
+    case CAJ_SMSG_LLSAY:
+      if(msg->scr->prim != NULL) {
+	world_chat_from_prim(simscr->sim, msg->scr->prim, msg->u.say.channel,
+			     msg->u.say.msg, CHAT_TYPE_NORMAL);
+      }
+      free(msg->u.say.msg);
+      break;
+    }
+    delete msg;
+  }
+
+  return TRUE;
+}
+
 int caj_scripting_init(int api_version, struct simulator_ctx* sim, 
 		       void **priv, struct cajeput_script_hooks *hooks) {
   sim_scripts *simscr = new sim_scripts(); *priv = simscr;
-  simscr->outq = g_async_queue_new();
-  simscr->inq = g_async_queue_new();
+
+  // FIXME - need to check api version!
+  
+  simscr->sim = sim;
+  simscr->vmw = vm_world_new();
+  vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, 0);
+  vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
+
+
+  simscr->to_st = g_async_queue_new();
+  simscr->to_mt = g_async_queue_new();
   simscr->thread = g_thread_create(script_thread, simscr, TRUE, NULL);
-  assert(simscr->outq != NULL); assert(simscr->inq != NULL); 
+  assert(simscr->to_st != NULL); assert(simscr->to_mt != NULL); 
   if(simscr->thread == NULL) {
     printf("ERROR: couldn't create script thread\n"); exit(1);
   }
+
+  g_timeout_add(100, script_poll_timer, simscr); // FIXME - hacky!
 
   mkdir("script_tmp/", 0755);
 
   hooks->shutdown = shutdown_scripting;
   hooks->add_script = add_script;
+  hooks->kill_script = kill_script;
 
   return 1;
 }

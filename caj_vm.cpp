@@ -23,6 +23,7 @@
 #include "caj_vm.h"
 #include "caj_vm_internal.h"
 #include <cassert>
+#include <stdarg.h>
 
 struct heap_header {
   uint32_t refcnt;
@@ -32,6 +33,21 @@ struct heap_header {
 static uint8_t heap_entry_vtype(heap_header *hentry) {
   return hentry->refcnt >> 24;
 }
+
+struct vm_nfunc_desc { // native function
+  uint8_t ret_type;
+  int arg_count;
+  uint8_t* arg_types;
+  int number;
+  vm_native_func_cb cb;
+};
+
+struct vm_world {
+  std::vector<vm_nfunc_desc> nfuncs;
+  std::map<std::string, int> nfunc_map;
+  std::map<std::string, vm_nfunc_desc> event_map; // may want to give own type
+  int num_events;
+};
 
 struct script_state {
   uint32_t ip;
@@ -46,6 +62,7 @@ struct script_state {
   uint8_t* gptr_types;
   vm_function *funcs;
   vm_native_func_cb *nfuncs;
+  vm_world *world;
   void *priv; // for the user of the VM
   int scram_flag;
 };
@@ -627,7 +644,10 @@ static int verify_code(script_state *st) {
     if(last_func >= 0) st->funcs[last_func].insn_end = st->bytecode_len;
   }
 
-  // FIXME - need to verify first insn is INSN_QUIT!
+  if(st->bytecode_len <= 0 || st->bytecode[0] != INSN_QUIT) {
+    printf("SCRIPT VERIFY ERR: bytecode at 0 must be QUIT\n");
+    return 0;
+  }
 
   unsigned char *visited = new uint8_t[st->bytecode_len];
   memset(visited, 0, st->bytecode_len);
@@ -674,6 +694,7 @@ static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
   int32_t* stack_top = st->stack_top;
   uint32_t ip = st->ip;
+  assert((st->ip & 0x80000000) == 0); // caller should know better :-P
   for( ; num_steps > 0 && ip != 0; num_steps--) {
     //printf("DEBUG: executing at %u: 0x%04x\n", ip, (int)bytecode[ip]);
     uint16_t insn = bytecode[ip++];
@@ -829,7 +850,15 @@ static void step_script(script_state* st, int num_steps) {
 	assert(stack_top[st->funcs[ival].frame_sz] == 0x1231234);
 	stack_top[st->funcs[ival].frame_sz] = ip;
 	ip = st->funcs[ival].insn_ptr;
-	if(ip == 0) goto abort_exec; // unbound native function
+	if(ip == 0) {
+	  printf("SCRIPT ERROR: unbound native function %s\n", st->funcs[ival].name);
+	  goto abort_exec; // unbound native function
+	} else if(ip & 0x80000000) {
+	  uint32_t func_no = ip & 0x7fffffff;
+	  st->stack_top = stack_top; st->ip = ip;
+	  st->world->nfuncs[func_no].cb(st, st->priv, func_no);
+	  return;
+	}
       }
       break;
     case ICLASS_RDG_I:
@@ -861,11 +890,12 @@ static void step_script(script_state* st, int num_steps) {
     }
   }
  out:
-  st->stack_top = stack_top;
+  // note: this code is duplicated in INSN_CALL
+  st->stack_top = stack_top; 
   st->ip = ip;
   return; // FIXME;
  abort_exec:
-  printf("DEBUG: abborting code execution\n");
+  printf("DEBUG: aborting code execution\n");
   st->ip = 0; st->scram_flag = 1;
 }
 
@@ -874,24 +904,187 @@ int vm_script_is_idle(script_state *st) {
 }
 
 int vm_script_is_runnable(script_state *st) {
-  return st->ip == 0 && st->scram_flag == 0;
+  return st->ip != 0 && st->scram_flag == 0 && (st->ip & 0x80000000) == 0;
+}
+
+int check_ncall_args(const vm_nfunc_desc &nfunc, const vm_function &func) {
+  if(nfunc.ret_type != func.ret_type || nfunc.arg_count != func.arg_count)
+    return 1;
+  for(int i = 0; i < func.arg_count; i++) {
+    if(nfunc.arg_types[i] != func.arg_types[i]) return 1;
+  }
+  return 0;
 }
 
 // the native funcs array is generally global so we don't free it
-void vm_prepare_script(script_state *st, void *priv, vm_native_func_cb* nfuncs,
-		       vm_get_func_cb get_func) {
+void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
   assert(st->stack_top == NULL);
   st->stack_start = new int32_t[1024]; // FIXME - pick this properly;
   st->stack_top = st->stack_start+1023;
-  st->nfuncs = nfuncs; st->priv = priv;
+  st->world = w; st->priv = priv;
  
-  // FIXME - need to bind native funcs!
+  for(unsigned i = 0; i < st->num_funcs; i++) {
+    if(st->funcs[i].insn_ptr == 0) {
+      std::map<std::string, int>::iterator iter = 
+	w->nfunc_map.find(st->funcs[i].name);
+      if(iter != w->nfunc_map.end()) {
+	if(check_ncall_args(w->nfuncs[iter->second], st->funcs[i])){
+	  printf("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
+	  st->scram_flag = 1; return;
+	}
+	st->funcs[i].insn_ptr = 0x80000000 | iter->second;
+      }
+    }
+  }
+  // FIXME - need to bind state funcs!
+}
+
+// FIXME - HACK!
+void vm_call_event(script_state *st, const char* name, ...) {
+  char funcname[32]; snprintf(funcname, 32, "0:%s", name);
+  uint32_t func_ip = 0;
+
+  assert(st->ip == 0 && st->scram_flag == 0);
+  assert(st->stack_top != NULL);
+
+  std::map<std::string, vm_nfunc_desc>::iterator iter = 
+    st->world->event_map.find(name);
+  assert(iter != st->world->event_map.end());
+
+  for(unsigned i = 0; i < st->num_funcs; i++) {
+    if(strcmp(funcname, st->funcs[i].name) == 0 && st->funcs[i].insn_ptr != 0) {
+      if(check_ncall_args(iter->second,  st->funcs[i])) {
+	printf("ERROR: event prototype mismatch for %s\n", funcname); return;
+      }
+      func_ip = st->funcs[i].insn_ptr;
+    }
+  }  
+  
+  if(func_ip == 0) { printf("DEBUG: no event matching %s\n", name); return; }
+
+  switch(iter->second.ret_type) {
+  case VM_TYPE_NONE: break;
+  case VM_TYPE_INT: // not really needed 
+  case VM_TYPE_FLOAT:
+    *(st->stack_top--) = 0; break;
+  default:
+    assert(0);
+  }
+  *(st->stack_top--) = 0; // return pointer
+
+  // FIXME - pass args
+
+  st->ip = func_ip;
 }
 
 void vm_run_script(script_state *st, int num_steps) {
   if(st->scram_flag != 0 || st->ip == 0) return;
   assert(st->stack_top != NULL);
-  
+  step_script(st, num_steps);
+}
+
+
+struct vm_world* vm_world_new(void) {
+  vm_world *w = new vm_world;
+  w->num_events = 0;
+  return w;
+}
+
+void vm_world_add_func(vm_world *w, const char* name, uint8_t ret_type, 
+		       vm_native_func_cb cb, int arg_count, ...) {
+  vm_nfunc_desc desc; va_list vargs;
+  desc.cb = cb;
+  desc.ret_type = ret_type;
+  desc.arg_count = arg_count;
+  desc.arg_types = new uint8_t[arg_count];
+  va_start(vargs, arg_count);
+
+  for(int i = 0; i < arg_count; i++) {
+    desc.arg_types[i] = va_arg(vargs, int);
+  }
+  va_end(vargs);
+
+  desc.number = w->nfuncs.size(); w->nfuncs.push_back(desc); 
+  w->nfunc_map[name] = desc.number;
+}
+
+int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type, 
+		       int arg_count, ...) {
+  vm_nfunc_desc desc; va_list vargs;
+  desc.ret_type = ret_type;
+  desc.arg_count = arg_count;
+  desc.arg_types = new uint8_t[arg_count];
+
+  va_start(vargs, arg_count);
+  for(int i = 0; i < arg_count; i++) {
+    desc.arg_types[i] = va_arg(vargs, int);
+  }
+  va_end(vargs);
+
+  desc.number = w->num_events++;
+  w->event_map[name] = desc;
+  return desc.number;
+}
+
+void vm_func_get_args(script_state *st, int func_no, ...) {
+  va_list args;
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(st->ip & 0x80000000);
+
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  va_start(args, func_no);
+  for(int i = 0; i < desc.arg_count; i++) {
+    switch(desc.arg_types[i]) {
+    case VM_TYPE_INT:
+      *va_arg(args, int*) = *(frame_ptr--);
+      break;
+    case VM_TYPE_FLOAT:
+      *va_arg(args, float*) = *(float*)(frame_ptr--);
+      break;
+    case VM_TYPE_STR:
+      { 
+	// FIXME - need to make strings null-terminated, I think!
+	frame_ptr -= ptr_stack_sz();
+	heap_header *p = get_stk_ptr(frame_ptr+1);
+	int32_t len = p->len;
+	char *buf = (char*)malloc(len+1);
+	memcpy(buf, script_getptr(p), len);
+	buf[len] = 0;
+	printf("DEBUG: string argument '%s'\n", buf);
+	*va_arg(args, char**) = buf;
+	break;
+      }
+    default:
+      printf("ERROR: unhandled arg type in vm_func_get_args\n"); 
+      va_end(args); return;
+    }
+  }
+  va_end(args);
+}
+
+void vm_func_return(script_state *st, int func_no) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(st->ip & 0x80000000);
+  for(int i = desc.arg_count-1; i >= 0; i--) {
+    switch(desc.arg_types[i]) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+      st->stack_top++; break;
+    case VM_TYPE_STR:
+      {
+	heap_header *p = get_stk_ptr(st->stack_top+1);
+	heap_ref_decr(p, st); st->stack_top += ptr_stack_sz();
+	break;
+      }
+    default:
+      printf("ERROR: unhandled arg type in vm_func_return\n"); 
+      st->scram_flag = 1; return;
+    }
+  }
+  st->ip = *(++st->stack_top); 
 }
 
 // FIXME - remove this
