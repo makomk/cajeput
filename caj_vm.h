@@ -127,6 +127,7 @@ struct vm_function {
   uint8_t* arg_types;
   uint16_t* arg_offsets; // only used by vm_asm
   int frame_sz; // only used by VM
+  int max_stack_use; // only used by VM & verifier
 };
 
 struct script_state;
@@ -146,6 +147,9 @@ void vm_free_script(script_state * st);
 
 int vm_script_is_idle(script_state *st);
 int vm_script_is_runnable(script_state *st);
+int vm_script_has_failed(script_state *st);
+char* vm_script_get_error(script_state *st);
+
 void vm_prepare_script(script_state *st, void *priv, vm_world *w);
 void vm_run_script(script_state *st, int num_steps);
 void vm_call_event(script_state *st, const char* name, ...); // HACK

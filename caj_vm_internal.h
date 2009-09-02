@@ -30,15 +30,19 @@ static int caj_vm_check_types(uint8_t stype, uint8_t vtype) {
 class asm_verify {
  private:
   const char * &err;
+  int ptr_size, stack_used, max_stack_used;
   
  public:
   std::vector<uint8_t> stack_types; // FIXME - make private?
 
-   asm_verify(const char* &err_out) : err(err_out) {
+ asm_verify(const asm_verify &v) : err(v.err), ptr_size(v.ptr_size), 
+    stack_used(v.stack_used), max_stack_used(v.max_stack_used),
+    stack_types(v.stack_types) {
    
   }
   
- asm_verify(const char* &err_out, vm_function *func) : err(err_out) {
+ asm_verify(const char* &err_out, vm_function *func, int ptr_size_) : 
+  err(err_out),ptr_size(ptr_size_), stack_used(0),  max_stack_used(0) {
     // the caller has to allocate space for the return value, to avoid 
     // much messing around in the runtime!
     push_val(func->ret_type);
@@ -46,12 +50,11 @@ class asm_verify {
     for(int i = 0; i < func->arg_count; i++) {
       push_val(func->arg_types[i]);
     }
+    stack_used = max_stack_used = 0; // arguments don't count
   }
 
   asm_verify* dup(void) {
-    asm_verify *verify = new asm_verify(err);
-    verify->stack_types = stack_types;
-    return verify;
+    return new asm_verify(*this);
   }
 
   void dump_stack(const char*prefix) { // DEBUG
@@ -74,6 +77,7 @@ class asm_verify {
 	err = "Stack mismatch"; return;
       }
     }
+    assert(stack_used == v2->stack_used);
   }
 
   void pop_val(uint8_t vtype) {
@@ -88,7 +92,18 @@ class asm_verify {
     case VM_TYPE_ROT: 
       for(int i = 0; i < 4; i++) pop_val(VM_TYPE_FLOAT);
       return;
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+    case VM_TYPE_RET_ADDR:
+    case VM_TYPE_OUR_RET_ADDR:
+      stack_used--; break;
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+    case VM_TYPE_LIST:
+      stack_used -= ptr_size; break;
+    default: assert(0); break;
     }
+
     uint8_t stype = stack_types.back();
     stack_types.pop_back();
     if(caj_vm_check_types(stype, vtype)) {
@@ -105,7 +120,20 @@ class asm_verify {
     case VM_TYPE_ROT: 
       for(int i = 0; i < 4; i++) push_val(VM_TYPE_FLOAT);
       return;
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+    case VM_TYPE_RET_ADDR:
+    case VM_TYPE_OUR_RET_ADDR:
+      stack_used++; break;
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+    case VM_TYPE_LIST:
+      stack_used += ptr_size; break;
+    default: printf("ERROR: Unknown vtype %i?!\n",vtype); assert(0); break;
     }
+
+    if(stack_used > max_stack_used) max_stack_used = stack_used;
+
     stack_types.push_back(vtype);
   }
 
@@ -142,6 +170,10 @@ class asm_verify {
     if(caj_vm_check_types(vtype, VM_TYPE_INT)) { err = "WRL_I from wrong type"; return 0; }
     pop_val(vtype); // should really be before the check...
     return fudge;
+  }
+
+  int get_max_stack(void) {
+    return max_stack_used;
   }
 };
 

@@ -33,6 +33,8 @@
 
 #define BUF_SIZE 2048
 
+#define DEBUG_CHANNEL 2147483647
+
 #define RESEND_INTERVAL 1.0
 #define MAX_RESENDS 3
 
@@ -307,7 +309,8 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
   uuid_copy(cdata->SourceID, msg->source);
   uuid_copy(cdata->OwnerID, msg->owner);
   cdata->SourceType = msg->source_type;
-  cdata->ChatType = msg->chat_type;
+  cdata->ChatType = (msg->channel == DEBUG_CHANNEL ? CHAT_TYPE_DEBUG : 
+		     msg->chat_type);
   cdata->Audible = CHAT_AUDIBLE_FULLY;
   sl_string_set(&cdata->Message,msg->msg);
   sl_send_udp(lctx, &chat);

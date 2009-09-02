@@ -49,6 +49,13 @@ struct vm_world {
   int num_events;
 };
 
+#define VM_SCRAM_OK 0
+#define VM_SCRAM_ERR 1
+#define VM_SCRAM_DIV_ZERO 2
+#define VM_SCRAM_STACK_OVERFLOW 3
+#define VM_SCRAM_BAD_OPCODE 4
+#define VM_SCRAM_MISSING_FUNC 5
+
 struct script_state {
   uint32_t ip;
   uint32_t mem_use;
@@ -450,9 +457,12 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
   std::vector<pass2_state> pending; const char* err = NULL;
   std::map<uint32_t,asm_verify*> done;
   {
-    asm_verify* verify = new asm_verify(err, func);
+    asm_verify* verify = new asm_verify(err, func, ptr_stack_sz());
     pending.push_back(pass2_state(func->insn_ptr, verify));
   }
+  
+  func->max_stack_use = 0;
+
  next_chunk:
   while(!pending.empty()) {
     pass2_state vs = pending.back(); pending.pop_back();
@@ -465,6 +475,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	if(iter == done.end()) {
 	  done[vs.ip] = vs.verify->dup();
 	} else {
+	  if(vs.verify->get_max_stack() > func->max_stack_use)
+	    func->max_stack_use = vs.verify->get_max_stack();
+
 	  vs.verify->combine_verify(iter->second); delete vs.verify;
 	  if(err != NULL) goto out; else goto next_chunk;
 	}
@@ -491,6 +504,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  case IVERIFY_INVALID: 
 	    assert(0); break; // checked pass 1
 	  case IVERIFY_RET:
+	    if(vs.verify->get_max_stack() > func->max_stack_use)
+	      func->max_stack_use = vs.verify->get_max_stack();
+
 	    delete vs.verify; goto next_chunk;
 	  case IVERIFY_COND:
 	    // execution could skip the next instruction...
@@ -620,11 +636,6 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
   return 1;
 }
 
-// !!!!!!!!! FIXME !!!!!!!!!!!!
-// We need to prevent the user overflowing the stack. This has nasty security
-// implications (probably arbitrary code execution, if they play their cards
-// right!) 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!
 static int verify_code(script_state *st) {
   if(st->stack_top != NULL) return 0;
   {
@@ -718,7 +729,9 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top++;
 	break;
       case INSN_DIV_II:
-	if(unlikely(stack_top[1] == 0)) goto abort_exec;
+	if(unlikely(stack_top[1] == 0)) { 
+	  st->scram_flag = VM_SCRAM_DIV_ZERO; goto abort_exec; 
+	}
 	stack_top[2] = stack_top[2] / stack_top[1];
 	stack_top++;
 	break;
@@ -742,7 +755,10 @@ static void step_script(script_state* st, int num_steps) {
 	ip = *(++stack_top); 
 	break;
       case INSN_MOD_II:
-	if(unlikely(stack_top[1] == 0)) goto abort_exec;
+	if(unlikely(stack_top[1] == 0)) {
+	  st->scram_flag = VM_SCRAM_DIV_ZERO; 
+	  goto abort_exec;
+	}
 	stack_top[2] = stack_top[2] % stack_top[1];
 	stack_top++;
 	break;
@@ -831,7 +847,7 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top[1]--; break;
       default:
 	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
-	goto abort_exec;
+	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
       }
       break;
     case ICLASS_JUMP:
@@ -852,12 +868,15 @@ static void step_script(script_state* st, int num_steps) {
 	ip = st->funcs[ival].insn_ptr;
 	if(ip == 0) {
 	  printf("SCRIPT ERROR: unbound native function %s\n", st->funcs[ival].name);
-	  goto abort_exec; // unbound native function
+	  st->scram_flag = VM_SCRAM_MISSING_FUNC; goto abort_exec;
 	} else if(ip & 0x80000000) {
 	  uint32_t func_no = ip & 0x7fffffff;
 	  st->stack_top = stack_top; st->ip = ip;
 	  st->world->nfuncs[func_no].cb(st, st->priv, func_no);
 	  return;
+	} else if(st->funcs[ival].max_stack_use > (st->stack_start - stack_top)) { 
+	  printf("ERROR: potential stack overflow, aborting\n");
+	  st->scram_flag = VM_SCRAM_STACK_OVERFLOW; goto abort_exec;
 	}
       }
       break;
@@ -886,7 +905,7 @@ static void step_script(script_state* st, int num_steps) {
       break;
     default:
       printf("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
-      goto abort_exec;
+      st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
     }
   }
  out:
@@ -896,7 +915,7 @@ static void step_script(script_state* st, int num_steps) {
   return; // FIXME;
  abort_exec:
   printf("DEBUG: aborting code execution\n");
-  st->ip = 0; st->scram_flag = 1;
+  st->ip = 0; if(st->scram_flag == 0) st->scram_flag = VM_SCRAM_ERR;
 }
 
 int vm_script_is_idle(script_state *st) {
@@ -905,6 +924,22 @@ int vm_script_is_idle(script_state *st) {
 
 int vm_script_is_runnable(script_state *st) {
   return st->ip != 0 && st->scram_flag == 0 && (st->ip & 0x80000000) == 0;
+}
+
+int vm_script_has_failed(script_state *st) {
+  return st->scram_flag != 0;
+}
+
+char* vm_script_get_error(script_state *st) {
+  switch(st->scram_flag) {
+  case VM_SCRAM_OK: return strdup("Script OK? FIXME!");
+  case VM_SCRAM_ERR: return strdup("Unspecified script error. FIXME");
+  case VM_SCRAM_DIV_ZERO: return strdup("Divide by zero error");
+  case VM_SCRAM_STACK_OVERFLOW: return strdup("Stack overflow error");
+  case VM_SCRAM_BAD_OPCODE: return strdup("Bad/unimplemented opcode. FIXME");
+  case VM_SCRAM_MISSING_FUNC: return strdup("Call to non-existent native func");
+  default: return strdup("Script error with unknown code. FIXME.");
+  }
 }
 
 int check_ncall_args(const vm_nfunc_desc &nfunc, const vm_function &func) {

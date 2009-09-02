@@ -173,7 +173,7 @@ public:
 
     vm_function *func = funcs[cfunc->func_num];
     func->insn_ptr = func_start = bytecode.size();
-    verify = new asm_verify(err, func);
+    verify = new asm_verify(err, func, 1);
     
     
   }

@@ -43,6 +43,8 @@
 #include <fcntl.h>
 #include <cassert>
 
+#define DEBUG_CHANNEL 2147483647
+
 struct simulator_ctx;
 struct avatar_obj;
 struct world_octree;
@@ -1750,6 +1752,7 @@ int user_complete_movement(user_ctx *ctx) {
     world_insert_obj(ctx->sim, &ctx->av->ob);
     world_obj_listen_chat(ctx->sim,&ctx->av->ob,user_av_chat_callback,ctx);
     world_obj_add_channel(ctx->sim,&ctx->av->ob,0);
+    world_obj_add_channel(ctx->sim,&ctx->av->ob,DEBUG_CHANNEL);
 
     ctx->sim->gridh.user_entered(ctx->sim, ctx, ctx->grid_priv);
   }

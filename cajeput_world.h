@@ -97,7 +97,7 @@ struct primitive_obj {
 /* 3 is say chat, which is obsolete */
 #define CHAT_TYPE_START_TYPING 4
 #define CHAT_TYPE_STOP_TYPING 5
-#define CHAT_TYPE_DEBUG 6 // what???
+#define CHAT_TYPE_DEBUG 6 // script debug messages. 
 /* no 7? */
 #define CHAT_TYPE_OWNER_SAY 8
 #define CHAT_TYPE_REGION_SAY 0xff // ???

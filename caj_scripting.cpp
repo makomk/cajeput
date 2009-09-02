@@ -25,6 +25,8 @@
 #include "caj_vm.h"
 #include <fcntl.h>
 
+#define DEBUG_CHANNEL 2147483647
+
 struct sim_scripts {
   GThread *thread;
   simulator_ctx *sim;
@@ -137,6 +139,7 @@ static void send_to_mt(sim_scripts *simscr, script_msg *msg) {
   g_async_queue_push(simscr->to_mt, msg);
 }
 
+// note - this relies on the string-duplicating property of vm_func_get_args
 static void do_say(sim_script *scr, int chan, char* message, int chat_type) {
   script_msg *smsg = new script_msg();
   smsg->msg_type = CAJ_SMSG_LLSAY;
@@ -199,6 +202,10 @@ static gpointer script_thread(gpointer data) {
 	vm_run_script(scr->vm, 100);
       } else {
 	printf("DEBUG: removing script from run queue\n");
+	if(vm_script_has_failed(scr->vm)) {
+	  do_say(scr, DEBUG_CHANNEL, vm_script_get_error(scr->vm),
+		 CHAT_TYPE_NORMAL);
+	}
 	// deschedule.
 	scr->is_running = 0;  list_remove(&scr->list);
 	list_insert_after(&scr->list, &waiting);
