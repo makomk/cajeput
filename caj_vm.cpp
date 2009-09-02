@@ -774,7 +774,7 @@ static void step_script(script_state* st, int num_steps) {
 	}
 	if(unlikely(stack_top[1] == -1 && stack_top[2] == -2147483648)) {
 	  // evil hack. This division causes an FPE!
-	  stack_top[2] == -2147483648;
+	  stack_top[2] = -2147483648;
 	} else {
 	  stack_top[2] = stack_top[2] / stack_top[1];
 	}
@@ -804,9 +804,9 @@ static void step_script(script_state* st, int num_steps) {
 	  st->scram_flag = VM_SCRAM_DIV_ZERO; 
 	  goto abort_exec;
 	}
-	if(unlikely(stack_top[1] == -1 && stack_top[2] == -2147483648)) {
+	if(unlikely(stack_top[1] == -1 && stack_top[2] == (int32_t)0x80000000)) {
 	  // evil hack. This division causes an FPE!
-	  stack_top[2] == 0;
+	  stack_top[2] = 0;
 	} else {
 	  stack_top[2] = stack_top[2] % stack_top[1];
 	}

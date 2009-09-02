@@ -34,7 +34,7 @@ bin_op_names = { '+':'NODE_ADD', '-':'NODE_SUB', '*':'NODE_MUL', '/':'NODE_DIV',
                  "!=":"NODE_NEQUAL", ">=":"NODE_GEQUAL", "<=":"NODE_LEQUAL",
                  "&&":"NODE_L_AND", "||":"NODE_L_OR", "!":"NODE_L_NOT",
                  "&":"NODE_AND", "|":"NODE_OR", "~":"NODE_NOT", "^":"NODE_XOR",
-                 "%":"NODE_MOD", "<<":"NODE_SHR", ">>":"NODE_SHL",
+                 "%":"NODE_MOD", "<<":"NODE_SHL", ">>":"NODE_SHR",
                  }
 
 bin_ops = { }; un_ops = { } 

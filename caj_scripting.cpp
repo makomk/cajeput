@@ -182,7 +182,7 @@ static void llWhisper_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
-static void llResetTimer_cb(script_state *st, void *sc_priv, int func_id) {
+static void llResetTime_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   int chan; char* message;
   scr->time = g_timer_elapsed(scr->simscr->timer, NULL);
@@ -506,7 +506,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
-  vm_world_add_func(simscr->vmw, "llResetTimer", VM_TYPE_NONE, llResetTimer_cb, 0); 
+  vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
 
   simscr->to_st = g_async_queue_new();

@@ -611,6 +611,7 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 static expr_node *cast_to_void(expr_node *expr) {
   // we're going to need magic here for assignments later, but for now...
   switch(expr->node_type) {
+    // case NODE_ASSIGN: // will add once node can return something else
   case NODE_PREINC:
   case NODE_PREDEC:
   case NODE_POSTINC:
@@ -626,7 +627,16 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
   for( ; statem != NULL; statem = statem->next) {
     switch(statem->stype) {
     case STMT_DECL:
-      break; // FIXME!
+      if(statem->expr[1] != NULL) {
+	expr_node fake_expr;
+	fake_expr.node_type = NODE_ASSIGN;
+	fake_expr.u.child[0] = statem->expr[0];
+	fake_expr.u.child[1] = statem->expr[0];
+	propagate_types(vasm, st, &fake_expr);
+	if(st.error) return;
+	assemble_expr(vasm, st, &fake_expr);
+      }
+      break; 
     case STMT_EXPR:
       propagate_types(vasm, st, statem->expr[0]);
       if(st.error) return;
