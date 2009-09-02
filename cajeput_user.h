@@ -202,6 +202,16 @@ void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
 				  uint32_t sim_ip, uint16_t sim_port,
 				  const char* seed_cap);
 
+// ----------------- USER HOOKS --------------------------
+
+typedef void(*user_generic_cb)(user_ctx* user, void* priv);
+
+  // notification that this user context is going away
+void user_add_delete_hook(struct user_ctx *ctx,
+			   user_generic_cb cb, void *priv);
+void user_remove_delete_hook(struct user_ctx *ctx,
+			      user_generic_cb cb, void *priv);
+
 // -------------------- INVENTORY STUFF ----------------------------------
 
 // Stuff for creating temporary descriptions of part of the inventory.

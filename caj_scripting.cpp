@@ -46,6 +46,13 @@ struct list_head {
 
 #define SCRIPT_MAGIC 0xd0f87153
 
+struct compiler_output {
+  GIOChannel *stdout, *stderr;
+  int len, buflen;
+  char *buf;
+  compile_done_cb cb; void *cb_priv;
+};
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -56,6 +63,7 @@ struct sim_script {
   // section used by main thread
   int mt_state; // state as far as main thread is concerned
   primitive_obj *prim;
+  compiler_output *comp_out;
 
   // used by both threads, basically read-only 
   uint32_t magic;
@@ -266,29 +274,104 @@ static void mt_enable_script(sim_script *scr) {
   g_async_queue_push(scr->simscr->to_st, msg);
 }
 
+static void flush_compile_output(GIOChannel *source, compiler_output *outp) {
+  gsize len_read = 0;
+  do {
+    if(outp->buflen - outp->len < 256) {
+      outp->buflen *= 2;
+      outp->buf = (char*)realloc(outp->buf, outp->buflen);
+      if(outp->buf == NULL) abort();
+    }
+
+    if(G_IO_ERROR_NONE != g_io_channel_read(source, outp->buf+outp->len, 
+					    (outp->buflen - outp->len) - 1, 
+					    &len_read)) {
+      printf("ERROR: couldn't read output from compiler\n"); return;
+    }
+    outp->len += len_read;
+  } while(len_read != 0);
+}
+
 static void compile_done(GPid pid, gint status,  gpointer data) {
+  int success;
   sim_script *scr = (sim_script*)data;
   g_spawn_close_pid(pid);
   printf("DEBUG: script compile done, result %i\n", status);
   
   if(WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    success = 1;
     if(scr->prim != NULL) {
       mt_enable_script(scr);
     }
   } else {
     printf("ERROR: script compile failed\n");
+    success = 0;
     scr->mt_state = SCR_MT_COMPILE_ERROR;
   }
+
+  assert(scr->comp_out != NULL);
+  scr->comp_out->buf[scr->comp_out->len] = 0;
+  printf("DEBUG: got compiler output: ~%s~\n", scr->comp_out->buf);
+  if(scr->comp_out->cb != NULL) {
+    scr->comp_out->cb(scr->comp_out->cb_priv, success, scr->comp_out->buf,
+		      scr->comp_out->len);
+  }
+  flush_compile_output(scr->comp_out->stdout, scr->comp_out);
+  flush_compile_output(scr->comp_out->stderr, scr->comp_out);
+  g_io_channel_shutdown(scr->comp_out->stdout, FALSE, NULL);
+  g_io_channel_shutdown(scr->comp_out->stderr, FALSE, NULL);
+  g_io_channel_unref(scr->comp_out->stdout);
+  g_io_channel_unref(scr->comp_out->stderr);
+  free(scr->comp_out->buf); delete scr->comp_out; scr->comp_out = NULL;
 
   if(scr->prim == NULL) {
     mt_free_script(scr);
   }
 }
 
+static gboolean got_compile_output(GIOChannel *source, GIOCondition cond, 
+				   gpointer priv) {
+  if(cond & G_IO_IN) {
+    compiler_output * outp = (compiler_output*)priv;
+    if(outp->buflen - outp->len < 256) {
+      outp->buflen *= 2;
+      outp->buf = (char*)realloc(outp->buf, outp->buflen);
+      if(outp->buf == NULL) abort();
+    }
+    gsize len_read = 0;
+    if(G_IO_ERROR_NONE != g_io_channel_read(source, outp->buf+outp->len, 
+					    (outp->buflen - outp->len) - 1, 
+					    &len_read)) {
+    printf("ERROR: couldn't read output from compiler\n"); return TRUE;
+    }
+    outp->len += len_read;
+    return TRUE;
+  } 
+  if(cond & G_IO_NVAL) return FALSE; // blech. There must be a cleaner way.
+  if((cond & (G_IO_IN|G_IO_NVAL)) != cond) {
+    printf("FIXME: got_compile_output: unexpected cond\n"); return FALSE;
+  }
+}
+
+static compiler_output* listen_compiler_output(int stdout_compile, 
+					       int stderr_compile) {
+  compiler_output* outp = new compiler_output();
+  outp->len = 0; outp->buflen = 1024;
+  outp->buf = (char*)malloc(outp->buflen);
+
+  // FIXME - not quite Windows-clean.
+  outp->stdout = g_io_channel_unix_new(stdout_compile);
+  g_io_add_watch(outp->stdout, (GIOCondition)(G_IO_IN|G_IO_NVAL), got_compile_output, outp);
+  outp->stderr = g_io_channel_unix_new(stderr_compile);
+  g_io_add_watch(outp->stderr, (GIOCondition)(G_IO_IN|G_IO_NVAL), got_compile_output, outp);
+  return outp;
+}
+
 static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim, 
-			inventory_item *inv, simple_asset *asset) {
+			inventory_item *inv, simple_asset *asset, 
+			compile_done_cb cb, void *cb_priv) {
   sim_scripts *simscr = (sim_scripts*)priv;
-  char *args[4]; 
+  char *args[4]; int stdout_compile = -1, stderr_compile = -1;
   char buf[40], srcname[60], binname[60]; GPid pid;
   uuid_unparse(asset->id, buf);
   snprintf(srcname, 60, "script_tmp/%s.lsl", buf); 
@@ -297,8 +380,8 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   save_script_text_file(&asset->data, srcname);
   
   args[0] = "./lsl_compile"; args[1] = srcname; args[2] = binname; args[3] = 0;
-  if(!g_spawn_async(NULL, args, NULL, G_SPAWN_DO_NOT_REAP_CHILD,
-		    NULL, NULL, &pid, NULL)) {
+  if(!g_spawn_async_with_pipes(NULL, args, NULL, G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, 
+			       &pid, NULL, &stdout_compile, &stderr_compile, NULL)) {
     printf("ERROR: couldn't launch script compiler\n"); return NULL;
   }
 
@@ -306,6 +389,9 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   scr->prim = prim; scr->mt_state = SCR_MT_COMPILING;
   scr->is_running = 0; scr->simscr = simscr; scr->magic = SCRIPT_MAGIC;
   scr->cvm_file = strdup(binname);
+  scr->comp_out = listen_compiler_output(stdout_compile, stderr_compile);
+  scr->comp_out->cb = cb; scr->comp_out->cb_priv = cb_priv;
+
   // we don't bother filling out the first half of the struct yet...
 
   g_child_watch_add(pid, compile_done, scr);

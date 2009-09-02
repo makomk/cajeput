@@ -205,6 +205,7 @@ struct user_ctx {
   struct simulator_ctx* sim;
   struct avatar_obj* av;
 
+  caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
 
   uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
   struct sl_string texture_entry, visual_params;
@@ -371,6 +372,8 @@ void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp)
 void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
 
 int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
+
+void user_call_delete_hook(struct user_ctx *ctx);
 
 // --- this is messy --------------------
 

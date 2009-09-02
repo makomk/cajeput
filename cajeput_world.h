@@ -102,12 +102,15 @@ struct primitive_obj {
 #define CHAT_TYPE_OWNER_SAY 8
 #define CHAT_TYPE_REGION_SAY 0xff // ???
 
-  // -------- SCRIPTING GLUE --------------------
+// -------- SCRIPTING GLUE --------------------
+
+  typedef void(*compile_done_cb)(void *priv, int success, char* output, int output_len);
 
   struct cajeput_script_hooks {
     
     void* (*add_script)(simulator_ctx *sim, void *priv, primitive_obj *prim, 
-			inventory_item *inv, simple_asset *asset);
+			inventory_item *inv, simple_asset *asset, 
+			compile_done_cb cb, void *cb_priv);
     void (*kill_script)(simulator_ctx *sim, void *priv, void *script);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);

@@ -87,6 +87,7 @@ sl_llsd* llsd_new_string_take(char *str);
   sl_llsd* llsd_new_binary(void* data, int len);
 sl_llsd* llsd_new_uuid(uuid_t u);
 sl_llsd* llsd_new_int( int i);
+sl_llsd* llsd_new_bool( int i);
 void llsd_array_append(sl_llsd *arr, sl_llsd *it);
 void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it);
 

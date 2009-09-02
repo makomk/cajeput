@@ -489,7 +489,8 @@ static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) 
 
 inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_obj *prim,
 				   uuid_t item_id, int script_running,
-				   unsigned char *data, int data_len) {
+				   unsigned char *data, int data_len,
+				   compile_done_cb cb, void *cb_priv) {
   for(int i = 0; i < prim->inv.num_items; i++) {
     if(uuid_compare(prim->inv.items[i]->item_id, item_id) == 0) {
       inventory_item *inv = prim->inv.items[i];
@@ -509,7 +510,11 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
       sl_string_free(&inv->asset_hack->data);
       sl_string_set_bin(&inv->asset_hack->data, data, data_len);
       if(sim->scripth.add_script != NULL) {
-	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, inv->asset_hack);
+	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, 
+					    inv->asset_hack, cb, cb_priv);
+      } else {
+	// FIXME - we need to call the callback somehow, but there's an 
+	// ordering issue - the caller has to fill in the asset ID first
       }
       return inv;
     }
@@ -558,7 +563,8 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   
   // FIXME - check whether it should be created running...
   if(ctx->sim->scripth.add_script != NULL) {
-    inv->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, prim, inv, asset);
+    inv->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, 
+					     prim, inv, asset, NULL, NULL);
   } else {
     inv->priv = NULL;
   }
@@ -969,7 +975,7 @@ void llsd_soup_set_response(SoupMessage *msg, sl_llsd *llsd) {
     printf("DEBUG: couldn't serialise LLSD to send response\n");
     soup_message_set_status(msg,400);
   }
-  printf("DEBUG: sending seeds caps response {{%s}}\n", str);
+  printf("DEBUG: caps response {{%s}}\n", str);
   soup_message_set_status(msg,200);
   // FIXME - should find away to avoid these gratuitous copies
   soup_message_set_response(msg,"application/xml", SOUP_MEMORY_COPY,
@@ -1036,22 +1042,78 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
   }
 }
 
-// FIXME - need to free this capability on user removal (probable CRASH BUG.)
 struct update_script_desc {
   uuid_t task_id, item_id;
   cap_descrip* cap;
   int script_running;
+  
+  // only used during compile stage
+  uuid_t asset_id;
+  user_ctx *ctx; simulator_ctx *sim; SoupMessage *msg;
 };
+
+
+// used to free the capability etc if the session ends before the client
+// actually sends the script. 
+static void free_update_script_desc(user_ctx* ctx, void *priv) {
+   update_script_desc *upd = (update_script_desc*)priv;
+   caps_remove(upd->cap);
+   delete upd;
+}
+
+static void update_script_compiled_cb(void *priv, int success, char* output, 
+				      int output_len) {
+  printf("DEBUG: in update_script_compiled_cb\n");
+  update_script_desc *upd = (update_script_desc*)priv;
+  soup_server_unpause_message(upd->sim->soup, upd->msg);
+  sim_shutdown_release(upd->sim);
+  if(upd->ctx != NULL) {
+    sl_llsd *resp; sl_llsd *errors;
+    printf("DEBUG: sending %s script compile response\n", success ? "successful" : "unsuccessful");
+    // FIXME - this probably ain't right; think OpenSim gets this wrong
+    resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("complete"));
+    llsd_map_append(resp,"new_asset",llsd_new_uuid(upd->asset_id));
+    llsd_map_append(resp,"compiled",llsd_new_bool(success));
+
+    errors = llsd_new_array();
+    char *outp = output;
+    for(;;) {
+      char *next = strchr(outp,'\n'); if(next == NULL) break;
+      int len = next-outp;
+      char *line = (char*)malloc(len+1);
+      memcpy(line, outp, len); line[len] = 0;
+      llsd_array_append(errors, llsd_new_string_take(line));
+      outp = next+1;
+    }
+    if(outp[0] != 0) llsd_array_append(errors, llsd_new_string(outp));
+    
+    // FIXME - fill in errors (array of strings representing compile errors)
+    llsd_map_append(resp,"errors",errors);
+    
+    llsd_soup_set_response(upd->msg, resp);
+    llsd_free(resp);
+    user_del_self_pointer(&upd->ctx);
+  } else {
+    soup_message_set_status(upd->msg,500);
+  }
+  delete upd;
+
+}
 
 static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   update_script_desc *upd = (update_script_desc*)user_data;
-  sl_llsd *resp; primitive_obj * prim;
+  sl_llsd *resp; primitive_obj * prim; inventory_item *inv;
   
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
     return;
   }
+
+  // now we've got the upload, the capability isn't needed anymore, and we
+  // delete the user removal hook because our lifetime rules change!
   caps_remove(upd->cap);
+  user_remove_delete_hook(ctx, free_update_script_desc, upd);
 
   printf("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
 
@@ -1070,27 +1132,19 @@ static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_dat
 
   // FIXME - need to check permissions on script!
   
-  prim_update_script(ctx->sim, prim, upd->item_id, upd->script_running, 
-		     (unsigned char*)msg->request_body->data, 
-		     msg->request_body->length);
-  
-  // FIXME - this probably ain't right; think OpenSim gets this wrong
-  resp = llsd_new_map();
-  llsd_map_append(resp,"state",llsd_new_string("complete"));
+  uuid_clear(upd->asset_id);
 
-  // not wanted
-  llsd_map_append(resp,"item_id",llsd_new_uuid(upd->item_id));
-  llsd_map_append(resp,"task_id",llsd_new_uuid(upd->task_id));
+  upd->ctx = ctx; user_add_self_pointer(&upd->ctx);
+  upd->sim = ctx->sim; sim_shutdown_hold(ctx->sim);
+  upd->msg = msg; soup_server_pause_message(ctx->sim->soup, msg);
 
-  // what we actually want is a "new_asset" item, a "compiled" item (bool),
-  // plus (if compile failed) an "errors" item that's an array of strings 
-  // representing the compiler errors
+  inv = prim_update_script(ctx->sim, prim, upd->item_id, upd->script_running, 
+			   (unsigned char*)msg->request_body->data, 
+			   msg->request_body->length, update_script_compiled_cb,
+			   upd);
+  if(inv != NULL) uuid_copy(upd->asset_id, inv->asset_id);
 
-  llsd_soup_set_response(msg, resp);
-  llsd_free(resp);
-  delete upd;
   return;
-  
   
   // FIXME - TODO
 
@@ -1127,6 +1181,7 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   uuid_copy(upd->item_id, item_id->t.uuid);
   upd->script_running = script_running->t.i;
   upd->cap = caps_new_capability(ctx->sim, update_script_stage2, ctx, upd);
+  user_add_delete_hook(ctx, free_update_script_desc, upd);
   
   resp = llsd_new_map();
   llsd_map_append(resp,"state",llsd_new_string("upload"));
@@ -1714,6 +1769,8 @@ static void user_remove_int(user_ctx **user) {
     // HACK HACK HACK - should be in main hook?
     ctx->userh->disable_sim(ctx->user_priv); // FIXME
   } 
+
+  user_call_delete_hook(ctx);
 
   // mustn't do this in user_session_close; that'd break teleport
   user_int_event_queue_free(ctx);

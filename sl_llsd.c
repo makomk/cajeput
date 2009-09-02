@@ -420,6 +420,13 @@ sl_llsd* llsd_new_int( int i) {
   return llsd;
 }
 
+sl_llsd* llsd_new_bool( int i) {
+  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+  llsd->type_id = LLSD_BOOLEAN;
+  llsd->t.i = (i != 0);
+  return llsd;
+}
+
 sl_llsd* llsd_new() {
   sl_llsd* llsd = malloc(sizeof(sl_llsd));
   llsd->type_id = LLSD_UNDEF;
