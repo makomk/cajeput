@@ -83,7 +83,7 @@ struct script_msg {
   sim_script *scr;
   union {
     struct {
-      int32_t channel; char* msg;
+      int32_t channel; char* msg; int chat_type;
     } say;
   } u;
 };
@@ -137,19 +137,40 @@ static void send_to_mt(sim_scripts *simscr, script_msg *msg) {
   g_async_queue_push(simscr->to_mt, msg);
 }
 
+static void do_say(sim_script *scr, int chan, char* message, int chat_type) {
+  script_msg *smsg = new script_msg();
+  smsg->msg_type = CAJ_SMSG_LLSAY;
+  smsg->scr = scr;
+  smsg->u.say.channel = chan;
+  smsg->u.say.msg = message;
+  smsg->u.say.chat_type = chat_type;
+  send_to_mt(scr->simscr, smsg);
+}
+
 static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   int chan; char* message;
   vm_func_get_args(st, func_id, &chan, &message);
 
   printf("DEBUG: llSay on %i: %s\n", chan, message);
-  script_msg *smsg = new script_msg();
-  smsg->msg_type = CAJ_SMSG_LLSAY;
-  smsg->scr = scr;
-  smsg->u.say.channel = chan;
-  smsg->u.say.msg = message;
-  send_to_mt(scr->simscr, smsg);
+  do_say(scr, chan, message, CHAT_TYPE_NORMAL);
 
+  vm_func_return(st, func_id);
+}
+
+static void llShout_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int chan; char* message;
+  vm_func_get_args(st, func_id, &chan, &message);
+  do_say(scr, chan, message, CHAT_TYPE_SHOUT);
+  vm_func_return(st, func_id);
+}
+
+static void llWhisper_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int chan; char* message;
+  vm_func_get_args(st, func_id, &chan, &message);
+  do_say(scr, chan, message, CHAT_TYPE_WHISPER);
   vm_func_return(st, func_id);
 }
 
@@ -424,7 +445,7 @@ static gboolean script_poll_timer(gpointer data) {
     case CAJ_SMSG_LLSAY:
       if(msg->scr->prim != NULL) {
 	world_chat_from_prim(simscr->sim, msg->scr->prim, msg->u.say.channel,
-			     msg->u.say.msg, CHAT_TYPE_NORMAL);
+			     msg->u.say.msg, msg->u.say.chat_type);
       }
       free(msg->u.say.msg);
       break;
@@ -450,6 +471,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   simscr->vmw = vm_world_new();
   vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, 0);
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
 
 
   simscr->to_st = g_async_queue_new();

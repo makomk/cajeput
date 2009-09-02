@@ -487,6 +487,19 @@ static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) 
   prim->inv.serial++; free(prim->inv.filename); prim->inv.filename = NULL;
 }
 
+struct script_update_cb_hack {
+  compile_done_cb cb; void *cb_priv;
+  script_update_cb_hack(compile_done_cb cb_, void *cb_priv_) : 
+    cb(cb_), cb_priv(cb_priv_) { }
+};
+
+// evil hack. Note that this is totally untested, YMMV.
+gboolean script_update_cb_hack_f(gpointer data) {
+  script_update_cb_hack* hack = (script_update_cb_hack*)data;
+  hack->cb(hack->cb_priv,0,"No scripting engine",19);
+  delete hack; return FALSE;
+}
+
 inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_obj *prim,
 				   uuid_t item_id, int script_running,
 				   unsigned char *data, int data_len,
@@ -513,8 +526,10 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, 
 					    inv->asset_hack, cb, cb_priv);
       } else {
-	// FIXME - we need to call the callback somehow, but there's an 
+	// we need to call the callback somehow, but there's an 
 	// ordering issue - the caller has to fill in the asset ID first
+	g_timeout_add(1, script_update_cb_hack_f, 
+		      new script_update_cb_hack(cb,cb_priv));
       }
       return inv;
     }
@@ -525,7 +540,18 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 // FIXME - need to make the item name unique!!
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags) {
-  inventory_item *inv = new inventory_item();
+  inventory_item *inv = NULL;
+
+  for(int i = 0; i < prim->inv.num_items; i++) {
+    if(strcmp(name, prim->inv.items[i]->name) == 0) {
+      inv = prim->inv.items[i];
+    }
+  }
+  if(inv != NULL) {
+    printf("FIXME: item name clash in user_rez_script");
+  }
+
+  inv = new inventory_item();
   
   inv->name = strdup(name); inv->description = strdup(descrip);
 
@@ -1088,7 +1114,6 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
     }
     if(outp[0] != 0) llsd_array_append(errors, llsd_new_string(outp));
     
-    // FIXME - fill in errors (array of strings representing compile errors)
     llsd_map_append(resp,"errors",errors);
     
     llsd_soup_set_response(upd->msg, resp);
