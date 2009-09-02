@@ -44,6 +44,8 @@ struct list_head {
 #define SCR_MT_RUNNING 3
 #define SCR_MT_PAUSED 4
 
+#define SCRIPT_MAGIC 0xd0f87153
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -56,6 +58,7 @@ struct sim_script {
   primitive_obj *prim;
 
   // used by both threads, basically read-only 
+  uint32_t magic;
   sim_scripts *simscr;
   char *cvm_file; // basically the script executable
 };
@@ -226,6 +229,9 @@ static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
     g_async_queue_push(simscr->to_st, msg);
     g_thread_join(simscr->thread);
   }
+
+  vm_world_free(simscr->vmw);
+  delete simscr;
 }
 
 static void save_script_text_file(sl_string *dat, char *name) {
@@ -298,7 +304,7 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
 
   sim_script *scr = new sim_script();
   scr->prim = prim; scr->mt_state = SCR_MT_COMPILING;
-  scr->is_running = 0; scr->simscr = simscr;
+  scr->is_running = 0; scr->simscr = simscr; scr->magic = SCRIPT_MAGIC;
   scr->cvm_file = strdup(binname);
   // we don't bother filling out the first half of the struct yet...
 
@@ -308,7 +314,8 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
 
 static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   sim_scripts *simscr = (sim_scripts*)priv;
-  sim_script *scr = (sim_script*)scr;
+  sim_script *scr = (sim_script*)script;
+  assert(scr->magic == SCRIPT_MAGIC);
   scr->prim = NULL;
   if(scr->mt_state == SCR_MT_RUNNING) {
     script_msg *msg = new script_msg();
@@ -335,8 +342,13 @@ static gboolean script_poll_timer(gpointer data) {
       }
       free(msg->u.say.msg);
       break;
+    case CAJ_SMSG_SCRIPT_KILLED:
+      assert(msg->scr->prim == NULL);
+      mt_free_script(msg->scr);
+      break;
     }
     delete msg;
+    
   }
 
   return TRUE;

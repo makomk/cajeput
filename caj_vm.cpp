@@ -1026,6 +1026,11 @@ int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type,
   return desc.number;
 }
 
+void vm_world_free(vm_world *w) {
+  // FIXME - this is incomplete and leaks memory;
+  delete w;
+}
+
 void vm_func_get_args(script_state *st, int func_no, ...) {
   va_list args;
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];

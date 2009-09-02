@@ -139,6 +139,7 @@ void vm_world_add_func(vm_world *w, const char* name, uint8_t ret_type,
 		       vm_native_func_cb cb, int arg_count, ...);
 int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type, 
 		       int arg_count, ...);
+void vm_world_free(vm_world *w);
 
 script_state* vm_load_script(void* data, int data_len);
 void vm_free_script(script_state * st);

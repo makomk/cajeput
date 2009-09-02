@@ -487,6 +487,36 @@ static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) 
   prim->inv.serial++; free(prim->inv.filename); prim->inv.filename = NULL;
 }
 
+inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_obj *prim,
+				   uuid_t item_id, int script_running,
+				   unsigned char *data, int data_len) {
+  for(int i = 0; i < prim->inv.num_items; i++) {
+    if(uuid_compare(prim->inv.items[i]->item_id, item_id) == 0) {
+      inventory_item *inv = prim->inv.items[i];
+      if(inv->asset_type != ASSET_LSL_TEXT) {
+	printf("ERROR: attempt to update a script, but item isn't a script!\n");
+	return NULL;
+      }
+      if(inv->priv != NULL) {
+	sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
+	inv->priv = NULL;
+      }
+
+      uuid_generate(inv->asset_id); // changed by update
+
+      assert(inv->asset_hack != NULL); // FIXME
+      uuid_copy(inv->asset_hack->id, inv->asset_id);
+      sl_string_free(&inv->asset_hack->data);
+      sl_string_set_bin(&inv->asset_hack->data, data, data_len);
+      if(sim->scripth.add_script != NULL) {
+	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, inv->asset_hack);
+      }
+      return inv;
+    }
+  }
+  return NULL;
+}
+
 // FIXME - need to make the item name unique!!
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags) {
@@ -528,7 +558,9 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   
   // FIXME - check whether it should be created running...
   if(ctx->sim->scripth.add_script != NULL) {
-    ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, prim, inv, asset);
+    inv->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, prim, inv, asset);
+  } else {
+    inv->priv = NULL;
   }
 }
 
@@ -574,11 +606,6 @@ void user_reset_timeout(struct user_ctx* ctx) {
 
 
 static GMainLoop *main_loop;
-
-// ------- START message handling code -----------------
-
-
-// ------ END message handling code -------
 
 //  ----------- Texture-related stuff ----------------
 
@@ -1009,6 +1036,69 @@ static void send_release_notes(SoupMessage *msg, user_ctx* ctx, void *user_data)
   }
 }
 
+// FIXME - need to free this capability on user removal (probable CRASH BUG.)
+struct update_script_desc {
+  uuid_t task_id, item_id;
+  cap_descrip* cap;
+  int script_running;
+};
+
+static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  update_script_desc *upd = (update_script_desc*)user_data;
+  sl_llsd *resp; primitive_obj * prim;
+  
+  if (msg->method != SOUP_METHOD_POST) {
+    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    return;
+  }
+  caps_remove(upd->cap);
+
+  printf("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
+
+  struct world_obj* obj = world_object_by_id(ctx->sim, upd->task_id);
+  if(obj == NULL) {
+    printf("ERROR: UpdateScriptTask for non-existent object\n");
+    goto out_fail;
+  } else if(!user_can_modify_object(ctx, obj)) {
+    printf("ERROR: UpdateScriptTask with insufficient permissions on object\n");
+    goto out_fail;
+  } else if(obj->type != OBJ_TYPE_PRIM) {
+    printf("ERROR: UpdateScriptTask for non-prim object\n");
+    goto out_fail;
+  }
+  prim = (primitive_obj*) obj;
+
+  // FIXME - need to check permissions on script!
+  
+  prim_update_script(ctx->sim, prim, upd->item_id, upd->script_running, 
+		     (unsigned char*)msg->request_body->data, 
+		     msg->request_body->length);
+  
+  // FIXME - this probably ain't right; think OpenSim gets this wrong
+  resp = llsd_new_map();
+  llsd_map_append(resp,"state",llsd_new_string("complete"));
+
+  // not wanted
+  llsd_map_append(resp,"item_id",llsd_new_uuid(upd->item_id));
+  llsd_map_append(resp,"task_id",llsd_new_uuid(upd->task_id));
+
+  // what we actually want is a "new_asset" item, a "compiled" item (bool),
+  // plus (if compile failed) an "errors" item that's an array of strings 
+  // representing the compiler errors
+
+  llsd_soup_set_response(msg, resp);
+  llsd_free(resp);
+  delete upd;
+  return;
+  
+  
+  // FIXME - TODO
+
+ out_fail:
+  delete upd;
+  soup_message_set_status(msg,400);
+}
+
 static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
@@ -1016,6 +1106,8 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   }
 
   sl_llsd *llsd, *resp; 
+  sl_llsd *item_id, *task_id, *script_running;
+  update_script_desc *upd;
   if(msg->request_body->length > 65536) goto fail;
   llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
   if(llsd == NULL) goto fail;
@@ -1024,6 +1116,26 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   // FIXME - need to implement this
   printf("Got UpdateScriptTask:\n");
   llsd_pretty_print(llsd, 1);
+  item_id = llsd_map_lookup(llsd, "item_id");
+  task_id = llsd_map_lookup(llsd, "task_id");
+  script_running = llsd_map_lookup(llsd, "is_script_running");
+  if(!(LLSD_IS(item_id, LLSD_UUID) && LLSD_IS(task_id, LLSD_UUID) && 
+       LLSD_IS(script_running, LLSD_INT))) goto free_fail;
+  
+  upd = new update_script_desc();
+  uuid_copy(upd->task_id, task_id->t.uuid);
+  uuid_copy(upd->item_id, item_id->t.uuid);
+  upd->script_running = script_running->t.i;
+  upd->cap = caps_new_capability(ctx->sim, update_script_stage2, ctx, upd);
+  
+  resp = llsd_new_map();
+  llsd_map_append(resp,"state",llsd_new_string("upload"));
+  llsd_map_append(resp,"uploader",llsd_new_string_take(caps_get_uri(upd->cap)));
+
+  llsd_free(llsd);
+  llsd_soup_set_response(msg, resp);
+  llsd_free(resp);
+  return;
 
  free_fail:
   llsd_free(llsd);

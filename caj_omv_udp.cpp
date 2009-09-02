@@ -789,6 +789,8 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
 	printf("FIXME: prim inv is real inventory item?\n"); 
 	return; 	
       }
+
+      // FIXME - need to check permissions
       
       asset_request *req = new asset_request();
       req->ctx = lctx->u; user_add_self_pointer(&req->ctx);

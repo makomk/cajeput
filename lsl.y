@@ -240,7 +240,7 @@ typedef struct func_args {
 
 %}
 %locations
-%debug
+ /* %debug */
 %error-verbose
 %union {
   struct expr_node *enode;
