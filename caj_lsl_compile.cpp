@@ -82,6 +82,9 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       case VM_TYPE_FLOAT:
 	var.offset = vasm.const_real(0.0f); 
 	break;
+      case VM_TYPE_STR:
+	var.offset = vasm.const_str("");
+	break;
       default:
 	printf("ERROR: unknown type of local var %s\n",name);
 	st.error = 1; return;
@@ -382,8 +385,8 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
-      // vasm.wr_local_ptr(var.offset); // FIXME - TODO
-      // break;
+      vasm.wr_local_ptr(var.offset); // FIXME - TODO
+      break;
     default:
       do_error(st, "FIXME: can't handle access to vars of type %s \n", 
 	       type_names[var.type]);
@@ -921,7 +924,7 @@ int main(int argc, char** argv) {
   state_ctr = 1;
   for(lsl_state *lstate = prog->states; lstate != NULL; lstate = lstate->next) {
     int state_no = lstate->name == NULL ? 0 : state_ctr++;
-    for(function *func = lstate->funcs; func != NULL; func = func->next) {
+    for(function *func = lstate->funcs; func != NULL; func = func->next, func_no++) {
       printf("DEBUG: assembling state func %i:%s\n", state_no, func->name);
       compile_function(vasm, st, func, funcs[func_no]);
       if(st.error != 0) return 1;

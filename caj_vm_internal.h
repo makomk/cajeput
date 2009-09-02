@@ -80,6 +80,15 @@ class asm_verify {
     assert(stack_used == v2->stack_used);
   }
 
+  uint8_t pop_val_raw() {
+    if(stack_types.empty()) {
+      err = "Pop on empty stack"; return 0;
+    }
+    uint8_t stype = stack_types.back();
+    stack_types.pop_back();
+    return stype;
+  }
+
   void pop_val(uint8_t vtype) {
     if(err != NULL || vtype == VM_TYPE_NONE) return;
     if(stack_types.empty()) {
@@ -169,6 +178,31 @@ class asm_verify {
     if(err != NULL) return 0;
     if(caj_vm_check_types(vtype, VM_TYPE_INT)) { err = "WRL_I from wrong type"; return 0; }
     pop_val(vtype); // should really be before the check...
+    return fudge;
+  }
+
+  int check_rdl_p(int offset) {
+    if(offset <= 0) { err = "RDL_P with bogus offset"; return 0; }
+    uint8_t vtype; 
+    int fudge = get_local(offset-1, vtype);
+    if(err != NULL) return 0;
+    if(vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY && vtype != VM_TYPE_LIST) {
+      err = "RDL_P from wrong type"; return 0; 
+    }
+    push_val(vtype);
+    return fudge;
+  }
+
+  int check_wrl_p(int offset) {
+    if(offset <= 0) { err = "WRL_P with bogus offset"; return 0; }
+    uint8_t vtype2 = pop_val_raw();
+    uint8_t vtype; 
+    int fudge = get_local(offset-1, vtype);
+    if(err != NULL) return 0;
+    if(vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY && vtype != VM_TYPE_LIST) {
+      err = "RDL_P from wrong type"; return 0; 
+    }
+    if(caj_vm_check_types(vtype, vtype2)) { err = "WRL_P type mismatch"; return 0; }
     return fudge;
   }
 

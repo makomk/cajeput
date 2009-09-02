@@ -171,6 +171,9 @@ public:
     assert(cfunc->func_num < funcs.size());
     assert(funcs[cfunc->func_num] == cfunc);
 
+    printf("DEBUG: assembler: starting function %s (number %i) @ %i\n", 
+	   cfunc->name, cfunc->func_num, bytecode.size());
+
     vm_function *func = funcs[cfunc->func_num];
     func->insn_ptr = func_start = bytecode.size();
     verify = new asm_verify(err, func, 1);

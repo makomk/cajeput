@@ -154,6 +154,7 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w);
 void vm_run_script(script_state *st, int num_steps);
 void vm_call_event(script_state *st, const char* name, ...); // HACK
 void vm_func_get_args(script_state *st, int func_no, ...);
+void vm_func_set_float_ret(script_state *st, int func_no, float ret);
 void vm_func_return(script_state *st, int func_no);
 
 #endif

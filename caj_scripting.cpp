@@ -28,8 +28,12 @@
 #define DEBUG_CHANNEL 2147483647
 
 struct sim_scripts {
+  // used by main thread
   GThread *thread;
   simulator_ctx *sim;
+
+  // used by script thread
+  GTimer *timer;
 
   // these are used by both main and scripting threads. Don't modify them.
   GAsyncQueue *to_st;
@@ -61,6 +65,7 @@ struct sim_script {
   int is_running;
   script_state *vm;
   int state_entry; // HACK!
+  double time; // for llGetTime etc
 
   // section used by main thread
   int mt_state; // state as far as main thread is concerned
@@ -177,10 +182,27 @@ static void llWhisper_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llResetTimer_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int chan; char* message;
+  scr->time = g_timer_elapsed(scr->simscr->timer, NULL);
+  vm_func_return(st, func_id);
+}
+
+static void llGetTime_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int chan; char* message;
+  float time = g_timer_elapsed(scr->simscr->timer, NULL) - scr->time;
+  vm_func_set_float_ret(st, func_id, time);
+  vm_func_return(st, func_id);
+}
+
+
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   list_head running, waiting;
   list_head_init(&running); list_head_init(&waiting);
+  simscr->timer = g_timer_new();
   for(;;) {
     for(int i = 0; i < 20; i++) {
       if(running.next == &running) break;
@@ -221,10 +243,12 @@ static gpointer script_thread(gpointer data) {
 
       switch(msg->msg_type) {
       case CAJ_SMSG_SHUTDOWN:
+	g_timer_destroy(simscr->timer);
 	delete msg;
 	return NULL;
       case CAJ_SMSG_ADD_SCRIPT:
 	printf("DEBUG: handling ADD_SCRIPT\n");
+	msg->scr->time = g_timer_elapsed(simscr->timer, NULL);
 	st_load_script(msg->scr);
 	if(msg->scr->vm != NULL) {
 	  printf("DEBUG: adding to run queue\n");
@@ -241,6 +265,8 @@ static gpointer script_thread(gpointer data) {
       case CAJ_SMSG_KILL_SCRIPT:
 	printf("DEBUG: got KILL_SCRIPT\n");
 	list_remove(&msg->scr->list);
+	if(msg->scr->vm != NULL) vm_free_script(msg->scr->vm);
+	msg->scr->vm = NULL;
 	msg->msg_type = CAJ_SMSG_SCRIPT_KILLED;
 	send_to_mt(simscr, msg); msg = NULL;
 	break;
@@ -480,7 +506,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
-
+  vm_world_add_func(simscr->vmw, "llResetTimer", VM_TYPE_NONE, llResetTimer_cb, 0); 
+  vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
 
   simscr->to_st = g_async_queue_new();
   simscr->to_mt = g_async_queue_new();

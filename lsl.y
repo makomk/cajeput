@@ -703,8 +703,9 @@ static void print_stmts(statement *statem, int indent) {
 }
 
 lsl_program *caj_parse_lsl(const char* fname) {
-  extern FILE *yyin; function *func; yydebug = 1;
-  yyin = fopen(fname,"r");
+  extern FILE *yyin; extern int yylineno;
+  function *func; yydebug = 1;
+  yyin = fopen(fname,"r"); yylineno = 0;
   if(yyin == NULL) {
     printf("ERROR: file not found\n");
     return NULL;

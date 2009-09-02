@@ -55,6 +55,7 @@ struct vm_world {
 #define VM_SCRAM_STACK_OVERFLOW 3
 #define VM_SCRAM_BAD_OPCODE 4
 #define VM_SCRAM_MISSING_FUNC 5
+#define VM_SCRAM_MEM_LIMIT 6
 
 struct script_state {
   uint32_t ip;
@@ -102,7 +103,7 @@ static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) 
   if(len > VM_LIMIT_HEAP || (st->mem_use+hlen) > VM_LIMIT_HEAP) {
     printf("DEBUG: exceeded mem limit of %i allocating %i with %i in use\n",
 	   VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
-    st->scram_flag = 1; return NULL;
+    st->scram_flag = VM_SCRAM_MEM_LIMIT; return NULL;
   }
   heap_header* p = (heap_header*)malloc(hlen);
   p->refcnt = ((uint32_t)vtype << 24) | 1;
@@ -129,6 +130,15 @@ static inline uint32_t heap_get_refcnt(heap_header *p) {
 
 static inline void *script_getptr(heap_header *p) {
   return p+1;
+}
+
+static heap_header* make_vm_string(script_state *st, const char* str) {
+  int len = strlen(str);
+  heap_header* p = script_alloc(st, len, VM_TYPE_STR);
+  if(p != NULL) {
+    memcpy(script_getptr(p), str, len);
+  }
+  return p;
 }
 
 void vm_free_script(script_state * st) {
@@ -547,6 +557,36 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  }
 	  break;
 	}
+      case ICLASS_RDL_P:
+	{
+	  int16_t ival = GET_IVAL(insn);
+	  int fudge = vs.verify->check_rdl_p(ival)*(ptr_stack_sz()-1);
+	  if(err != NULL) { delete vs.verify; goto out; }
+	  if(fudge + ival >= VM_MAX_IVAL) {
+	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
+	    delete vs.verify; goto out;
+	  };
+	  if(fudge > 0) {
+	    // FIXME - record fudge factors somewhere
+	    bytecode[vs.ip] += fudge;
+	  }
+	  break;
+	}
+      case ICLASS_WRL_P:
+	{
+	  int16_t ival = GET_IVAL(insn);
+	  int fudge = vs.verify->check_wrl_p(ival)*(ptr_stack_sz()-1);
+	  if(err != NULL) { delete vs.verify; goto out; }
+	  if(fudge + ival >= VM_MAX_IVAL) {
+	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
+	    delete vs.verify; goto out;
+	  };
+	  if(fudge > 0) {
+	    // FIXME - record fudge factors somewhere
+	    bytecode[vs.ip] += fudge;
+	  }
+	  break;
+	}
       case ICLASS_RDG_I:
 	{
 	  int16_t ival = GET_IVAL(insn); 
@@ -705,7 +745,7 @@ static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->bytecode;
   int32_t* stack_top = st->stack_top;
   uint32_t ip = st->ip;
-  assert((st->ip & 0x80000000) == 0); // caller should know better :-P
+  assert((st->ip & 0x80000000) == 0 && st->scram_flag == 0); // caller should know better :-P
   for( ; num_steps > 0 && ip != 0; num_steps--) {
     //printf("DEBUG: executing at %u: 0x%04x\n", ip, (int)bytecode[ip]);
     uint16_t insn = bytecode[ip++];
@@ -730,9 +770,14 @@ static void step_script(script_state* st, int num_steps) {
 	break;
       case INSN_DIV_II:
 	if(unlikely(stack_top[1] == 0)) { 
-	  st->scram_flag = VM_SCRAM_DIV_ZERO; goto abort_exec; 
+	  stack_top++; st->scram_flag = VM_SCRAM_DIV_ZERO; goto abort_exec;
 	}
-	stack_top[2] = stack_top[2] / stack_top[1];
+	if(unlikely(stack_top[1] == -1 && stack_top[2] == -2147483648)) {
+	  // evil hack. This division causes an FPE!
+	  stack_top[2] == -2147483648;
+	} else {
+	  stack_top[2] = stack_top[2] / stack_top[1];
+	}
 	stack_top++;
 	break;
       case INSN_ADD_FF:
@@ -759,10 +804,38 @@ static void step_script(script_state* st, int num_steps) {
 	  st->scram_flag = VM_SCRAM_DIV_ZERO; 
 	  goto abort_exec;
 	}
-	stack_top[2] = stack_top[2] % stack_top[1];
+	if(unlikely(stack_top[1] == -1 && stack_top[2] == -2147483648)) {
+	  // evil hack. This division causes an FPE!
+	  stack_top[2] == 0;
+	} else {
+	  stack_top[2] = stack_top[2] % stack_top[1];
+	}
 	stack_top++;
 	break;
-      // TODO - implement bitwise operators!
+      case INSN_AND_II:
+	stack_top[2] = stack_top[2] & stack_top[1];
+	stack_top++;
+	break;
+      case INSN_OR_II:
+	stack_top[2] = stack_top[2] | stack_top[1];
+	stack_top++;
+	break;
+      case INSN_XOR_II:
+	stack_top[2] = stack_top[2] ^ stack_top[1];
+	stack_top++;
+	break;
+      case INSN_NOT_I:
+	stack_top[1] = ~stack_top[1];
+	break;	
+      // TODO - implement << and >> operations
+      case INSN_SHR:
+	stack_top[2] = stack_top[2] >> stack_top[1];
+	stack_top++;
+	break;
+      case INSN_SHL:
+	stack_top[2] = stack_top[2] << stack_top[1];
+	stack_top++;
+	break;
       case INSN_AND_L:
 	stack_top[2] = stack_top[2] && stack_top[1];
 	stack_top++;
@@ -806,12 +879,15 @@ static void step_script(script_state* st, int num_steps) {
 	break;
       case INSN_DROP_I:
 	stack_top++; break;
-      // TODO: INSN_DROP_P
+      case INSN_DROP_P:
+	heap_ref_decr(get_stk_ptr(stack_top+1), st); 
+	stack_top += ptr_stack_sz();
+	break;
       case INSN_DROP_I3:
 	stack_top += 3; break;
       case INSN_DROP_I4:
 	stack_top += 4; break;
-      case INSN_QUIT: // dirty dirty hack!
+      case INSN_QUIT: // dirty dirty hack... that isn't actually used?
 	ip = 0; goto out;
       case INSN_PRINT_I:
 	printf("DEBUG: int %i\n", (int)*(++stack_top));
@@ -836,6 +912,24 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_CAST_F2I:
 	stack_top[1] = ((float*)stack_top)[1];
 	break;
+      case INSN_CAST_I2S:
+	{
+	  char buf[40]; sprintf(buf, "%i", (int)*(++stack_top));
+	  stack_top -= ptr_stack_sz();
+	  heap_header *p = make_vm_string(st, buf);;  
+	  put_stk_ptr(stack_top+1,p);
+	  if(p == NULL) goto abort_exec;
+	  break;
+	}
+      case INSN_CAST_F2S:
+	{
+	  char buf[40]; sprintf(buf, "%f", *(float*)(++stack_top));
+	  stack_top -= ptr_stack_sz();
+	  heap_header *p = make_vm_string(st, buf);;  
+	  put_stk_ptr(stack_top+1,p);
+	  if(p == NULL) goto abort_exec;
+	  break;
+	}
 	/* FIXME - implement other casts */
       case INSN_BEGIN_CALL:
 	// --stack_top; // the magic is in the verifier.
@@ -845,8 +939,71 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top[1]++; break;
       case INSN_DEC_I:
 	stack_top[1]--; break;
+      case INSN_ADD_SS:
+	{
+	  heap_header *p2 = get_stk_ptr(stack_top+1); 
+	  heap_header *p1 = get_stk_ptr(stack_top+1+ptr_stack_sz()); 
+	  stack_top += ptr_stack_sz();
+	  heap_header *pnew = script_alloc(st, p1->len+p2->len, VM_TYPE_STR);
+	  if(pnew != NULL) {
+	    memcpy(script_getptr(pnew), script_getptr(p1), p1->len);
+	    memcpy((char*)script_getptr(pnew)+p1->len, script_getptr(p2), p2->len);
+	  }
+	  heap_ref_decr(p1,st); heap_ref_decr(p2,st); 
+	  put_stk_ptr(stack_top+1,pnew);
+	  if(pnew == NULL) goto abort_exec; 
+	  break;
+	}
+      case INSN_EQ_FF:
+	stack_top[2] = ((float*)stack_top)[2] == ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_NEQ_FF:
+	stack_top[2] = ((float*)stack_top)[2] != ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_GR_FF:
+	stack_top[2] = ((float*)stack_top)[2] > ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_LES_FF:
+	stack_top[2] = ((float*)stack_top)[2] < ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_GEQ_FF:
+	stack_top[2] = ((float*)stack_top)[2] >= ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_LEQ_FF:
+	stack_top[2] = ((float*)stack_top)[2] <= ((float*)stack_top)[1];
+	stack_top++;
+	break;
+      case INSN_EQ_SS:
+	{
+	  heap_header *p2 = get_stk_ptr(stack_top+1); 
+	  heap_header *p1 = get_stk_ptr(stack_top+1+ptr_stack_sz()); 
+	  stack_top += ptr_stack_sz()*2 - 1;
+	  stack_top[1] = (p1->len == p2->len && 
+			  strncmp((char*)script_getptr(p1), 
+				  (char*)script_getptr(p2), p1->len) == 0);
+	  heap_ref_decr(p1,st); heap_ref_decr(p2,st); 
+	  break;
+	}
+      case INSN_CAST_F2B:
+	stack_top[1] = (0.0f != *(float*)(stack_top+1));
+	break;
+      case INSN_CAST_S2B:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz() - 1;
+	  stack_top[1] = (p->len != 0);
+	  heap_ref_decr(p, st); 
+	  break;
+	}
+
+      // case INSN_CAST_K2B:
       default:
-	 printf("ERROR: unhandled opcode; insn 0x%04x\n",(int)insn);
+	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
       }
       break;
@@ -874,7 +1031,7 @@ static void step_script(script_state* st, int num_steps) {
 	  st->stack_top = stack_top; st->ip = ip;
 	  st->world->nfuncs[func_no].cb(st, st->priv, func_no);
 	  return;
-	} else if(st->funcs[ival].max_stack_use > (st->stack_start - stack_top)) { 
+	} else if(st->funcs[ival].max_stack_use > (stack_top - st->stack_start)) { 
 	  printf("ERROR: potential stack overflow, aborting\n");
 	  st->scram_flag = VM_SCRAM_STACK_OVERFLOW; goto abort_exec;
 	}
@@ -893,6 +1050,13 @@ static void step_script(script_state* st, int num_steps) {
 	put_stk_ptr(stack_top+1,p);
 	break;
       }
+    case ICLASS_WRG_P:
+      {
+	heap_ref_decr(st->gptrs[GET_IVAL(insn)], st);
+	st->gptrs[GET_IVAL(insn)] = get_stk_ptr(stack_top+1);
+	stack_top += ptr_stack_sz(); 
+	break;
+      }
     // TODO - other global-related instructions
     case ICLASS_RDL_I:
       *stack_top = stack_top[GET_IVAL(insn)];
@@ -903,6 +1067,21 @@ static void step_script(script_state* st, int num_steps) {
       stack_top++;
       stack_top[GET_IVAL(insn)] = *stack_top;
       break;
+    case ICLASS_RDL_P:
+      {
+	heap_header *p = get_stk_ptr(stack_top+GET_IVAL(insn));  
+	stack_top -= ptr_stack_sz(); heap_ref_incr(p);
+	put_stk_ptr(stack_top+1,p);
+	break;
+      }
+    case ICLASS_WRL_P:
+      {
+	heap_header *p = get_stk_ptr(stack_top+1);  
+	stack_top += ptr_stack_sz();
+	heap_ref_decr(get_stk_ptr(stack_top+GET_IVAL(insn)), st);
+	put_stk_ptr(stack_top+GET_IVAL(insn),p);
+	break;
+      }
     default:
       printf("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
       st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
@@ -915,7 +1094,7 @@ static void step_script(script_state* st, int num_steps) {
   return; // FIXME;
  abort_exec:
   printf("DEBUG: aborting code execution\n");
-  st->ip = 0; if(st->scram_flag == 0) st->scram_flag = VM_SCRAM_ERR;
+  if(st->scram_flag == 0) st->scram_flag = VM_SCRAM_ERR;
 }
 
 int vm_script_is_idle(script_state *st) {
@@ -991,6 +1170,8 @@ void vm_call_event(script_state *st, const char* name, ...) {
       if(check_ncall_args(iter->second,  st->funcs[i])) {
 	printf("ERROR: event prototype mismatch for %s\n", funcname); return;
       }
+      printf("DEBUG: Found event func %s, number %u @ %u\n", funcname,
+	     i, (unsigned)st->funcs[i].insn_ptr);
       func_ip = st->funcs[i].insn_ptr;
     }
   }  
@@ -1071,9 +1252,12 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];
   assert(st->ip & 0x80000000);
 
+  // FIXME - just use func.frame_size here
   int32_t *frame_ptr = st->stack_top;
   for(int i = 0; i < desc.arg_count; i++)
     frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+
 
   va_start(args, func_no);
   for(int i = 0; i < desc.arg_count; i++) {
@@ -1103,6 +1287,19 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
     }
   }
   va_end(args);
+}
+
+// FIXME - test this
+void vm_func_set_float_ret(script_state *st, int func_no, float ret) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_FLOAT);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  *(float*)(frame_ptr+2) = ret;
 }
 
 void vm_func_return(script_state *st, int func_no) {

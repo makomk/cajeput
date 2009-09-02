@@ -5,3 +5,9 @@ llSay(integer channel, string message) { }
 llShout(integer channel, string message) { }
 llWhisper(integer channel, string message) { }
 llOwnerSay(string message) { } // TODO
+
+llResetTime( ) { }
+float llGetTime( ) { }
+float llGetAndResetTime( ) { }
+
+string llGetTimestamp( ) { } // TODO
