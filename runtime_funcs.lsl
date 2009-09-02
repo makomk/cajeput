@@ -11,3 +11,5 @@ float llGetTime( ) { }
 float llGetAndResetTime( ) { }
 
 string llGetTimestamp( ) { } // TODO
+
+float llFabs(float val) { }

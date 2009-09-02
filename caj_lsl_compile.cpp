@@ -631,9 +631,10 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	expr_node fake_expr;
 	fake_expr.node_type = NODE_ASSIGN;
 	fake_expr.u.child[0] = statem->expr[0];
-	fake_expr.u.child[1] = statem->expr[0];
+	fake_expr.u.child[1] = statem->expr[1];
 	propagate_types(vasm, st, &fake_expr);
 	if(st.error) return;
+	assert(fake_expr.vtype == VM_TYPE_NONE);
 	assemble_expr(vasm, st, &fake_expr);
       }
       break; 
@@ -729,13 +730,60 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	if(st.error) return;
 	propagate_types(vasm, st, statem->expr[0]);
 	if(st.error) return;
-	statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
+	//statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
 	assemble_expr(vasm, st, statem->expr[0]);
+	if(st.error) return;
+	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	vasm.insn(INSN_COND);
 	vasm.do_jump(loop_start);
       }
       break;
+    case STMT_FOR:
+      {
+	loc_atom loop_start = vasm.make_loc();
+	loc_atom loop_end = vasm.make_loc();
+	if(statem->expr[0] != NULL) { // loop initialiser
+	  propagate_types(vasm, st, statem->expr[0]);
+	  if(st.error) return;
+	  statem->expr[0] = cast_to_void(statem->expr[0]);
+	  assemble_expr(vasm, st, statem->expr[0]);
+	  if(st.error) return;
+	}
+	
+	vasm.do_label(loop_start);
+	if(statem->expr[1] != NULL) { // loop condition
+	  propagate_types(vasm, st, statem->expr[1]);
+	  if(st.error) return;
+	  assemble_expr(vasm, st, statem->expr[1]);
+	  if(st.error) return;
+	  asm_cast_to_bool(vasm, st, statem->expr[1]);
+	  if(st.error) return;
+	  vasm.insn(INSN_NCOND);
+	  vasm.do_jump(loop_end);
+	  if(vasm.get_error() != NULL) {
+	    printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+	    st.error = 1; return;
+	  }
+	}
+	
+	produce_code(vasm, st, statem->child[0]);
+	if(st.error) return;
+
+	if(statem->expr[2] != NULL) { // loop post-whatsit
+	  propagate_types(vasm, st, statem->expr[2]);
+	  if(st.error) return;
+	  statem->expr[2] = cast_to_void(statem->expr[2]);
+	  assemble_expr(vasm, st, statem->expr[2]);
+	  if(st.error) return;
+	}
+	vasm.do_jump(loop_start); vasm.do_label(loop_end);
+	if(vasm.get_error() != NULL) {
+	    printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
+	    st.error = 1; return;
+	}
+	break;
+      }
     case STMT_BLOCK:
       produce_code(vasm, st, statem->child[0]);
       break;
