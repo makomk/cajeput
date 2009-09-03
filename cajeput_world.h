@@ -127,15 +127,12 @@ struct cajeput_physics_hooks {
 		    struct world_obj *obj);
   void(*del_object)(struct simulator_ctx *sim, void *priv,
 		    struct world_obj *obj);
-  int(*update_pos)(struct simulator_ctx *sim, void *priv,
-		   struct world_obj *obj); /* FIXME - HACK! */
   void(*set_force)(struct simulator_ctx *sim, void *priv,
 		   struct world_obj *obj, caj_vector3 force); /* HACK HACK HACK */
   void(*set_target_velocity)(struct simulator_ctx *sim, void *priv,
 			     struct world_obj *obj, caj_vector3 velocity);
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj, int is_flying);
-  void(*step)(struct simulator_ctx *sim, void *priv);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
 };
 

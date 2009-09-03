@@ -830,18 +830,6 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
 static gboolean av_update_timer(gpointer data) {
   struct simulator_ctx* sim = (simulator_ctx*)data;
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
-    /* HACK - FIXME do this right */
-    if(user->av != NULL) {
-      sim->physh.update_pos(sim, sim->phys_priv, &user->av->ob);
-#if 0
-      printf("DEBUG: user %s %s now at %f %f %f\n",
-	     user->first_name, user->last_name,
-	     user->av->ob.pos.x, user->av->ob.pos.y,
-	     user->av->ob.pos.z);
-#endif
-    }
-  }
-  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     // don't send anything prior to RegionHandshakeReply
     if((user->flags & AGENT_FLAG_RHR) == 0) continue;
 
@@ -1961,13 +1949,6 @@ static gboolean cleanup_timer(gpointer data) {
   return TRUE;
 }
 
-static gboolean physics_timer(gpointer data) {
-  struct simulator_ctx* sim = (struct simulator_ctx*) data;
-  //printf("*STEP*\n");
-  sim->physh.step(sim, sim->phys_priv);
-  return TRUE;
-}
-
 static void sigint_handler(int num) {
   shutting_down = 1;
 }
@@ -2260,7 +2241,6 @@ int main(void) {
   
   g_timeout_add(100, av_update_timer, sim);
   g_timeout_add(1000, cleanup_timer, sim);
-  g_timeout_add(1000/60, physics_timer, sim);
   sim->timer = g_timer_new();
 
   memset(&sim->gridh, 0, sizeof(sim->gridh));
