@@ -29,7 +29,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdint.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include "terrain_compress.h"
 
 #define END_OF_PATCHES 97
@@ -369,7 +369,7 @@ static void CreatePatchFromHeightmap(struct bit_packer *output, float *heightmap
   EncodePatch(output, patch, 0, wbits);
 }
 
-void terrain_create_patches(float *heightmap, int  *patches, int num_patches, struct sl_string *out)
+void terrain_create_patches(float *heightmap, int  *patches, int num_patches, struct caj_string *out)
 {
   int i;
 #if 0

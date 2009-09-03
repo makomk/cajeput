@@ -23,7 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_user.h"
 #include <libsoup/soup.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -365,7 +365,7 @@ static void agent_PUT_handler(SoupServer *server,
 
     node = json_object_get_member(object,"texture_entry");
     if(node != NULL) {
-      struct sl_string buf;
+      struct caj_string buf;
       buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
 	printf("DEBUG: agent PUT had bad texture_entry data\n");
@@ -377,7 +377,7 @@ static void agent_PUT_handler(SoupServer *server,
 
     node = json_object_get_member(object,"visual_params");
     if(node != NULL) {
-      struct sl_string buf;
+      struct caj_string buf;
       buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
 	printf("DEBUG: agent PUT had bad visual_params data\n");
@@ -736,7 +736,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   char buf[40]; gchar *jbuf; gsize len;
   char uri[256]; // FIXME
   uint64_t our_region_handle = sim_get_region_handle(sim);
-  const sl_string *pstr;
+  const caj_string *pstr;
 
   //user_teleport_progress(tp,"Upgrading child agent to full agent");
   user_teleport_progress(tp,"sending_dest"); // FIXME - ????

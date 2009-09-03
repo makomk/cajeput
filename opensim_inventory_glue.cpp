@@ -23,7 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_user.h"
 #include <libsoup/soup.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
 #include <stdlib.h>

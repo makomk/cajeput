@@ -20,13 +20,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "sl_types.h"
-#include "sl_llsd.h"
+#include "caj_types.h"
+#include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 
 static void event_queue_get_resp(SoupMessage *msg, user_ctx* ctx) {
-    sl_llsd *resp = llsd_new_map();
+    caj_llsd *resp = llsd_new_map();
 
     if(ctx->evqueue.last != NULL)
       llsd_free(ctx->evqueue.last);
@@ -47,8 +47,8 @@ static void event_queue_do_timeout(user_ctx* ctx) {
   }
 }
 
-void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body) {
-  sl_llsd *event = llsd_new_map();
+void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body) {
+  caj_llsd *event = llsd_new_map();
   llsd_map_append(event, "message", llsd_new_string(name));
   llsd_map_append(event, "body", body);
   llsd_array_append(ctx->evqueue.queued, event);
@@ -65,7 +65,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
     return;
   }
 
-  sl_llsd *llsd, *ack;
+  caj_llsd *llsd, *ack;
   if(msg->request_body->length > 4096) goto fail;
   llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
   if(llsd == NULL) {

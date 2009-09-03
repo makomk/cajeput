@@ -136,7 +136,7 @@ static int update_pos(struct simulator_ctx *sim, void *priv,
 
   {
     struct phys_obj *physobj = (struct phys_obj *)obj->phys;
-    sl_vector3 newpos; btTransform trans;
+    caj_vector3 newpos; btTransform trans;
     physobj->body->getMotionState()->getWorldTransform(trans);
     newpos.x = trans.getOrigin().getX();
     newpos.y = trans.getOrigin().getZ(); // swap Y and Z
@@ -159,7 +159,7 @@ static int update_pos(struct simulator_ctx *sim, void *priv,
 
 /* FIXME - HACK */
 static void set_force(struct simulator_ctx *sim, void *priv,
-		      struct world_obj *obj, sl_vector3 force) {
+		      struct world_obj *obj, caj_vector3 force) {
   btVector3 real_force(force.x,force.z,force.y);
   if(obj->phys == NULL)
     return;
@@ -172,7 +172,7 @@ static void set_force(struct simulator_ctx *sim, void *priv,
 }
 
 static void set_target_velocity(struct simulator_ctx *sim, void *priv,
-		      struct world_obj *obj, sl_vector3 velocity) {
+		      struct world_obj *obj, caj_vector3 velocity) {
   if(obj->phys == NULL)
     return;
   struct phys_obj *physobj = (struct phys_obj *)obj->phys;

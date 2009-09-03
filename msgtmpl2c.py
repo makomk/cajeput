@@ -27,11 +27,11 @@ from msgtmpl_core import MessageTemplate
 _tmpl2c_typemap = {"U8":"uint8_t","U16":"uint16_t","U32":"uint32_t",
                    "U64":"uint64_t",
                    "S8":"int8_t","S16":"int16_t","S32":"int32_t",
-                   "S64":"int64_t", "LLUUID":"uuid_t","Variable":"sl_string",
+                   "S64":"int64_t", "LLUUID":"uuid_t","Variable":"caj_string",
                    "BOOL":"int","F32":"float","F64":"double",
-                   "Fixed":"char*","LLQuaternion":"sl_quat",
-                   "LLVector3":"sl_vector3","LLVector4":"sl_vector4",
-                   "LLVector3d":"sl_vector3_dbl",
+                   "Fixed":"char*","LLQuaternion":"caj_quat",
+                   "LLVector3":"caj_vector3","LLVector4":"caj_vector4",
+                   "LLVector3d":"caj_vector3_dbl",
                    "IPADDR":"uint32_t","IPPORT":"uint16_t",
                    }
 
@@ -49,7 +49,7 @@ if __name__ == '__main__':
 extern "C" {
 #endif
 
-#include "sl_types.h"
+#include "caj_types.h"
 #include <stdint.h>
 #include <uuid/uuid.h>
 
@@ -172,12 +172,12 @@ void sl_free_msg(struct sl_message* msg) {
         char *data = blk->data[j];
         if(data != NULL) {
           for(k = 0; k < bt->num_vals; k++) {
-            struct sl_string *str;
+            struct caj_string *str;
             switch(bt->vals[k].type) {
             case SL_MSG_VARIABLE1:
             case SL_MSG_VARIABLE2:
-               str = (struct sl_string*)(data+bt->vals[k].offset);
-               sl_string_free(str);
+               str = (struct caj_string*)(data+bt->vals[k].offset);
+               caj_string_free(str);
                break;
             }
           }

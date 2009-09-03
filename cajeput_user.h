@@ -24,7 +24,7 @@
 #define CAJEPUT_USER_H
 
 #include <uuid/uuid.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -99,8 +99,8 @@ float user_get_draw_dist(struct user_ctx *user);
 // as with sim_get_*, you mustn't free or store the strings
 const char* user_get_first_name(struct user_ctx *user);
 const char* user_get_last_name(struct user_ctx *user);
-const sl_string* user_get_texture_entry(struct user_ctx *user);
-const sl_string* user_get_visual_params(struct user_ctx *user);
+const caj_string* user_get_texture_entry(struct user_ctx *user);
+const caj_string* user_get_visual_params(struct user_ctx *user);
 
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
@@ -125,8 +125,8 @@ void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
 
 // Semantics of these two are funny. They take ownership of the buffer pointed 
 // to by data->data and then set data->data to NULL. 
-void user_set_texture_entry(struct user_ctx *user, struct sl_string* data);
-void user_set_visual_params(struct user_ctx *user, struct sl_string* data);
+void user_set_texture_entry(struct user_ctx *user, struct caj_string* data);
+void user_set_visual_params(struct user_ctx *user, struct caj_string* data);
 
 struct animation_desc; // FIXME - move this to this header
 void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,
@@ -187,14 +187,14 @@ int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 
 // Should only really be used to handle incoming requests from client
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
-			    const sl_vector3 *pos, const sl_vector3 *look_at);
+			    const caj_vector3 *pos, const caj_vector3 *look_at);
 void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark);
 
 // and these should only be used by code that handles teleports
 struct teleport_desc {
   struct user_ctx* ctx; // may become NULL;
   uint64_t region_handle;
-  sl_vector3 pos, look_at;
+  caj_vector3 pos, look_at;
   uint32_t flags; // TELEPORT_FLAG_*
   int want_cancel;
   uint32_t sim_ip;

@@ -26,13 +26,13 @@
 #include <uuid/uuid.h>
 #include <glib.h>
 #include <libsoup/soup.h>
-#include "sl_types.h"
+#include "caj_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x0007 // The name's Bond. James Bond.
+#define CAJEPUT_API_VERSION 0x0008
 
 struct user_ctx;
 struct simulator_ctx;
@@ -102,8 +102,8 @@ struct cajeput_grid_hooks {
 
   /* user is logging off */
   void(*user_logoff)(struct simulator_ctx* sim,
-		     const uuid_t user_id, const sl_vector3 *pos,
-		     const sl_vector3 *look_at);
+		     const uuid_t user_id, const caj_vector3 *pos,
+		     const caj_vector3 *look_at);
 
   void(*cleanup)(struct simulator_ctx* sim);
 
@@ -182,7 +182,7 @@ struct simple_asset { // for makeshift scripting stuff
   char *name, *description;
   int8_t type; // FIXME - is this right?
   uuid_t id;
-  sl_string data;
+  caj_string data;
 };
 
 struct inventory_item {

@@ -20,7 +20,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "sl_llsd.h"
+#include "caj_llsd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <libxml/parser.h>
@@ -32,7 +32,7 @@
 
 #define LLSD_MAX_DEPTH 16
 
-void llsd_free(sl_llsd *llsd) {
+void llsd_free(caj_llsd *llsd) {
   int i;
   switch(llsd->type_id) {
   case LLSD_ARRAY:
@@ -53,13 +53,13 @@ void llsd_free(sl_llsd *llsd) {
     free(llsd->t.str);
     break;
   case LLSD_BINARY:
-    sl_string_free(&llsd->t.bin);
+    caj_string_free(&llsd->t.bin);
     break;
   }
   free(llsd);
 }
 
-void llsd_pretty_print(sl_llsd *llsd, int depth) {
+void llsd_pretty_print(caj_llsd *llsd, int depth) {
   int i,n;
   for(n = 0; n < depth; n++) printf("    ");
   switch(llsd->type_id) {
@@ -105,26 +105,26 @@ void llsd_pretty_print(sl_llsd *llsd, int depth) {
   }
 }
 
-void llsd_array_append(sl_llsd *arr, sl_llsd *it) {
+void llsd_array_append(caj_llsd *arr, caj_llsd *it) {
   assert(arr->type_id == LLSD_ARRAY);
   if(arr->t.arr.count >= arr->t.arr.max) {
     arr->t.arr.max *= 2;
-    arr->t.arr.data = realloc(arr->t.arr.data, arr->t.arr.max*sizeof(sl_llsd*));
+    arr->t.arr.data = realloc(arr->t.arr.data, arr->t.arr.max*sizeof(caj_llsd*));
   }
   arr->t.arr.data[arr->t.arr.count++] = it;
 }
 
-void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it) {
+void llsd_map_append(caj_llsd *arr, const char* key, caj_llsd *it) {
   assert(arr->type_id == LLSD_MAP);
   if(arr->t.map.count >= arr->t.map.max) {
     arr->t.map.max *= 2;
-    arr->t.map.data = realloc(arr->t.map.data, arr->t.map.max*sizeof(sl_llsd_pair));
+    arr->t.map.data = realloc(arr->t.map.data, arr->t.map.max*sizeof(caj_llsd_pair));
   }
   arr->t.map.data[arr->t.map.count].key = strdup(key);
   arr->t.map.data[arr->t.map.count++].val = it;
 }
 
-static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
+static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
   xmlNode *cur_node;
   if(depth >= LLSD_MAX_DEPTH) return NULL; // DoS protection
   for(;;) {
@@ -138,7 +138,7 @@ static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
     a_node = a_node->next;
   }
   if (a_node->type == XML_ELEMENT_NODE) {
-    sl_llsd* llsd = malloc(sizeof(sl_llsd));
+    caj_llsd* llsd = malloc(sizeof(caj_llsd));
     if(strcmp(a_node->name, "undef") == 0) {
       llsd->type_id = LLSD_UNDEF;
     } else if(strcmp(a_node->name, "integer") == 0) {
@@ -179,10 +179,10 @@ static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
       llsd->type_id = LLSD_ARRAY;
       llsd->t.arr.count = 0;
       llsd->t.arr.max = 8;
-      llsd->t.arr.data = calloc(sizeof(sl_llsd*), llsd->t.arr.max);
+      llsd->t.arr.data = calloc(sizeof(caj_llsd*), llsd->t.arr.max);
       cur_node = a_node->children;
       for(;;) {
-	sl_llsd *child;
+	caj_llsd *child;
 	while(cur_node != NULL && (cur_node->type == XML_TEXT_NODE || 
 				   cur_node->type == XML_COMMENT_NODE)) 
 	  cur_node = cur_node->next;
@@ -198,10 +198,10 @@ static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
       llsd->type_id = LLSD_MAP;
       llsd->t.map.count = 0;
       llsd->t.map.max = 8;
-      llsd->t.map.data = calloc(sizeof(sl_llsd_pair), llsd->t.arr.max);
+      llsd->t.map.data = calloc(sizeof(caj_llsd_pair), llsd->t.arr.max);
       cur_node = a_node->children;
       for(;;) {
-	sl_llsd *child; char* key;
+	caj_llsd *child; char* key;
 	while(cur_node != NULL && (cur_node->type == XML_TEXT_NODE || 
 				   cur_node->type == XML_COMMENT_NODE)) 
 	  cur_node = cur_node->next;
@@ -244,8 +244,8 @@ static sl_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
   assert(0);
 };
 
-sl_llsd* llsd_parse_xml(const char* data, int len) {
-  sl_llsd *ret;
+caj_llsd* llsd_parse_xml(const char* data, int len) {
+  caj_llsd *ret;
   xmlDocPtr doc = xmlReadMemory(data,len,"llsd.xml",NULL,0);
   if(doc == NULL) return NULL;
 
@@ -255,7 +255,7 @@ sl_llsd* llsd_parse_xml(const char* data, int len) {
   return ret;
 }
 
-sl_llsd* llsd_map_lookup(sl_llsd *map, const char *key) {
+caj_llsd* llsd_map_lookup(caj_llsd *map, const char *key) {
   int i;
   assert(map->type_id == LLSD_MAP);
   for(i = 0; i < map->t.map.count; i++) {
@@ -267,7 +267,7 @@ sl_llsd* llsd_map_lookup(sl_llsd *map, const char *key) {
   
 }
 
-static int serialise_xml(sl_llsd *llsd, xmlTextWriterPtr writer) {
+static int serialise_xml(caj_llsd *llsd, xmlTextWriterPtr writer) {
   char buf[40]; int i;
   switch(llsd->type_id) {
   case LLSD_UNDEF:
@@ -328,7 +328,7 @@ static int serialise_xml(sl_llsd *llsd, xmlTextWriterPtr writer) {
   return 1;
 }
 
-char* llsd_serialise_xml(sl_llsd *llsd) {
+char* llsd_serialise_xml(caj_llsd *llsd) {
   char *out = NULL;
   int ret;
   xmlTextWriterPtr writer;
@@ -365,76 +365,76 @@ char* llsd_serialise_xml(sl_llsd *llsd) {
   return out;
 }
 
-sl_llsd* llsd_new_array(void) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_array(void) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_ARRAY;
   llsd->t.arr.count = 0;
   llsd->t.arr.max = 8;
-  llsd->t.arr.data = calloc(sizeof(sl_llsd*), llsd->t.arr.max);
+  llsd->t.arr.data = calloc(sizeof(caj_llsd*), llsd->t.arr.max);
   return llsd;
 }
 
-sl_llsd* llsd_new_map(void) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_map(void) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_MAP;
   llsd->t.map.count = 0;
   llsd->t.map.max = 8;
-  llsd->t.map.data = calloc(sizeof(sl_llsd_pair), llsd->t.arr.max);
+  llsd->t.map.data = calloc(sizeof(caj_llsd_pair), llsd->t.arr.max);
   return llsd;
 }
 
-sl_llsd* llsd_new_string(const char *str) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_string(const char *str) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_STRING;
   llsd->t.str = strdup(str);
   return llsd;
 }
 
 // FIXME - should I bother exporting this?
-sl_llsd* llsd_new_string_take(char *str) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_string_take(char *str) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_STRING;
   llsd->t.str = str;
   return llsd;
 }
 
-sl_llsd* llsd_new_binary(void* data, int len) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_binary(void* data, int len) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_BINARY;
-  sl_string_set_bin(&llsd->t.bin, (unsigned char*)data, len);
+  caj_string_set_bin(&llsd->t.bin, (unsigned char*)data, len);
   return llsd;
   
 }
 
-sl_llsd* llsd_new_uuid(uuid_t u) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_uuid(uuid_t u) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_UUID;
   uuid_copy(llsd->t.uuid, u);
   return llsd;
 }
 
-sl_llsd* llsd_new_int( int i) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_int( int i) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_INT;
   llsd->t.i = i;
   return llsd;
 }
 
-sl_llsd* llsd_new_bool( int i) {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new_bool( int i) {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_BOOLEAN;
   llsd->t.i = (i != 0);
   return llsd;
 }
 
-sl_llsd* llsd_new() {
-  sl_llsd* llsd = malloc(sizeof(sl_llsd));
+caj_llsd* llsd_new() {
+  caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_UNDEF;
   return llsd;
 }
 
 // ah, SL and its random endianness
-sl_llsd* llsd_new_from_u64(uint64_t val) {
+caj_llsd* llsd_new_from_u64(uint64_t val) {
   unsigned char rawmsg[8];
   rawmsg[7] = val&0xff; rawmsg[6] = val >> 8; 
   rawmsg[5] = val >> 16; rawmsg[4] = val >> 24;
@@ -443,7 +443,7 @@ sl_llsd* llsd_new_from_u64(uint64_t val) {
   return llsd_new_binary(rawmsg, 8);
 }
 
-sl_llsd* llsd_new_from_u32(uint32_t val) {
+caj_llsd* llsd_new_from_u32(uint32_t val) {
   unsigned char rawmsg[4];
   rawmsg[3] = val&0xff; rawmsg[2] = val >> 8; 
   rawmsg[1] = val >> 16; rawmsg[0] = val >> 24;

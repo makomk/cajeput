@@ -23,7 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_user.h"
 #include <libsoup/soup.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -186,8 +186,8 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
   GByteArray *data; char *s;
   if(soup_value_hash_lookup(hash,"visual_params",SOUP_TYPE_BYTE_ARRAY,
 			    &data)) {
-    sl_string str;
-    sl_string_set_bin(&str,data->data,data->len);
+    caj_string str;
+    caj_string_set_bin(&str,data->data,data->len);
     user_set_visual_params(user, &str);
   } else {
     printf("WARNING: expect_user is missing visual_params\n");
@@ -195,8 +195,8 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
 
   if(soup_value_hash_lookup(hash,"texture",SOUP_TYPE_BYTE_ARRAY,
 			    &data)) {
-    sl_string str;
-    sl_string_set_bin(&str,data->data,data->len);
+    caj_string str;
+    caj_string_set_bin(&str,data->data,data->len);
     user_set_texture_entry(user, &str);
   } else {
     printf("WARNING: expect_user is missing texture data\n");
@@ -544,8 +544,8 @@ static void got_user_logoff_resp(SoupSession *session, SoupMessage *msg, gpointe
 
 
 static void user_logoff(struct simulator_ctx* sim,
-			const uuid_t user_id, const sl_vector3 *pos,
-			const sl_vector3 *look_at) {
+			const uuid_t user_id, const caj_vector3 *pos,
+			const caj_vector3 *look_at) {
   char buf[40];
   uuid_t u;
   GHashTable *hash;

@@ -24,7 +24,7 @@
 #define CAJEPUT_WORLD_H
 
 #include <uuid/uuid.h>
-#include "sl_types.h"
+#include "caj_types.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -44,10 +44,10 @@ struct obj_chat_listeners;
 
 struct world_obj {
   int type;
-  sl_vector3 pos;
-  sl_vector3 scale; // FIXME - set correctly for avatars
-  sl_vector3 velocity;
-  sl_quat rot;
+  caj_vector3 pos;
+  caj_vector3 scale; // FIXME - set correctly for avatars
+  caj_vector3 velocity;
+  caj_quat rot;
   uuid_t id;
   uint32_t local_id;
   void *phys;
@@ -80,7 +80,7 @@ struct primitive_obj {
   uint32_t base_perms, owner_perms, group_perms, everyone_perms, next_perms;
   int32_t sale_price;
   char *name, *description;
-  sl_string tex_entry;
+  caj_string tex_entry;
 
   struct {
     unsigned int num_items, alloc_items;
@@ -130,9 +130,9 @@ struct cajeput_physics_hooks {
   int(*update_pos)(struct simulator_ctx *sim, void *priv,
 		   struct world_obj *obj); /* FIXME - HACK! */
   void(*set_force)(struct simulator_ctx *sim, void *priv,
-		   struct world_obj *obj, sl_vector3 force); /* HACK HACK HACK */
+		   struct world_obj *obj, caj_vector3 force); /* HACK HACK HACK */
   void(*set_target_velocity)(struct simulator_ctx *sim, void *priv,
-			     struct world_obj *obj, sl_vector3 velocity);
+			     struct world_obj *obj, caj_vector3 velocity);
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj, int is_flying);
   void(*step)(struct simulator_ctx *sim, void *priv);
@@ -156,7 +156,7 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
-			const sl_vector3 &new_pos);
+			const caj_vector3 &new_pos);
 
   // don't ask. Really. Also, don't free or store returned string.
   char* world_prim_upd_inv_filename(struct primitive_obj* prim);

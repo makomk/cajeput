@@ -49,7 +49,7 @@ struct udp_resend_desc {
 };
 
 struct om_xfer_file {
-  sl_string data;
+  caj_string data;
 };
 
 struct xfer_send;

@@ -29,7 +29,7 @@
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include "sl_llsd.h"
+#include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_world.h"
 #include "cajeput_user.h"
@@ -188,8 +188,8 @@ struct user_ctx {
 
   // Event queue stuff. FIXME - seperate this out
   struct {
-    sl_llsd *queued;
-    sl_llsd *last;
+    caj_llsd *queued;
+    caj_llsd *last;
     int ctr;
     SoupMessage *msg;
     double timeout;
@@ -208,7 +208,7 @@ struct user_ctx {
   caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
 
   uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
-  struct sl_string texture_entry, visual_params;
+  struct caj_string texture_entry, visual_params;
   struct animation_desc default_anim; // FIXME - merge into list of animations
   std::vector<animation_desc> anims;
   int32_t anim_seq; // FIXME - seems fishy
@@ -232,7 +232,7 @@ struct world_obj;
 
 struct chat_message {
   int32_t channel;
-  sl_vector3 pos;
+  caj_vector3 pos;
   uuid_t source;
   uuid_t owner;
   uint8_t source_type, chat_type;
@@ -327,7 +327,7 @@ void sim_call_shutdown_hook(struct simulator_ctx *sim);
 #define SL_QUAT_EPS 0.0001
 
 // FIXME - stick this somewhere sane
-static int sl_quat_equal(struct sl_quat *q1, struct sl_quat *q2) {
+static int caj_quat_equal(struct caj_quat *q1, struct caj_quat *q2) {
   return fabs(q1->x - q2->x) < SL_QUAT_EPS && 
     fabs(q1->y - q2->y) < SL_QUAT_EPS &&
     fabs(q1->z - q2->z) < SL_QUAT_EPS &&
@@ -342,7 +342,7 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 			   int32_t channel);
 
 // FIXME - rename and export more widely!
-void llsd_soup_set_response(SoupMessage *msg, sl_llsd *llsd);
+void llsd_soup_set_response(SoupMessage *msg, caj_llsd *llsd);
 
 void user_int_free_texture_sends(struct user_ctx *ctx);
 
@@ -369,7 +369,7 @@ void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t
 void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp);
 
 // takes ownership of the passed LLSD
-void user_event_queue_send(user_ctx* ctx, const char* name, sl_llsd *body);
+void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body);
 
 int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
 
@@ -383,9 +383,9 @@ void user_call_delete_hook(struct user_ctx *ctx);
 
 struct caj_multi_upd {
   int flags;
-  sl_vector3 pos;
-  sl_quat rot;
-  sl_vector3 scale;
+  caj_vector3 pos;
+  caj_quat rot;
+  caj_vector3 scale;
 };
 
 void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,

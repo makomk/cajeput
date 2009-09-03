@@ -26,26 +26,26 @@
 #include <string.h>
 #include <stdlib.h>
 
-typedef struct sl_string {
+typedef struct caj_string {
   unsigned char* data;
   int len;
-} sl_string;
+} caj_string;
 
-static inline void sl_string_set(struct sl_string* str, const char* val) {
+static inline void caj_string_set(struct caj_string* str, const char* val) {
   str->len = strlen(val)+1;
   str->data = (unsigned char*)malloc(str->len);
   memcpy(str->data, val, str->len);
 }
 
-static inline void sl_string_set_bin(struct sl_string* str, 
+static inline void caj_string_set_bin(struct caj_string* str, 
 				     const unsigned char* val, int len) {
   str->len = len;
   str->data = (unsigned char*)malloc(len);
   memcpy(str->data, val, len);
 }
 
-static inline void sl_string_copy(struct sl_string *dest, 
-				  const struct sl_string *src) {
+static inline void caj_string_copy(struct caj_string *dest, 
+				  const struct caj_string *src) {
   if(src->data == NULL) {
     dest->data = NULL; dest->len = 0;
   } else {
@@ -55,8 +55,8 @@ static inline void sl_string_copy(struct sl_string *dest,
   }
 }
 
-static inline void sl_string_steal(struct sl_string *dest, 
-				   struct sl_string *src) {
+static inline void caj_string_steal(struct caj_string *dest, 
+				   struct caj_string *src) {
   if(src->data == NULL) {
     dest->data = NULL; dest->len = 0;
   } else {
@@ -65,42 +65,42 @@ static inline void sl_string_steal(struct sl_string *dest,
   }
 }
 
-static inline void sl_string_free(struct sl_string* str) {
+static inline void caj_string_free(struct caj_string* str) {
   free(str->data); str->data = NULL;
 }
 
-typedef struct sl_vector3 {
+typedef struct caj_vector3 {
   float x, y, z;
-} sl_vector3;
+} caj_vector3;
 
-typedef struct sl_vector3_dbl {
+typedef struct caj_vector3_dbl {
   double x, y, z;
-} sl_vector3_dbl;
+} caj_vector3_dbl;
 
-typedef struct sl_quat {
+typedef struct caj_quat {
   float x, y, z, w;
-} sl_quat;
+} caj_quat;
 
-typedef struct sl_vector4 {
+typedef struct caj_vector4 {
   float x, y, z, w;
-} sl_vector4;
+} caj_vector4;
 
 
 /* Expands a normalised quaternion for which only the first 3 elements have been set */
-static inline void sl_expand_quat(struct sl_quat* quat) {
+static inline void caj_expand_quat(struct caj_quat* quat) {
   float w_squared = 1.0f - (quat->x*quat->x) - (quat->y*quat->y) - (quat->z*quat->z);
   quat->w = w_squared > 0.0f ? sqrtf(w_squared) : 0.0f;
 }
 
-static inline float sl_vect3_dist(const struct sl_vector3 *v1, const struct sl_vector3 *v2) {
+static inline float caj_vect3_dist(const struct caj_vector3 *v1, const struct caj_vector3 *v2) {
   float x = v1->x - v2->x, y = v1->y - v2->y, z = v1->z - v2->z;
   return sqrtf(x*x + y*y + z*z);
 }
 
-static void sl_mult_vect3_quat(struct sl_vector3 *out, const struct sl_quat* rot,
-			       const struct sl_vector3 *vec) {
+static void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
+			       const struct caj_vector3 *vec) {
   // FIXME - blind copy and paste from OpenSim code
-  sl_vector3 ret;
+  caj_vector3 ret;
   ret.x =
     rot->w * rot->w * vec->x +
     2.f * rot->y * rot->w * vec->z -

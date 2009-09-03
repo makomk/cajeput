@@ -68,14 +68,14 @@ void sl_dump_packet(struct sl_message* msg) {
 	  break;
 	case SL_MSG_LLVECTOR3:
 	  {
-	    struct sl_vector3 *vect = (struct sl_vector3*)(blk+bt->vals[k].offset);
+	    struct caj_vector3 *vect = (struct caj_vector3*)(blk+bt->vals[k].offset);
 	    printf("    %s = (%f, %f, %f)\n", bt->vals[k].name, 
 		   (double)vect->x, (double)vect->y, (double)vect->z);
 	    break;
 	  }
 	case SL_MSG_LLQUATERNION:
 	  {
-	    struct sl_quat *quat = (struct sl_quat*)(blk+bt->vals[k].offset);
+	    struct caj_quat *quat = (struct caj_quat*)(blk+bt->vals[k].offset);
 	    printf("    %s = quat(%f, %f, %f, %f)\n", bt->vals[k].name, 
 		   (double)quat->x, (double)quat->y, 
 		   (double)quat->z, (double)quat->w);
@@ -95,7 +95,7 @@ void sl_dump_packet(struct sl_message* msg) {
 	case SL_MSG_VARIABLE1:
 	case SL_MSG_VARIABLE2:
 	  {
-	    sl_string *str = (sl_string*)(blk+bt->vals[k].offset);
+	    caj_string *str = (caj_string*)(blk+bt->vals[k].offset);
 	    printf("    %s = (variable, length %i)\n",
 		   bt->vals[k].name, str->data != NULL ? str->len : -1);
 	    break;
@@ -232,7 +232,7 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	  break;
 	case SL_MSG_VARIABLE1:
 	  {
-	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
+	    struct caj_string *str = (struct caj_string*)(blk+bt->vals[k].offset);
 	    if(len < 1) { printf("Unexpected end of packet\n"); return 1;}
 	    int tmp = data[0];
 	    if(len < tmp+1) { 
@@ -248,7 +248,7 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	  }
 	case SL_MSG_VARIABLE2:
 	  {
-	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
+	    struct caj_string *str = (struct caj_string*)(blk+bt->vals[k].offset);
 	    if(len < 2) { printf("Unexpected end of packet\n"); return 1;}
 	    int tmp = data[0] | (data[1] << 8);
 	    if(len < tmp+2) { 
@@ -286,7 +286,7 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	  // FIXME - proper byte swapping; correctly fill in 4th value
 	  if(len < 12) { printf("Unexpected end of packet\n"); return 1;}
 	  memcpy(blk+bt->vals[k].offset, data, 12); 
-	  sl_expand_quat((struct sl_quat*)(blk+bt->vals[k].offset));
+	  caj_expand_quat((struct caj_quat*)(blk+bt->vals[k].offset));
 	  len -= 12; data += 12;
 	  break;
 	case SL_MSG_LLVECTOR3:
@@ -363,7 +363,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  break;
 	case SL_MSG_VARIABLE1:
 	  {
-	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
+	    struct caj_string *str = (struct caj_string*)(blk+bt->vals[k].offset);
 	    tmp = str->len;
 	    if(tmp > 0xff) tmp = 0xff;
 	    if(len+tmp+1 > buflen) { printf("Packet %s overran buffer packing %s.%s of len %i\n", msg->tmpl->name, bt->name, bt->vals[k].name, tmp); return 0;}
@@ -374,7 +374,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  }
 	case SL_MSG_VARIABLE2:
 	  {
-	    struct sl_string *str = (struct sl_string*)(blk+bt->vals[k].offset);
+	    struct caj_string *str = (struct caj_string*)(blk+bt->vals[k].offset);
 	    tmp = str->len;
 	    if(tmp > 0xffff) tmp = 0xffff;
 	    if(len+tmp+2 > buflen) { printf("Packet %s overran buffer packing %s.%s of len %i\n", msg->tmpl->name, bt->name, bt->vals[k].name, tmp); return 0;}

@@ -5,11 +5,11 @@
 extern "C" {
 #endif
 
-#include "sl_types.h"
+#include "caj_types.h"
 
 #define LAYER_TYPE_LAND 0x4C
 
-void terrain_create_patches(float *heightmap, int  *patches, int num_patches, struct sl_string *out);
+void terrain_create_patches(float *heightmap, int  *patches, int num_patches, struct caj_string *out);
 void terrain_init_compress();
 
 #ifdef __cplusplus

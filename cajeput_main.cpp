@@ -21,7 +21,7 @@
  */
 
 #include "sl_messages.h"
-#include "sl_llsd.h"
+#include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include "cajeput_j2k.h"
@@ -292,7 +292,7 @@ void octree_del_chat(struct world_ot_leaf* leaf, int32_t channel,
 }
 
 void world_octree_move(struct world_octree* tree, struct world_obj* obj,
-		       const sl_vector3 &new_pos) {
+		       const caj_vector3 &new_pos) {
   // FIXME - need to improve efficiency;
   struct world_ot_leaf* old_leaf = world_octree_find(tree, (int)obj->pos.x,
 						     (int)obj->pos.y,
@@ -347,7 +347,7 @@ static void real_octree_send_chat(struct simulator_ctx *sim, struct world_octree
 	int count = 0;
 	for(octree_chat_map_iter iter = span.first; iter != span.second;iter++) {
 	  obj_chat_listener* listen = iter->second;
-	  if(sl_vect3_dist(&listen->obj->pos, &chat->pos) < range)
+	  if(caj_vect3_dist(&listen->obj->pos, &chat->pos) < range)
 	    listen->callback(sim, listen->obj, chat, listen->user_data);
 	}
       }
@@ -522,8 +522,8 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 
       assert(inv->asset_hack != NULL); // FIXME
       uuid_copy(inv->asset_hack->id, inv->asset_id);
-      sl_string_free(&inv->asset_hack->data);
-      sl_string_set_bin(&inv->asset_hack->data, data, data_len);
+      caj_string_free(&inv->asset_hack->data);
+      caj_string_set_bin(&inv->asset_hack->data, data, data_len);
       if(sim->scripth.add_script != NULL) {
 	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, 
 					    inv->asset_hack, cb, cb_priv);
@@ -584,7 +584,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   asset->description = strdup(descrip);
   uuid_copy(asset->id, inv->asset_id);
   asset->type = ASSET_LSL_TEXT;
-  sl_string_set(&asset->data, "default\n{  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
+  caj_string_set(&asset->data, "default\n{  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
   inv->asset_hack = asset;
 
   prim_add_inventory(prim, inv);
@@ -605,7 +605,7 @@ static void world_insert_demo_objects(struct simulator_ctx *sim) {
 }
 
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
-			const sl_vector3 &new_pos) {
+			const caj_vector3 &new_pos) {
   world_octree_move(sim->world_tree, ob, new_pos);
   ob->pos = new_pos;
 }
@@ -1007,7 +1007,7 @@ static void caps_handler (SoupServer *server,
   soup_message_set_status(msg,404);
 }
 
-void llsd_soup_set_response(SoupMessage *msg, sl_llsd *llsd) {
+void llsd_soup_set_response(SoupMessage *msg, caj_llsd *llsd) {
   char *str;
   str = llsd_serialise_xml(llsd);
   if(str == NULL) {
@@ -1028,7 +1028,7 @@ void seed_caps_callback(SoupMessage *msg, user_ctx* ctx, void *user_data) {
     return;
   }
 
-  sl_llsd *llsd, *resp; 
+  caj_llsd *llsd, *resp; 
   if(msg->request_body->length > 65536) goto fail;
   llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
   if(llsd == NULL) goto fail;
@@ -1038,7 +1038,7 @@ void seed_caps_callback(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   resp = llsd_new_map();
 
   for(int i = 0; i < llsd->t.arr.count; i++) {
-    sl_llsd *item = llsd->t.arr.data[i];
+    caj_llsd *item = llsd->t.arr.data[i];
     if(!LLSD_IS(item, LLSD_STRING)) goto free_fail_2;
     named_caps_iter iter = ctx->named_caps.find(item->t.str);
     if(iter != ctx->named_caps.end()) {
@@ -1107,7 +1107,7 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
   soup_server_unpause_message(upd->sim->soup, upd->msg);
   sim_shutdown_release(upd->sim);
   if(upd->ctx != NULL) {
-    sl_llsd *resp; sl_llsd *errors;
+    caj_llsd *resp; caj_llsd *errors;
     printf("DEBUG: sending %s script compile response\n", success ? "successful" : "unsuccessful");
     // FIXME - this probably ain't right; think OpenSim gets this wrong
     resp = llsd_new_map();
@@ -1141,7 +1141,7 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
 
 static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   update_script_desc *upd = (update_script_desc*)user_data;
-  sl_llsd *resp; primitive_obj * prim; inventory_item *inv;
+  caj_llsd *resp; primitive_obj * prim; inventory_item *inv;
   
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
@@ -1197,8 +1197,8 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
     return;
   }
 
-  sl_llsd *llsd, *resp; 
-  sl_llsd *item_id, *task_id, *script_running;
+  caj_llsd *llsd, *resp; 
+  caj_llsd *item_id, *task_id, *script_running;
   update_script_desc *upd;
   if(msg->request_body->length > 65536) goto fail;
   llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
@@ -1299,11 +1299,11 @@ const char* user_get_last_name(struct user_ctx *user) {
   return user->last_name;
 }
 
-const sl_string* user_get_texture_entry(struct user_ctx *user) {
+const caj_string* user_get_texture_entry(struct user_ctx *user) {
   return &user->texture_entry;
 }
 
-const sl_string* user_get_visual_params(struct user_ctx *user) {
+const caj_string* user_get_visual_params(struct user_ctx *user) {
   return &user->visual_params;
 }
 
@@ -1335,15 +1335,15 @@ void user_del_self_pointer(struct user_ctx** pctx) {
 }
 
 
-void user_set_texture_entry(struct user_ctx *user, struct sl_string* data) {
-  sl_string_free(&user->texture_entry);
+void user_set_texture_entry(struct user_ctx *user, struct caj_string* data) {
+  caj_string_free(&user->texture_entry);
   user->texture_entry = *data;
   data->data = NULL;
   user->flags |= AGENT_FLAG_APPEARANCE_UPD; // FIXME - send full update instead?
 }
 
-void user_set_visual_params(struct user_ctx *user, struct sl_string* data) {
-  sl_string_free(&user->visual_params);
+void user_set_visual_params(struct user_ctx *user, struct caj_string* data) {
+  caj_string_free(&user->visual_params);
   user->visual_params = *data;
   data->data = NULL;
   user->flags |= AGENT_FLAG_APPEARANCE_UPD;
@@ -1601,7 +1601,7 @@ void user_complete_teleport(struct teleport_desc* tp) {
 }
 
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
-			    const sl_vector3 *pos, const sl_vector3 *look_at) {
+			    const caj_vector3 *pos, const caj_vector3 *look_at) {
   teleport_desc* desc = begin_teleport(ctx);
   if(desc == NULL) return;
   desc->region_handle = region_handle;
@@ -1630,9 +1630,9 @@ void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
 				  const char* seed_cap) {
   // FIXME - need to move this into general EnableSimulator handling once
   // we have such a thing.
-  sl_llsd *body = llsd_new_map();
-  sl_llsd *sims = llsd_new_array();
-  sl_llsd *info = llsd_new_map();
+  caj_llsd *body = llsd_new_map();
+  caj_llsd *sims = llsd_new_array();
+  caj_llsd *info = llsd_new_map();
 
   llsd_map_append(info, "IP", llsd_new_binary(&sim_ip,4)); // big-endian?
   llsd_map_append(info, "Port", llsd_new_int(sim_port));
@@ -1826,8 +1826,8 @@ static void user_remove_int(user_ctx **user) {
     ctx->userh->remove(ctx->user_priv);
   }
 
-  sl_string_free(&ctx->texture_entry);
-  sl_string_free(&ctx->visual_params);
+  caj_string_free(&ctx->texture_entry);
+  caj_string_free(&ctx->visual_params);
 
 
   free(ctx->first_name);

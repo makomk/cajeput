@@ -20,9 +20,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SL_LLSD_H
-#define SL_LLSD_H
-#include "sl_types.h"
+#ifndef CAJ_LLSD_H
+#define CAJ_LLSD_H
+#include "caj_types.h"
 #include <uuid/uuid.h>
 #include <stdint.h>
 
@@ -42,57 +42,57 @@ extern "C" {
 #define LLSD_MAP 9
 #define LLSD_ARRAY 10
 
-typedef struct sl_llsd sl_llsd;
+typedef struct caj_llsd caj_llsd;
 
-typedef struct sl_llsd_array {
+typedef struct caj_llsd_array {
   int count, max;
-  sl_llsd **data;
-} sl_llsd_array;
+  caj_llsd **data;
+} caj_llsd_array;
 
-typedef struct sl_llsd_pair {
+typedef struct caj_llsd_pair {
   char* key;
-  sl_llsd *val;
-} sl_llsd_pair;
+  caj_llsd *val;
+} caj_llsd_pair;
 
-typedef struct sl_llsd_map {
+typedef struct caj_llsd_map {
   int count, max;
-  sl_llsd_pair *data;
-} sl_llsd_map;
+  caj_llsd_pair *data;
+} caj_llsd_map;
 
 
-struct sl_llsd {
+struct caj_llsd {
   int type_id;
   union {
     int32_t i; // int
     double r; // real
     char *str; // string/uri
     uuid_t uuid; // uuid
-    sl_string bin; // binary
-    sl_llsd_array arr;
-    sl_llsd_map map;
+    caj_string bin; // binary
+    caj_llsd_array arr;
+    caj_llsd_map map;
   } t;
 };
 
-sl_llsd* llsd_parse_xml(const char* data, int len);
-char* llsd_serialise_xml(sl_llsd *llsd);
-void llsd_pretty_print(sl_llsd *llsd, int depth);
-void llsd_free(sl_llsd *llsd);
-sl_llsd* llsd_map_lookup(sl_llsd *map, const char *key);
+caj_llsd* llsd_parse_xml(const char* data, int len);
+char* llsd_serialise_xml(caj_llsd *llsd);
+void llsd_pretty_print(caj_llsd *llsd, int depth);
+void llsd_free(caj_llsd *llsd);
+caj_llsd* llsd_map_lookup(caj_llsd *map, const char *key);
   
-sl_llsd* llsd_new();
-sl_llsd* llsd_new_array(void);
-sl_llsd* llsd_new_map(void);
-sl_llsd* llsd_new_string(const char *str);
-sl_llsd* llsd_new_string_take(char *str);
-  sl_llsd* llsd_new_binary(void* data, int len);
-sl_llsd* llsd_new_uuid(uuid_t u);
-sl_llsd* llsd_new_int( int i);
-sl_llsd* llsd_new_bool( int i);
-void llsd_array_append(sl_llsd *arr, sl_llsd *it);
-void llsd_map_append(sl_llsd *arr, const char* key, sl_llsd *it);
+caj_llsd* llsd_new();
+caj_llsd* llsd_new_array(void);
+caj_llsd* llsd_new_map(void);
+caj_llsd* llsd_new_string(const char *str);
+caj_llsd* llsd_new_string_take(char *str);
+  caj_llsd* llsd_new_binary(void* data, int len);
+caj_llsd* llsd_new_uuid(uuid_t u);
+caj_llsd* llsd_new_int( int i);
+caj_llsd* llsd_new_bool( int i);
+void llsd_array_append(caj_llsd *arr, caj_llsd *it);
+void llsd_map_append(caj_llsd *arr, const char* key, caj_llsd *it);
 
-  sl_llsd* llsd_new_from_u64(uint64_t val);
-  sl_llsd* llsd_new_from_u32(uint32_t val);
+  caj_llsd* llsd_new_from_u64(uint64_t val);
+  caj_llsd* llsd_new_from_u32(uint32_t val);
 
 #define LLSD_IS(llsd, typ) ((llsd) != NULL && (llsd)->type_id == typ)
 

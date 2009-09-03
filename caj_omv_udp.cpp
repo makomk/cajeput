@@ -22,7 +22,7 @@
 
 #include "sl_messages.h"
 #include "sl_udp_proto.h"
-//#include "sl_llsd.h"
+//#include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
@@ -219,13 +219,13 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
   // FIXME - factor this stuff out in the next pass
   ctx->draw_dist = ad->Far;
   if(ctx->av != NULL) {
-    if(!sl_quat_equal(&ctx->av->ob.rot, &ad->BodyRotation)) {
+    if(!caj_quat_equal(&ctx->av->ob.rot, &ad->BodyRotation)) {
       ctx->av->ob.rot = ad->BodyRotation;
     }
     // FIXME - this is a horrid hack
     uint32_t control_flags = ad->ControlFlags;
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
-    sl_vector3 velocity; 
+    caj_vector3 velocity; 
     velocity.x = 0.0f; velocity.y = 0.0f; velocity.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
       velocity.x = is_flying ? 6.0 : 3.0;
@@ -239,7 +239,7 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
       velocity.z = 4.0;
     if(control_flags & AGENT_CONTROL_UP_NEG)
       velocity.z = -4.0;
-    sl_mult_vect3_quat(&velocity,&ctx->av->ob.rot,&velocity);
+    caj_mult_vect3_quat(&velocity,&ctx->av->ob.rot,&velocity);
     ctx->sim->physh.set_avatar_flying(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,is_flying);
     ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,velocity);
 
@@ -305,14 +305,14 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
   omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(ChatFromSimulator, chat);
   SL_DECLBLK(ChatFromSimulator, ChatData, cdata, &chat);
-  sl_string_set(&cdata->FromName, msg->name);
+  caj_string_set(&cdata->FromName, msg->name);
   uuid_copy(cdata->SourceID, msg->source);
   uuid_copy(cdata->OwnerID, msg->owner);
   cdata->SourceType = msg->source_type;
   cdata->ChatType = (msg->channel == DEBUG_CHANNEL ? CHAT_TYPE_DEBUG : 
 		     msg->chat_type);
   cdata->Audible = CHAT_AUDIBLE_FULLY;
-  sl_string_set(&cdata->Message,msg->msg);
+  caj_string_set(&cdata->Message,msg->msg);
   sl_send_udp(lctx, &chat);
 }
 
@@ -390,7 +390,7 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
 	if(i < count) {
 	  dat->X = blocks[i].x;
 	  dat->Y = blocks[i].y;
-	  sl_string_set(&dat->Name, blocks[i].name);
+	  caj_string_set(&dat->Name, blocks[i].name);
 	  dat->Access = blocks[i].access;
 	  dat->RegionFlags = blocks[i].flags;
 	  dat->WaterHeight = blocks[i].water_height;
@@ -398,7 +398,7 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
 	  uuid_copy(dat->MapImageID, blocks[i].map_image);
 	} else if(req->name != NULL) {
 	  dat->X = dat->Y = 0;
-	  sl_string_set(&dat->Name, req->name);
+	  caj_string_set(&dat->Name, req->name);
 	  dat->Access = 255;
 	  dat->RegionFlags = 0;
 	  dat->WaterHeight = 0;
@@ -486,7 +486,7 @@ static void handle_AgentWearablesRequest_msg(struct omuser_ctx* lctx, struct sl_
 }
 
 static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
-  sl_string str; user_ctx* ctx = lctx->u;
+  caj_string str; user_ctx* ctx = lctx->u;
   SL_DECLBLK_GET1(AgentSetAppearance, AgentData, ad, msg);
   SL_DECLBLK_GET1(AgentSetAppearance, ObjectData, objd, msg);
   if(ad == NULL || objd == NULL ||  VALIDATE_SESSION(ad)) 
@@ -504,7 +504,7 @@ static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_mes
   // FIXME - what to do with WearableData blocks?
 
   // we could steal the message's buffer, but that would be evil
-  sl_string_copy(&str, &objd->TextureEntry);
+  caj_string_copy(&str, &objd->TextureEntry);
   user_set_texture_entry(ctx, &str);
 
   str.len = SL_GETBLK(AgentSetAppearance, VisualParam, msg).count;
@@ -522,12 +522,12 @@ static void send_agent_data_update(struct omuser_ctx* lctx) {
   SL_DECLMSG(AgentDataUpdate,upd);
   SL_DECLBLK(AgentDataUpdate, AgentData, ad, &upd);
   uuid_copy(ad->AgentID, ctx->user_id);
-  sl_string_set(&ad->FirstName, ctx->first_name);
-  sl_string_set(&ad->LastName, ctx->last_name);
-  sl_string_set(&ad->GroupTitle, ctx->group_title);
+  caj_string_set(&ad->FirstName, ctx->first_name);
+  caj_string_set(&ad->LastName, ctx->last_name);
+  caj_string_set(&ad->GroupTitle, ctx->group_title);
   uuid_clear(ad->ActiveGroupID); // TODO
   ad->GroupPowers = 0;
-  sl_string_set(&ad->GroupName, ""); // TODO
+  caj_string_set(&ad->GroupName, ""); // TODO
   upd.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &upd);
 }
@@ -608,8 +608,8 @@ static void inventory_descendents_cb(struct inventory_contents* inv, void* priv)
 	  idata->Flags = inv->items[i].flags;
 	  idata->SaleType = inv->items[i].sale_type;
 	  idata->SalePrice = inv->items[i].sale_price;
-	  sl_string_set(&idata->Name, inv->items[i].name);
-	  sl_string_set(&idata->Description, inv->items[i].description);
+	  caj_string_set(&idata->Name, inv->items[i].name);
+	  caj_string_set(&idata->Description, inv->items[i].description);
 	  idata->CreationDate = inv->items[i].creation_date;
 	  idata->CRC = caj_calc_inventory_crc(&inv->items[i]);
 	}
@@ -651,7 +651,7 @@ struct asset_request {
   uuid_t asset_id, transfer_id;
   int32_t channel_type;
   int is_direct;
-  sl_string params; // FIXME - not right. For a start, don't want to send SessionID
+  caj_string params; // FIXME - not right. For a start, don't want to send SessionID
 };
 
 // Note: as well as being a callback, this is called directly in one situation
@@ -671,7 +671,7 @@ static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
 	tinfo->ChannelType = 2; tinfo->Status = 0;
 	tinfo->TargetType = 0; // think this is the only possible type...
 	tinfo->Size = asset->data.len;
-	sl_string_steal(&tinfo->Params, &req->params);
+	caj_string_steal(&tinfo->Params, &req->params);
 	sl_send_udp(req->lctx, &transinfo);
       }
 
@@ -686,14 +686,14 @@ static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
 	tdata->ChannelType = 2; 
 	tdata->Status = last ? 1 : 0;
 	tdata->Packet = packet_no++;
-	sl_string_set_bin(&tdata->Data, asset->data.data+offset, len);
+	caj_string_set_bin(&tdata->Data, asset->data.data+offset, len);
 	sl_send_udp(req->lctx, &trans); // FIXME - this *really* needs throttling
       }
     }
 
     user_del_self_pointer(&req->ctx);
   }
-  sl_string_free(&req->params);
+  caj_string_free(&req->params);
   delete req;
 }
 
@@ -731,7 +731,7 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
     
     uuid_copy(req->transfer_id, tinfo->TransferID);
     req->channel_type = tinfo->ChannelType;
-    sl_string_copy(&req->params, &tinfo->Params);
+    caj_string_copy(&req->params, &tinfo->Params);
     
     do_send_asset(req);
     
@@ -807,7 +807,7 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
       memcpy(req->asset_id, tinfo->Params.data+0, 16);
       uuid_copy(req->transfer_id, tinfo->TransferID);
       req->channel_type = tinfo->ChannelType;
-      sl_string_copy(&req->params, &tinfo->Params);
+      caj_string_copy(&req->params, &tinfo->Params);
     
       do_send_asset_cb(lctx->u->sim, req, inv->asset_hack); // HACK
       
@@ -856,7 +856,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     dat->LookAt = dat->Position;
     dat->RegionHandle = ctx->sim->region_handle;
     dat->Timestamp = time(NULL);
-    sl_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
+    caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
     sl_send_udp(lctx, &amc);
   }
 
@@ -885,7 +885,7 @@ static void teleport_failed(struct user_ctx* ctx, const char* reason) {
   SL_DECLMSG(TeleportFailed, fail);
   SL_DECLBLK(TeleportFailed, Info, info, &fail);
   uuid_copy(info->AgentID, ctx->user_id);
-  sl_string_set(&info->Reason, reason);
+  caj_string_set(&info->Reason, reason);
   fail.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &fail);
 }
@@ -896,7 +896,7 @@ static void teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t fl
   SL_DECLBLK(TeleportProgress, AgentData, ad, &prog);
   uuid_copy(ad->AgentID, ctx->user_id);
    SL_DECLBLK(TeleportProgress, Info, info, &prog);
-  sl_string_set(&info->Message, msg);
+  caj_string_set(&info->Message, msg);
   info->TeleportFlags = flags;
   // prog.flags |= MSG_RELIABLE; // not really needed, I think. FIXME?
   sl_send_udp(lctx, &prog);
@@ -905,8 +905,8 @@ static void teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t fl
 
 static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
   //omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
-  sl_llsd *msg = llsd_new_map();
-  sl_llsd *info = llsd_new_map();
+  caj_llsd *msg = llsd_new_map();
+  caj_llsd *info = llsd_new_map();
 
   llsd_map_append(info, "AgentID", llsd_new_uuid(ctx->user_id));
   llsd_map_append(info, "LocationID", llsd_new_int(4)); // ???!! FIXME ???
@@ -917,7 +917,7 @@ static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
   llsd_map_append(info, "SimAccess", llsd_new_int(13)); // ????!! FIXME!
   llsd_map_append(info, "TeleportFlags", llsd_new_from_u32(tp->flags));
 
-  sl_llsd *array = llsd_new_array();
+  caj_llsd *array = llsd_new_array();
   llsd_array_append(array, info);
   llsd_map_append(msg, "Info", array);
 
@@ -1152,8 +1152,8 @@ static void handle_ObjectImage_msg(struct omuser_ctx* lctx, struct sl_message* m
     if(prim == NULL)
       continue;
 
-    sl_string_free(&prim->tex_entry);
-    sl_string_copy(&prim->tex_entry, &objd->TextureEntry);
+    caj_string_free(&prim->tex_entry);
+    caj_string_copy(&prim->tex_entry, &objd->TextureEntry);
 
     world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
   }
@@ -1305,8 +1305,8 @@ static void handle_RequestObjectPropertiesFamily_msg(struct omuser_ctx* lctx, st
   propdat->SalePrice = prim->sale_price;
   propdat->Category = 0; // FIXME - what is this?
   uuid_clear(propdat->LastOwnerID); // FIXME - what?
-  sl_string_set(&propdat->Name, prim->name);
-  sl_string_set(&propdat->Description, prim->description);
+  caj_string_set(&propdat->Name, prim->name);
+  caj_string_set(&propdat->Description, prim->description);
   objprop.flags |= MSG_RELIABLE; // ???
   sl_send_udp(lctx, &objprop);
 }
@@ -1350,10 +1350,10 @@ static void send_object_properties(struct omuser_ctx* lctx, uint32_t localid) {
   uuid_clear(propdat->FolderID);
   uuid_clear(propdat->FromTaskID);
 
-  sl_string_set(&propdat->Name, prim->name);
-  sl_string_set(&propdat->Description, prim->description);
-  sl_string_set(&propdat->TouchName, "");
-  sl_string_set(&propdat->SitName, "");
+  caj_string_set(&propdat->Name, prim->name);
+  caj_string_set(&propdat->Description, prim->description);
+  caj_string_set(&propdat->TouchName, "");
+  caj_string_set(&propdat->SitName, "");
   propdat->TextureID.len = 0; // FIXME - ?
   objprop.flags |= MSG_RELIABLE; // ???
   sl_send_udp(lctx, &objprop);
@@ -1428,11 +1428,11 @@ static void add_xfer_file(struct omuser_ctx* lctx, const char *fname,
     lctx->xfer_files.find(fname);
   if(iter == lctx->xfer_files.end()) {
     om_xfer_file file; 
-    sl_string_set_bin(&file.data, (const unsigned char*)data, len);
+    caj_string_set_bin(&file.data, (const unsigned char*)data, len);
     lctx->xfer_files[fname] = file;
   } else {
-    sl_string_free(&iter->second.data);
-    sl_string_set_bin(&iter->second.data, (const unsigned char*)data, len);
+    caj_string_free(&iter->second.data);
+    caj_string_set_bin(&iter->second.data, (const unsigned char*)data, len);
   }
 }
 
@@ -1505,7 +1505,7 @@ static void handle_RequestTaskInventory_msg(struct omuser_ctx* lctx, struct sl_m
       add_xfer_file(lctx, fname, task_inv.c_str(), task_inv.length());
 
       idresp->Serial = prim->inv.serial; 
-      sl_string_set(&idresp->Filename, fname);      
+      caj_string_set(&idresp->Filename, fname);      
     }
     sl_send_udp(lctx, &tinv);
   }
@@ -1548,8 +1548,8 @@ static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
       SL_DECLMSG(UUIDNameReply, reply);
       SL_DECLBLK(UUIDNameReply, UUIDNameBlock, name, &reply);
       uuid_copy(name->ID, uuid);
-      sl_string_set(&name->FirstName, first);
-      sl_string_set(&name->LastName, last);
+      caj_string_set(&name->FirstName, first);
+      caj_string_set(&name->LastName, last);
       reply.flags |= MSG_RELIABLE;
       sl_send_udp(lctx, &reply);
     } else {
@@ -1740,7 +1740,7 @@ static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_mes
 struct xfer_send {
   uint64_t xfer_id;
   uint32_t packet_no;
-  sl_string data;
+  caj_string data;
 };
 
 static void send_xfer_packet(struct omuser_ctx* lctx, xfer_send *send) {
@@ -1762,30 +1762,30 @@ static void send_xfer_packet(struct omuser_ctx* lctx, xfer_send *send) {
     memcpy(buf+4, send->data.data, len);
     datapkt->Data.len = len+4; datapkt->Data.data = buf;
   } else {
-    sl_string_set_bin(&datapkt->Data, send->data.data + offset, len);
+    caj_string_set_bin(&datapkt->Data, send->data.data + offset, len);
   }
   pktid->Packet = send->packet_no | (last ? 0x80000000 : 0);
   sl_send_udp(lctx, &xferpkt);
 }
 
 // warning - this steals the SL string you give it!
-static void send_by_xfer(struct omuser_ctx* lctx, uint64_t xfer_id, sl_string *data) {
+static void send_by_xfer(struct omuser_ctx* lctx, uint64_t xfer_id, caj_string *data) {
   if(lctx->xfer_sends.count(xfer_id)) { 
     printf("ERROR: xfer request ID collision\n");
-    sl_string_free(data); return;
+    caj_string_free(data); return;
   }
 
   xfer_send *send = new xfer_send();
   send->xfer_id = xfer_id;
   send->packet_no = 0; 
-  sl_string_steal(&send->data, data);
+  caj_string_steal(&send->data, data);
   lctx->xfer_sends[xfer_id] = send;
   send_xfer_packet(lctx, send);
 }
 
 // doesn't remove from list of sends
 static void free_xfer_send(struct omuser_ctx* lctx, xfer_send *send) {
-  sl_string_free(&send->data); delete send;
+  caj_string_free(&send->data); delete send;
 }
 
 static void handle_ConfirmXferPacket_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2025,12 +2025,12 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   memset(obj_data+24, 0, 12); // accel
   memcpy(obj_data+36, &av->ob.rot, 12); 
   memset(obj_data+48, 0, 12);
-  sl_string_set_bin(&objd->ObjectData, obj_data, 60);
+  caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0;
   objd->UpdateFlags = 0; // TODO
 
-  sl_string_copy(&objd->TextureEntry, &ctx->texture_entry);
+  caj_string_copy(&objd->TextureEntry, &ctx->texture_entry);
   //objd->TextureEntry.len = 0;
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
@@ -2054,7 +2054,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   name[0] = 0;
   snprintf(name,0xff,"FirstName STRING RW SV %s\nLastName STRING RW SV %s\nTitle STRING RW SV %s",
 	   av_user->first_name,av_user->last_name,av_user->group_title); // FIXME
-  sl_string_set(&objd->NameValue,name);
+  caj_string_set(&objd->NameValue,name);
 
   upd.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &upd);
@@ -2113,7 +2113,7 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   sl_float_to_int16(dat+0x3A, 0.0f, 64.0f);
 
  
-  sl_string_set_bin(&objd->Data, dat, 0x3C);
+  caj_string_set_bin(&objd->Data, dat, 0x3C);
   terse.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &terse);
 }
@@ -2125,7 +2125,7 @@ static void send_av_appearance(user_ctx* ctx, user_ctx* av_user) {
   uuid_copy(sender->ID, av_user->user_id);
   sender->IsTrial = 0;
   SL_DECLBLK(AvatarAppearance,ObjectData,objd,&aa);
-  sl_string_copy(&objd->TextureEntry, &av_user->texture_entry);
+  caj_string_copy(&objd->TextureEntry, &av_user->texture_entry);
 
   // FIXME - this is horribly, horribly inefficient
   if(av_user->visual_params.data != NULL) {
@@ -2187,7 +2187,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   memset(obj_data+24, 0, 12); // accel
   memcpy(obj_data+36, &prim->ob.rot, 12); 
   memset(obj_data+48, 0, 12);
-  sl_string_set_bin(&objd->ObjectData, obj_data, 60);
+  caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0; // FIXME - todo
   objd->UpdateFlags = 0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
@@ -2209,7 +2209,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->ProfileEnd = prim->profile_end;
   objd->ProfileHollow = prim->profile_hollow;
 
-  sl_string_copy(&objd->TextureEntry, &prim->tex_entry);
+  caj_string_copy(&objd->TextureEntry, &prim->tex_entry);
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
   objd->Text.len = 0;
@@ -2315,7 +2315,7 @@ static void remove_user(void *user_priv) {
   // FIXME - move to own func?
   for(std::map<std::string, om_xfer_file>::iterator iter = lctx->xfer_files.begin();
       iter != lctx->xfer_files.end(); iter++) {
-    sl_string_free(&iter->second.data);
+    caj_string_free(&iter->second.data);
   }
 
   for(std::map<uint64_t,xfer_send*>::iterator iter = lctx->xfer_sends.begin();
@@ -2408,7 +2408,7 @@ static gboolean got_packet(GIOChannel *source,
       rh.flags |= MSG_RELIABLE;
       ri->RegionFlags = 0; // FIXME
       ri->SimAccess = 0; // FIXME
-      sl_string_set(&ri->SimName, lsim->sim->name);
+      caj_string_set(&ri->SimName, lsim->sim->name);
       memset(ri->SimOwner, 0, 16);
       ri->IsEstateManager = 1; // for now; FIXME
       ri->WaterHeight = 20.0f;
@@ -2427,9 +2427,9 @@ static gboolean got_packet(GIOChannel *source,
       ri->TerrainHeightRange10 = ri->TerrainHeightRange11 = 60.0f;
       uuid_copy(ri2->RegionID, lsim->sim->region_id);
       ri3->CPUClassID = 1; ri3->CPURatio = 1;
-      sl_string_set(&ri3->ColoName, "Nowhere");
-      sl_string_set(&ri3->ProductName, "Cajeput Server Demo");
-      sl_string_set(&ri3->ProductSKU, "0");
+      caj_string_set(&ri3->ColoName, "Nowhere");
+      caj_string_set(&ri3->ProductName, "Cajeput Server Demo");
+      caj_string_set(&ri3->ProductSKU, "0");
       sl_send_udp(lctx,&rh);
       
     } else {

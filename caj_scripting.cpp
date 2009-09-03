@@ -295,7 +295,7 @@ static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
   delete simscr;
 }
 
-static void save_script_text_file(sl_string *dat, char *name) {
+static void save_script_text_file(caj_string *dat, char *name) {
   int len = dat->len;  if(len > 0 && dat->data[len-1] == 0) len--;
   int fd = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
   if(fd < 0) {
