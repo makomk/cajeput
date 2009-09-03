@@ -733,6 +733,7 @@ lsl_program *caj_parse_lsl(const char* fname) {
 
 
 void yyerror(char const *error) { 
-  printf("Line %i: %s\n", yylloc.first_line, error);
+  // FIXME - add column number
+  printf("(%i, 0): %s\n", yylloc.first_line, error);
 }
 

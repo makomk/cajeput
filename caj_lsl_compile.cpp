@@ -40,7 +40,8 @@ static void update_loc(lsl_compile_state &st, expr_node *expr) {
 static void do_error(lsl_compile_state &st, const char* format, ...) {
   va_list args;
   if(st.error != 0) return;
-  printf("Line %i: ", st.line_no);
+  // FIXME - add column number
+  printf("(%i, 0): ", st.line_no);
   va_start (args, format);
   vprintf (format, args);
   va_end (args);

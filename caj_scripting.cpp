@@ -363,14 +363,17 @@ static void compile_done(GPid pid, gint status,  gpointer data) {
   }
 
   assert(scr->comp_out != NULL);
+
+  flush_compile_output(scr->comp_out->stdout, scr->comp_out);
+  flush_compile_output(scr->comp_out->stderr, scr->comp_out);
   scr->comp_out->buf[scr->comp_out->len] = 0;
   printf("DEBUG: got compiler output: ~%s~\n", scr->comp_out->buf);
+
   if(scr->comp_out->cb != NULL) {
     scr->comp_out->cb(scr->comp_out->cb_priv, success, scr->comp_out->buf,
 		      scr->comp_out->len);
   }
-  flush_compile_output(scr->comp_out->stdout, scr->comp_out);
-  flush_compile_output(scr->comp_out->stderr, scr->comp_out);
+
   g_io_channel_shutdown(scr->comp_out->stdout, FALSE, NULL);
   g_io_channel_shutdown(scr->comp_out->stderr, FALSE, NULL);
   g_io_channel_unref(scr->comp_out->stdout);
