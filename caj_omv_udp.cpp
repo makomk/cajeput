@@ -650,6 +650,7 @@ struct asset_request {
   omuser_ctx* lctx;
   uuid_t asset_id, transfer_id;
   int32_t channel_type;
+  int is_direct;
   sl_string params; // FIXME - not right. For a start, don't want to send SessionID
 };
 
@@ -660,6 +661,8 @@ static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
   if(req->ctx != NULL) {
     if(asset == NULL) {
       printf("ERROR: couldn't get asset\n"); // FIXME - how to handle
+    } else if(req->is_direct && !user_can_access_asset_direct(req->ctx, asset)) {
+      printf("ERROR: not permitted to request this asset direct\n");
     } else {
       {
 	SL_DECLMSG(TransferInfo, transinfo);
@@ -722,7 +725,7 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
     
     asset_request *req = new asset_request();
     req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
-    req->lctx = lctx;
+    req->lctx = lctx; req->is_direct = 1;
     memcpy(req->asset_id, tinfo->Params.data+0, 16);
     print_uuid_with_msg("DEBUG: AssetID",req->asset_id);
     
@@ -793,11 +796,14 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
 	return; 	
       }
 
-      // FIXME - need to check permissions
+      if(!user_can_access_asset_task_inv(lctx->u, prim, inv)) {
+	// FIXME - send the right sort of error
+	printf("ERROR: insufficient perms accessing asset from prim inventory.\n");
+      }
       
       asset_request *req = new asset_request();
       req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
-      req->lctx = lctx;
+      req->lctx = lctx; req->is_direct = 0;
       memcpy(req->asset_id, tinfo->Params.data+0, 16);
       uuid_copy(req->transfer_id, tinfo->TransferID);
       req->channel_type = tinfo->ChannelType;

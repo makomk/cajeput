@@ -11,6 +11,7 @@ lsl_consts = {
     "PI": lsl_const("float","M_PI"),
     "TWO_PI": lsl_const("float","M_PI*2"),
     "PI_BY_TWO": lsl_const("float","M_PI_2"),
+    "DEBUG_CHANNEL": -2147483648,
     # TODO
 }
 

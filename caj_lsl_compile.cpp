@@ -57,7 +57,7 @@ static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
       var_desc var; var.type = args->vtype; var.is_global = 0;
       var.offset = func->arg_offsets[arg_no];
       st.vars[args->name] = var;
-      printf("DEBUG: added argument %s\n", args->name);
+      // printf("DEBUG: added argument %s\n", args->name);
     }
   }
 }
@@ -521,17 +521,29 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	return;
       }
 
-      printf("DEBUG: beginning call to %s\n", expr->u.call.name);
-      vasm.begin_call(iter->second);
-      for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
-	printf("DEBUG: assembling an argument %p\n", lnode);
-	assemble_expr(vasm, st, lnode->expr);
-	if(st.error != 0) return;
-      }
+      if(iter->second->func_num == 0xffff) {
+	printf("DEBUG: beginning call to fake func %s\n", expr->u.call.name);
+	for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
+	  printf("DEBUG: assembling an argument %p\n", lnode);
+	  assemble_expr(vasm, st, lnode->expr);
+	  if(st.error != 0) return;
+	}
+	update_loc(st, expr);
+	printf("DEBUG: doing call to fake func %s\n", expr->u.call.name);
+	vasm.insn(iter->second->insn_ptr);
+      } else {
+	//printf("DEBUG: beginning call to %s\n", expr->u.call.name);
+	vasm.begin_call(iter->second);
+	for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
+	  //printf("DEBUG: assembling an argument %p\n", lnode);
+	  assemble_expr(vasm, st, lnode->expr);
+	  if(st.error != 0) return;
+	}
 
-      update_loc(st, expr);
-      printf("DEBUG: doing call to %s\n", expr->u.call.name);
-      vasm.do_call(iter->second);
+	update_loc(st, expr);
+	//printf("DEBUG: doing call to %s\n", expr->u.call.name);
+	vasm.do_call(iter->second);
+      }
     }
     break;
   case NODE_NOT:
@@ -804,7 +816,7 @@ static const vm_function *make_function(vm_asm &vasm, function *func, int state_
     args[j++] = arg->vtype;
   
   if(state_no > -1) {
-    // FIXME - this leaks memory (but then, so does everything...
+    // FIXME - this leaks memory (but then, so does everything)...
     int len = strlen(func->name)+10; name = (char*)malloc(len);
     snprintf(name, len, "%i:%s", state_no, func->name);
   }
@@ -967,6 +979,28 @@ int main(int argc, char** argv) {
     for(function *func = lstate->funcs; func != NULL; func = func->next) {
       funcs[func_no++] = make_function(vasm, func, state_no);
     }
+  }
+
+  // Insert the functions that are really instructions, if they aren't overridden
+  for(int i = 0; op_funcs[i].name != NULL; i++) {
+    if(st.funcs.count(op_funcs[i].name)) continue;
+    // leaks memory horribly, as per usual
+    vm_function *vfunc = new vm_function();
+    vfunc->name = (char*)op_funcs[i].name;
+    vfunc->ret_type = op_funcs[i].ret;
+    vfunc->func_num = 0xffff; vfunc->insn_ptr = op_funcs[i].insn; // hack
+    if(op_funcs[i].arg1 == VM_TYPE_NONE) {
+      assert(op_funcs[i].arg2 == VM_TYPE_NONE);
+      vfunc->arg_count = 0; vfunc->arg_types = NULL;
+    } else if(op_funcs[i].arg2 == VM_TYPE_NONE) {
+      vfunc->arg_count = 1; vfunc->arg_types = new uint8_t[1];
+      vfunc->arg_types[0] = op_funcs[i].arg1;
+    } else {
+      vfunc->arg_count = 2; vfunc->arg_types = new uint8_t[2];
+      vfunc->arg_types[0] = op_funcs[i].arg1; 
+      vfunc->arg_types[1] = op_funcs[i].arg2;
+    }
+    st.funcs[op_funcs[i].name] = vfunc;
   }
 
   // now we build the code. It's important this is done in the same order as 

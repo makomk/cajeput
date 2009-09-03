@@ -64,3 +64,19 @@
 58 CAST_L2B: list -> int
 59 CAST_V2B: vect -> int
 60 CAST_R2B: rot -> int
+
+// most of these function replacements aren't even implemented yet!
+61 ABS: int -> int func:llAbs
+62 FABS: float -> float func:llFabs
+
+63 SQRT: float -> float func:llSqrt
+64 POW: float float -> float func:llPow
+
+65 SIN: float -> float func:llSin
+66 COS: float -> float func:llCos
+67 TAN: float -> float func:llTan
+
+68 ASIN: float -> float func:llAsin
+69 ACOS: float -> float func:llAcos
+70 ATAN: float -> float func:llAtan
+71 ATAN2: float float -> float func:llAtan2

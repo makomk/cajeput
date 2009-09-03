@@ -379,13 +379,13 @@ local : type IDENTIFIER {
   $$ = new_statement(); $$->stype = STMT_DECL; 
   $$->expr[0] = enode_make_id_type($2,$1, @1.first_line); $$->expr[1] = $4;
  }; 
-if_stmt : IF '(' expr ')' '{' statements '}' {
+if_stmt : IF '(' expr ')' statement {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
-  $$->child[0] = $6->first; $$->child[1] = NULL;
+  $$->child[0] = $5; $$->child[1] = NULL;
  }
-        | IF '(' expr ')' '{' statements '}' ELSE '{' statements '}' {
+        | IF '(' expr ')' statement ELSE statement {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
-  $$->child[0] = $6->first; $$->child[1] = $10->first; 
+  $$->child[0] = $5; $$->child[1] = $7; 
  }   ;
 while_stmt : WHILE '(' expr ')' statement {
   $$ = new_statement(); $$->stype = STMT_WHILE; 

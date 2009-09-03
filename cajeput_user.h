@@ -34,6 +34,7 @@ extern "C" {
 struct user_ctx;
 struct simulator_ctx;
 struct cap_descrip;
+struct primitive_obj;
 
 // ----- USER-RELATED STUFF ---------
 
@@ -160,6 +161,13 @@ void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);
+
+// check whether the asset can be retrieved without giving an inventory item
+int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);
+
+  // check whether the asset can be retrieved from prim inventory
+int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
+				   inventory_item *inv);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much

@@ -23,7 +23,7 @@
 
 import re, sys
 
-_opdata_re = re.compile(r"^(\d+) ([A-Z][A-Z_0-9]*):\s+([a-z_]+?\b)??\s*([^a-z_0-9 ]+(?=\s))?\s*([a-z_]+?\b)??\s*->\s*([a-z_]+\b)?\s*(?:\((\w+)\))?\s*(//.*)?$") 
+_opdata_re = re.compile(r"^(\d+) ([A-Z][A-Z_0-9]*):\s+([a-z_]+?\b)??\s*([^a-z_0-9 ]+(?=\s))?\s*([a-z_]+?\b)??\s*->\s*([a-z_]+\b)?\s*(?:\((\w+)\))?\s*((?:\w+:\w*\s+)*)(//.*)?$") 
 
 opdata_in = open("opcode_data.txt","r").readlines()
 
@@ -51,7 +51,12 @@ for line in opdata_in:
     a1_type = m.group(3); op_sym = m.group(4);
     a2_type = m.group(5);
     ret_type = m.group(6); special = m.group(7);
-    comment = m.group(8);
+    additional = m.group(8); comment = m.group(9);
+
+    if additional == None:
+        additional = { }
+    else:
+        additional = dict([s.split(":",1) for s in additional.split() ])
 
     if special == None: special = "NORMAL"
     
@@ -69,7 +74,7 @@ for line in opdata_in:
         print "ERROR: duplicate def of opcode %i" % opcode
         sys.exit(0);
 
-    opdata[opcode] = (name, a1_type, a2_type, ret_type, special, comment)
+    opdata[opcode] = (name, a1_type, a2_type, ret_type, special, comment, additional)
 
     if op_sym != None:
         if a1_type == None:
@@ -90,7 +95,7 @@ for line in opdata_in:
              bin_ops[op_sym][(a1_type,a2_type)] = name
             
 
-    # print "DEBUG op %i name(%s) a1(%s) sym(%s) a2(%s) ret(%s) special(%s) comment(%s)" % (opcode, name, a1_type, op_sym, a2_type, ret_type, special, comment)
+    # print "DEBUG op %i name(%s) a1(%s) sym(%s) a2(%s) ret(%s) special(%s) additional%s comment(%s)" % (opcode, name, a1_type, op_sym, a2_type, ret_type, special, repr(additional), comment)
 
 hfile = open("caj_vm_insns.h","w")
 
@@ -128,7 +133,7 @@ hfile.write("""/* This file is auto-generated from opcode_data.txt - DO NOT MODI
 
 for opcode in range(0,num_opcodes):
     if opdata.has_key(opcode):
-        (name, a1_type, a2_type, ret_type, special, comment) = opdata[opcode]
+        (name, a1_type, a2_type, ret_type, special, comment, additional) = opdata[opcode]
         hfile.write("#define INSN_%s %i%s\n" % (name,opcode,comment));
 
 
@@ -141,7 +146,7 @@ def _fix_type(vtype):
 hfile.write("static const insn_info vm_insns[NUM_INSNS] = {\n")
 for opcode in range(0,num_opcodes):
     if opdata.has_key(opcode):
-        (name, a1_type, a2_type, ret_type, special, comment) = opdata[opcode]
+        (name, a1_type, a2_type, ret_type, special, comment, additional) = opdata[opcode]
     else:
         name = "doesn't exist"; a1_type = None; a2_type = None; ret_type = None
         special = "INVALID"
@@ -197,3 +202,26 @@ for op, insns in bin_ops.iteritems():
     hfile2.write("    };\n");
     hfile2.write("    break;\n");
 hfile2.write("  }\n  return 0;\n}\n\n");
+
+hfile2.write("""struct op_func_entry {
+  const char *name;
+  uint8_t arg1, arg2, ret;
+  uint16_t insn;
+};
+
+""")
+
+hfile2.write("struct op_func_entry op_funcs[] = {\n");
+for opcode in range(0,num_opcodes):
+    if not opdata.has_key(opcode):
+        continue
+    (name, a1_type, a2_type, ret_type, special, comment, additional) = opdata[opcode]
+    if not additional.has_key("func"):
+        continue
+    hfile2.write("  { \"%s\", %s, %s, %s, INSN_%s },\n" %
+                (additional["func"], _fix_type(a1_type),  _fix_type(a2_type),
+                 _fix_type(ret_type), name))
+hfile2.write("  { NULL },")
+hfile2.write("};\n\n")
+
+hfile2.close()

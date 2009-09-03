@@ -776,6 +776,15 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
 
 // ------------- asset-related fun --------------------------
 
+int user_can_access_asset_direct(user_ctx *user, simple_asset *asset) {
+  return asset->type != ASSET_NOTECARD && asset->type != ASSET_LSL_TEXT;
+}
+
+int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
+				   inventory_item *inv) {
+  return TRUE; // FIXME - need actual permission checks
+}
+
 void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
 		   void(*cb)(struct simulator_ctx *sim, void *priv,
 			     struct simple_asset *asset), void *cb_priv) {
@@ -791,16 +800,18 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
     sim->assets[asset_id] = desc;
 
     // FIXME - need to actually do the fetch!!
+    printf("FIXME: we don't actually know how to fetch assets yet!\n");
   }
   
   switch(desc->status) {
   case CAJ_ASSET_PENDING:
+    // FIXME - move this to the generic hooks code
     desc->cbs.insert(new asset_cb_desc(cb, cb_priv));
     break;
   case CAJ_ASSET_READY:
     cb(sim, cb_priv, &desc->asset); break;
   case CAJ_ASSET_MISSING:
-    cb(sim, NULL, &desc->asset); break;
+    cb(sim, cb_priv, NULL); break;
   default: assert(0);
   }
 }

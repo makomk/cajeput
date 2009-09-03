@@ -24,6 +24,7 @@
 #include "caj_vm_internal.h"
 #include <cassert>
 #include <stdarg.h>
+#include <math.h>
 
 struct heap_header {
   uint32_t refcnt;
@@ -1000,8 +1001,38 @@ static void step_script(script_state* st, int num_steps) {
 	  heap_ref_decr(p, st); 
 	  break;
 	}
-
       // case INSN_CAST_K2B:
+      // FIXME - implement the rest of the CAST_?2B insns
+      case INSN_ABS:
+	stack_top[1] = abs(stack_top[1]); // use labs?
+	break;
+      case INSN_FABS:
+	((float*)stack_top)[1] = fabsf(((float*)stack_top)[1]);
+	break;
+      case INSN_SQRT:
+	// FIXME - should check if this is negative (then NaN is returned);
+	((float*)stack_top)[1] = sqrtf(((float*)stack_top)[1]);
+	break;
+      // case INSN_POW: todo!
+      case INSN_SIN:
+	((float*)stack_top)[1] = sinf(((float*)stack_top)[1]);
+	break;
+      case INSN_COS:
+	((float*)stack_top)[1] = cosf(((float*)stack_top)[1]);
+	break;
+      case INSN_TAN:
+	((float*)stack_top)[1] = tanf(((float*)stack_top)[1]);
+	break;
+      case INSN_ASIN:
+	((float*)stack_top)[1] = asinf(((float*)stack_top)[1]);
+	break;
+      case INSN_ACOS:
+	((float*)stack_top)[1] = acosf(((float*)stack_top)[1]);
+	break;
+      case INSN_ATAN:
+	((float*)stack_top)[1] = atanf(((float*)stack_top)[1]);
+	break;
+	// case INSN_ATAN2: todo!
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;

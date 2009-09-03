@@ -197,13 +197,6 @@ static void llGetTime_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
-static void llFabs_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
-  float val; vm_func_get_args(st, func_id, &val);
-  vm_func_set_float_ret(st, func_id, fabsf(val));
-  vm_func_return(st, func_id);
-}
-
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   list_head running, waiting;
@@ -514,7 +507,6 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
-  vm_world_add_func(simscr->vmw, "llFabs", VM_TYPE_FLOAT, llFabs_cb, 1, VM_TYPE_FLOAT); 
 
   simscr->to_st = g_async_queue_new();
   simscr->to_mt = g_async_queue_new();

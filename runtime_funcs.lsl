@@ -12,4 +12,15 @@ float llGetAndResetTime( ) { }
 
 string llGetTimestamp( ) { } // TODO
 
-float llFabs(float val) { }
+// float llFabs(float val) { }
+
+// bunch of stuff I need to implement
+key llGetKey() { }
+string llGetScriptName() { }
+integer llGetScriptState(string name) { }
+llSetScriptState(string name, integer run) { }
+integer llGetFreeMemory() { }
+llResetScript() { }
+llResetOtherScript(string name) { }
+llSetRemoteScriptAccessPin(integer pin) { }
+llRemoteLoadScriptPin(key target, string name, integer pin, integer running, integer start_param) { }
