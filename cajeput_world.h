@@ -134,6 +134,10 @@ struct cajeput_physics_hooks {
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj, int is_flying);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
+  void(*upd_object_pos)(struct simulator_ctx *sim, void *priv,
+			struct world_obj *obj);
+  void(*upd_object_full)(struct simulator_ctx *sim, void *priv,
+			 struct world_obj *obj);
 };
 
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 

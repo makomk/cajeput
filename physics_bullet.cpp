@@ -53,17 +53,21 @@ struct physics_ctx {
 
   // protected by mutex
   std::set<phys_obj*> avatars;
+  std::set<phys_obj*> changed;
   int shutdown;
 };
 
 struct phys_obj {
   // most of this is protected by the mutex
-  btCollisionShape* shape;
+  btCollisionShape *shape, *newshape;
   btRigidBody* body;
   btVector3 target_velocity;
   btVector3 pos, velocity;
+  btQuaternion rot;
   int is_flying; // for avatars only
   int is_deleted;
+  int pos_update;
+  int objtype;
   world_obj *obj; // main thread use only
 #if 0
   btPairCachingGhostObject* ghost;
@@ -98,20 +102,73 @@ static void add_object(struct simulator_ctx *sim, void *priv,
   if(obj->type == OBJ_TYPE_AVATAR) {
     struct phys_obj *physobj = new phys_obj();
     obj->phys = physobj;
-    physobj->shape = new btCapsuleShape(0.75f,0.25f); /* radius, height */
-    physobj->body = NULL;
-    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);    
+    physobj->shape = new btCapsuleShape(0.25f,1.25f); /* radius, height */
+    physobj->body = NULL; physobj->newshape = NULL;
+    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  
+    physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
     physobj->target_velocity = btVector3(0,0,0);
     physobj->velocity = btVector3(0,0,0);
     physobj->is_flying = 1; // probably the safe assumption. FIXME - do right.
-    physobj->is_deleted = 0;
+    physobj->is_deleted = 0; physobj->pos_update = 0;
     physobj->obj = obj;
+    physobj->objtype = OBJ_TYPE_AVATAR;
 
     g_static_mutex_lock(&phys->mutex);
     phys->avatars.insert(physobj);
+    phys->changed.insert(physobj);
+    g_static_mutex_unlock(&phys->mutex);
+  } else if(obj->type == OBJ_TYPE_PRIM) {
+    struct phys_obj *physobj = new phys_obj();
+    obj->phys = physobj;
+    physobj->shape = new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+    physobj->body = NULL; physobj->newshape = NULL;
+    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);
+    physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+    printf("DEBUG: object rotation <%f,%f,%f,%f>\n",obj->rot.x,obj->rot.y,obj->rot.z,obj->rot.w);
+    physobj->target_velocity = btVector3(0,0,0);
+    physobj->velocity = btVector3(0,0,0);
+    physobj->is_deleted = 0; physobj->pos_update = 0;
+    physobj->obj = obj;
+    physobj->objtype = OBJ_TYPE_PRIM;
+
+    g_static_mutex_lock(&phys->mutex);
+    phys->changed.insert(physobj);
     g_static_mutex_unlock(&phys->mutex);
   } else {
     obj->phys = NULL;
+  }
+}
+
+static void upd_object_pos(struct simulator_ctx *sim, void *priv,
+			   struct world_obj *obj) {
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+  if(obj->phys != NULL) {
+    struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+    g_static_mutex_lock(&phys->mutex);
+    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y); 
+    physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+    printf("DEBUG: object rotation <%f,%f,%f,%f>\n",obj->rot.x,obj->rot.y,obj->rot.z,obj->rot.w);
+    physobj->pos_update = 1;
+    phys->changed.insert(physobj);
+    g_static_mutex_unlock(&phys->mutex);
+  }
+}
+
+
+static void upd_object_full(struct simulator_ctx *sim, void *priv,
+			    struct world_obj *obj) {
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+  if(obj->phys != NULL && obj->type == OBJ_TYPE_PRIM) {
+    struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+    g_static_mutex_lock(&phys->mutex);
+    delete physobj->newshape;
+    physobj->newshape = new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  // don't always want this, but...
+    physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+    physobj->pos_update = 0;
+    phys->changed.insert(physobj);
+    g_static_mutex_unlock(&phys->mutex);
+
   }
 }
 
@@ -122,6 +179,10 @@ static void del_object(struct simulator_ctx *sim, void *priv,
     struct phys_obj *physobj = (struct phys_obj *)obj->phys;
     g_static_mutex_lock(&phys->mutex);
     physobj->is_deleted = 1; physobj->obj = NULL;
+    phys->changed.insert(physobj);
+    if(physobj->newshape != NULL) {
+      delete physobj->shape; physobj->newshape = NULL;
+    }
     g_static_mutex_unlock(&phys->mutex);
     obj->phys = NULL;
   }
@@ -153,12 +214,8 @@ static void set_target_velocity(struct simulator_ctx *sim, void *priv,
 
   g_static_mutex_lock(&phys->mutex);
   physobj->target_velocity = btVector3(velocity.x, velocity.z, velocity.y);
+  // phys->changed.insert(physobj); // not needed, I think.
   g_static_mutex_unlock(&phys->mutex);
-
-#if 0 // FIXME!
-  if(velocity.x != 0.0f || velocity.y != 0.0f || velocity.z != 0.0f)
-    physobj->body->setActivationState(ACTIVE_TAG);  
-#endif
 }
 
 static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
@@ -183,24 +240,47 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
 
 // runs on physics thread
 static void do_phys_updates_locked(struct physics_ctx *phys) {
-  std::vector<phys_obj*> pending_dels;
 
-  for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
-      iter != phys->avatars.end(); iter++) {
+  for(std::set<phys_obj*>::iterator iter = phys->changed.begin(); 
+      iter != phys->changed.end(); iter++) {
     struct phys_obj *physobj = *iter;
     if(physobj->is_deleted) {
-      pending_dels.push_back(physobj); // defer temporarily
-    } else if(physobj->body == NULL) {
+      struct phys_obj *physobj = *iter;
+      
+      if(physobj->body != NULL) {
+	phys->dynamicsWorld->removeCollisionObject(physobj->body);
+	if(physobj->body->getMotionState()) {
+	  delete physobj->body->getMotionState();
+	}
+	delete physobj->body;
+      }
+      delete physobj->shape;
+      delete physobj;
+
+      phys->avatars.erase(physobj); // should really only do this for avatars
+    } else if(physobj->body == NULL || physobj->newshape != NULL) {
       assert(physobj->shape != NULL);
+      if(physobj->body != NULL) {
+	phys->dynamicsWorld->removeCollisionObject(physobj->body);
+	if(physobj->body->getMotionState()) {
+	  delete physobj->body->getMotionState();
+	}
+	delete physobj->body;
+      }
+      if(physobj->newshape != NULL) {
+	delete physobj->shape;
+	physobj->shape = physobj->newshape; physobj->newshape = NULL;
+      }
+
       btScalar mass(50.f);
+      if(physobj->objtype == OBJ_TYPE_PRIM) { mass = 0.0f; } // prims not physical yet
 	
       btTransform transform;
       transform.setIdentity();
+      if(physobj->objtype != OBJ_TYPE_AVATAR)
+	transform.setRotation(physobj->rot.inverse());
       transform.setOrigin(physobj->pos);
 
-      physobj->target_velocity = btVector3(0,0,0);
-      physobj->is_flying = 0;
-  
       btDefaultMotionState* motion = new btDefaultMotionState(transform);
       btVector3 local_inertia(0,0,0);
       physobj->shape->calculateLocalInertia(mass, local_inertia);
@@ -208,32 +288,28 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 							 physobj->shape,
 							 local_inertia);
       physobj->body = new btRigidBody(body_info);
-      physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
-      phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
-    } else {
-      btTransform trans;
-      physobj->body->getMotionState()->getWorldTransform(trans);
-      physobj->pos = trans.getOrigin();
-      physobj->velocity = physobj->body->getLinearVelocity();
+      if(physobj->objtype == OBJ_TYPE_AVATAR) {
+	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
+	phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
+      } else if(physobj->objtype == OBJ_TYPE_PRIM) {
+	physobj->body->setCollisionFlags( physobj->body->getCollisionFlags() |
+					  btCollisionObject::CF_KINEMATIC_OBJECT);
+	phys->dynamicsWorld->addRigidBody(physobj->body, COL_PRIM, PRIM_COLLIDES_WITH);
+      }
+    } else if(physobj->pos_update) {
+      btTransform transform;
+      transform.setIdentity();
+      if(physobj->objtype != OBJ_TYPE_AVATAR)
+	transform.setRotation(physobj->rot.inverse());
+      transform.setOrigin(physobj->pos);
+      // FIXME - handle rotation
+      physobj->body->getMotionState()->setWorldTransform(transform);
+      physobj->body->setActivationState(ACTIVE_TAG); // do we need this?
+      physobj->pos_update = 0;
     }
   }
 
-  for(std::vector<phys_obj*>::iterator iter = pending_dels.begin(); 
-      iter != pending_dels.end(); iter++) {
-    struct phys_obj *physobj = *iter;
-      
-    if(physobj->body != NULL) {
-      phys->dynamicsWorld->removeCollisionObject(physobj->body);
-      if(physobj->body->getMotionState()) {
-	delete physobj->body->getMotionState();
-      }
-      delete physobj->body;
-    }
-    delete physobj->shape;
-    delete physobj;
-    phys->avatars.erase(physobj);
-  }
-  pending_dels.clear();
+  phys->changed.clear();
 
 }
 
@@ -246,17 +322,28 @@ static gpointer physics_thread(gpointer data) {
   double next_step = 0.0;
   for(;;) {
     g_static_mutex_lock(&phys->mutex);
+
     do_phys_updates_locked(phys);
+
+    for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
+	iter != phys->avatars.end(); iter++) {
+      struct phys_obj *physobj = *iter;
+      btTransform trans;
+      physobj->body->getMotionState()->getWorldTransform(trans);
+      physobj->pos = trans.getOrigin();
+      physobj->velocity = physobj->body->getLinearVelocity();
+    }
+
     g_static_mutex_unlock(&phys->mutex);
 
     // poke the main thread. Note that this ain't really useful on the first pass
     write(phys->pipe[1], "", 1);
 
-    // FIXME - remove redundant call to g_timer_elapsed
+    // FIXME - this really doesn't look right...
     double time_skip = next_step - g_timer_elapsed(timer, NULL);
     next_step =  g_timer_elapsed(timer, NULL) + (1.0/60.0);
     if(time_skip > 0.0) {
-      usleep(1000000/60);
+      usleep(1000000*time_skip);
     }
 
     g_static_mutex_lock(&phys->mutex);
@@ -266,7 +353,7 @@ static gpointer physics_thread(gpointer data) {
     do_phys_updates_locked(phys);
     for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
 	iter != phys->avatars.end(); iter++) {
-      struct phys_obj *physobj = *iter; assert(physobj != NULL);
+      struct phys_obj *physobj = *iter; 
 
       btVector3 impulse = physobj->target_velocity;
       assert(physobj->body != NULL);
@@ -389,6 +476,8 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 
   hooks->add_object = add_object;
   hooks->del_object = del_object;
+  hooks->upd_object_pos = upd_object_pos;
+  hooks->upd_object_full = upd_object_full;
   hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
   hooks->set_avatar_flying = set_avatar_flying;

@@ -452,6 +452,8 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   uuid_generate(prim->ob.id);
   prim->ob.type = OBJ_TYPE_PRIM;
   prim->ob.scale.x = prim->ob.scale.y = prim->ob.scale.z = 1.0f;
+  prim->ob.rot.x = 0.0f; prim->ob.rot.y = 0.0f; prim->ob.rot.z = 0.0f; 
+  prim->ob.rot.w = 1.0f;
   prim->profile_curve = PROFILE_SHAPE_SQUARE | PROFILE_HOLLOW_DEFAULT;
   prim->path_scale_x = 100; prim->path_scale_y = 100;  
   prim->name = strdup("Object");
@@ -894,6 +896,11 @@ void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_le
 
   primitive_obj *prim = (primitive_obj*)obj;
   prim->crc_counter++;
+
+  if(update_level == UPDATE_LEVEL_POSROT) 
+    sim->physh.upd_object_pos(sim, sim->phys_priv, obj);
+  else
+    sim->physh.upd_object_full(sim, sim->phys_priv, obj);
 
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     // FIXME - use update level provided!
