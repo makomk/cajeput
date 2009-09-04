@@ -1107,13 +1107,14 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
       dat += 12; len -= 12;
     }
     if(objd->Type & MULTI_UPDATE_ROT) {
-      if(len < 16) {
+      if(len < 12) {
 	printf("ERROR: MultipleObjectUpdate too short for rot\n"); 
 	continue;
       }
       upd.flags |= CAJ_MULTI_UPD_ROT;
-      memcpy(&upd.rot, dat, 16);
-      dat += 16; len -= 16;
+      memcpy(&upd.rot, dat, 12);
+      caj_expand_quat(&upd.rot);
+      dat += 12; len -= 12;
     }
     if(objd->Type & MULTI_UPDATE_SCALE) {
       if(len < 12) {
