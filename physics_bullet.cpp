@@ -132,8 +132,8 @@ static btConvexHullShape *make_boxlike_shape(primitive_obj *prim,
   if(prim->path_scale_y <= 100) y_bottom *= prim->path_scale_y/100.0f;
   else if(prim->path_scale_y <= 200) y_top *= (200-prim->path_scale_y)/100.0f;
 
-  float x_shear = (prim->path_shear_x > 128 ? 256-prim->path_shear_x : prim->path_shear_x)/50.0f*x;
-  float y_shear = (prim->path_shear_y > 128 ? 256-prim->path_shear_y : prim->path_shear_y)/50.0f*y;
+  float x_shear = (prim->path_shear_x > 128 ? prim->path_shear_x-256 : prim->path_shear_x)/50.0f*x;
+  float y_shear = (prim->path_shear_y > 128 ? prim->path_shear_y-256 : prim->path_shear_y)/50.0f*y;
 
   if(prim->path_begin != 0 || prim->path_end != 0) {
     float newtop, newbottom;
