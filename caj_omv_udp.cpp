@@ -688,6 +688,7 @@ static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
 	tdata->Packet = packet_no++;
 	caj_string_set_bin(&tdata->Data, asset->data.data+offset, len);
 	sl_send_udp(req->lctx, &trans); // FIXME - this *really* needs throttling
+	offset += len;
       }
     }
 
@@ -705,15 +706,12 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   SL_DECLBLK_GET1(TransferRequest, TransferInfo, tinfo, msg);
   if(tinfo == NULL) return;
 
-  // FIXME - TODO!!!
-  sl_dump_packet(msg);
-
   if(tinfo->ChannelType != 2) {
     // shouldn't ever happen, I think
     user_send_message(lctx->u, "FIXME: TransferRequest with unexpected ChannelType");
     return;
   }
-  // want to do something with tinfo->Priority
+  // FIXME - we want to do something with tinfo->Priority
 
   uuid_t asset_id;
   if(tinfo->SourceType == 2) {

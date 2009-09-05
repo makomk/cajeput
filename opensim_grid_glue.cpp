@@ -31,6 +31,7 @@
 #include <libsoup/soup.h>
 #include <json-glib/json-glib.h>
 #include "opensim_grid_glue.h"
+#include "opensim_xml_glue.h" // for asset parsing
 #include <cassert>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -662,6 +663,7 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
 struct asset_req_desc {
   struct simulator_ctx *sim;
   texture_desc *texture;
+  simple_asset *asset;
 };
 
 static void get_texture_resp(SoupSession *session, SoupMessage *msg, 
@@ -750,15 +752,128 @@ static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture)
 
   uuid_unparse(texture->asset_id, asset_id);
   snprintf(url, 255, "%sassets/%s/data", grid->assetserver, asset_id);
-  printf("DEBUG: requesting asset %s\n", url);
+  printf("DEBUG: requesting texture asset %s\n", url);
 
   SoupMessage *msg = soup_message_new ("GET", url);
   asset_req_desc *req = new asset_req_desc;
   req->texture = texture; req->sim = sim;
-  sim_shutdown_hold(sim);
+  sim_shutdown_hold(sim); // FIXME - probably don't want to do this
   sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
 			 get_texture_resp, req);
 
+}
+
+struct os_asset {
+  uuid_t full_id;
+  char *id, *name, *description;
+  int type;
+};
+
+// not complete; doesn't handle Data itself
+static xml_serialisation_desc deserialise_asset[] = {
+  { "Data", XML_STYPE_SKIP, 0 }, // base64-encoded
+  { "FullID", XML_STYPE_UUID, offsetof(os_asset, full_id) },
+  { "ID", XML_STYPE_STRING, offsetof(os_asset, id) },
+  { "Name", XML_STYPE_STRING, offsetof(os_asset, name) },
+  { "Description", XML_STYPE_STRING, offsetof(os_asset, description) },
+  { "Type", XML_STYPE_INT, offsetof(os_asset, type) },
+  { "Local", XML_STYPE_SKIP, 0 }, // actually bool. FIXME
+  { "Temporary", XML_STYPE_SKIP, 0 }, // ditto
+  { NULL, }
+};
+
+static void get_asset_resp(SoupSession *session, SoupMessage *msg, 
+			   gpointer user_data) {
+  asset_req_desc* req = (asset_req_desc*)user_data;
+  simple_asset *asset = req->asset;
+  xmlDocPtr doc; os_asset oasset;
+  /* const char* content_type = 
+     soup_message_headers_get_content_type(msg->response_headers, NULL); */
+  sim_shutdown_release(req->sim);
+
+  printf("Get asset resp: got %i %s (len %i)\n",
+	 (int)msg->status_code, msg->reason_phrase, 
+	 (int)msg->response_body->length);
+  // printf("{%s}\n", msg->response_body->data);
+
+  if(msg->status_code == 200) {
+    doc = xmlReadMemory(msg->response_body->data,
+				  msg->response_body->length,"asset.xml",
+				  NULL,0);
+    if(doc == NULL) {
+      printf("ERROR: XML parse failed for asset\n");
+      goto out_fail;
+    }
+
+    xmlNodePtr node = xmlDocGetRootElement(doc)->children;
+    while(node != NULL && (node->type == XML_TEXT_NODE || 
+			   node->type == XML_COMMENT_NODE))
+      node = node->next;
+    if(node == NULL || node->type != XML_ELEMENT_NODE || 
+       strcmp((const char*)node->name, "Data") != 0) {
+      printf("ERROR: didn't get expected <Data> node parsing asset\n");
+      goto out_fail_free;
+    }
+
+    char *texstr = (char*)xmlNodeListGetString(doc, node->children, 1);
+    gsize sz;
+    // HACK - we're overwriting data that's only loosely ours.
+    g_base64_decode_inplace(texstr, &sz);
+
+    if(!osglue_deserialise_xml(doc, node, deserialise_asset,
+			       &oasset)) {
+      printf("ERROR: couldn't deserialise asset XML\n");
+      xmlFree(texstr); goto out_fail_free;
+    }
+
+    if(uuid_compare(oasset.full_id, asset->id) != 0) {
+      printf("WARNING: returned asset from asset server has unexpected ID\n");
+    }
+      
+    asset->data.len = sz;
+    asset->data.data = (unsigned char*)malloc(asset->data.len);
+    memcpy(asset->data.data, texstr, asset->data.len);
+
+    // FIXME - evil bug in the deserialisation code!
+    asset->name = strdup(oasset.name == NULL ? "" : oasset.name);
+    asset->description = strdup(oasset.description == NULL ? "" : oasset.description);
+    asset->type = oasset.type;
+    xmlFree(oasset.name); xmlFree(oasset.description);
+    xmlFree(oasset.id); // FIXME - do something with this?
+
+    xmlFree(texstr);
+    xmlFreeDoc(doc);
+    sim_asset_finished_load(req->sim, asset, TRUE);
+    delete req;
+    return;
+  } else {
+    goto out_fail;
+  }
+
+ out_fail_free:
+   xmlFreeDoc(doc);
+ out_fail:
+  sim_asset_finished_load(req->sim, asset, FALSE);
+  delete req;
+}
+
+static void get_asset(struct simulator_ctx *sim, struct simple_asset *asset) {
+  GRID_PRIV_DEF(sim);
+  // FIXME - should allocate proper buffer
+  char url[255], asset_id[40];
+  assert(grid->assetserver != NULL);
+
+  uuid_unparse(asset->id, asset_id);
+  snprintf(url, 255, "%sassets/%s/", grid->assetserver, asset_id);
+  printf("DEBUG: requesting asset %s\n", url);
+
+  SoupMessage *msg = soup_message_new ("GET", url);
+  asset_req_desc *req = new asset_req_desc;
+  req->asset = asset; req->sim = sim;
+  sim_shutdown_hold(sim); // FIXME - probably don't want to do this
+  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+			 get_asset_resp, req);
+  
 }
 
 struct map_block_state {
@@ -1405,6 +1520,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->uuid_to_name = uuid_to_name;
 
   hooks->get_texture = get_texture;
+  hooks->get_asset = get_asset;
   hooks->cleanup = cleanup;
 
   grid->gridserver = sim_config_get_value(sim,"grid","gridserver");

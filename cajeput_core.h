@@ -32,7 +32,7 @@
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x000a
+#define CAJEPUT_API_VERSION 0x000b
 
 struct user_ctx;
 struct simulator_ctx;
@@ -90,6 +90,7 @@ struct map_block_info {
   uuid_t region_id;  
 };
 
+  // FIXME - move this out of cajeput_core.h
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simulator_ctx* sim);
   void(*user_created)(struct simulator_ctx* sim,
@@ -115,6 +116,7 @@ struct cajeput_grid_hooks {
   void(*do_teleport)(struct simulator_ctx* sim, struct teleport_desc* tp);
 
   void(*get_texture)(struct simulator_ctx *sim, struct texture_desc *texture);
+  void(*get_asset)(struct simulator_ctx *sim, struct simple_asset *asset);
   void(*map_block_request)(struct simulator_ctx *sim, int min_x, int max_x, 
 			   int min_y, int max_y, 
 			   void(*cb)(void *priv, struct map_block_info *blocks, 
@@ -231,6 +233,8 @@ struct texture_desc {
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local);
 void sim_texture_finished_load(texture_desc *desc);
+void sim_asset_finished_load(struct simulator_ctx *sim, 
+			     struct simple_asset *asset, int success);
 struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
 void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 

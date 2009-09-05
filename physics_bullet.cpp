@@ -119,6 +119,8 @@ struct phys_obj {
 
 struct coord_2d { float x, y; };
 
+// handles PATH_CURVE_STRAIGHT with no twist, hollow or profile cut,
+// i.e. convex shapes only. Concave shapes will need more complex handling.
 static btConvexHullShape *make_boxlike_shape(primitive_obj *prim, 
 					     coord_2d *profile, int num_points) {
   btConvexHullShape* hull = new btConvexHullShape();

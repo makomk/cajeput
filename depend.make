@@ -19,11 +19,12 @@ caj_scripting.o: caj_scripting.cpp cajeput_core.h caj_types.h \
   cajeput_world.h caj_vm.h caj_vm_insns.h
 caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_internal.h
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h caj_types.h \
-  cajeput_user.h opensim_grid_glue.h
+  cajeput_user.h opensim_grid_glue.h opensim_xml_glue.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h caj_types.h \
   cajeput_user.h opensim_grid_glue.h
 opensim_inventory_glue.o: opensim_inventory_glue.cpp cajeput_core.h \
-  caj_types.h cajeput_user.h opensim_grid_glue.h
+  caj_types.h cajeput_user.h opensim_grid_glue.h opensim_xml_glue.h
+opensim_xml_glue.o: opensim_xml_glue.cpp opensim_xml_glue.h
 physics_bullet.o: physics_bullet.cpp cajeput_core.h caj_types.h \
   cajeput_world.h cajeput_prim.h
 cajeput_anims.o: cajeput_anims.c

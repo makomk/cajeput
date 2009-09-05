@@ -30,6 +30,7 @@
 #include <glib.h>
 #include <libsoup/soup.h>
 #include "opensim_grid_glue.h"
+#include "opensim_xml_glue.h"
 #include <cassert>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -127,125 +128,7 @@ static int node_get_uuid(xmlDocPtr doc, xmlNodePtr node, const char* name,
   return 1;
 }
 
-#define XML_STYPE_SKIP 0
-#define XML_STYPE_STRING 1
-#define XML_STYPE_UUID 2
-#define XML_STYPE_INT 3
 
-struct xml_serialisation_desc {
-  const char* name;
-  int type;
-  size_t offset;
-};
-
-// for internal use of deserialise_xml only
-static void free_partial_deserial_xml(xml_serialisation_desc* serial,
-				      void* out, int cnt) {
-  unsigned char* outbuf = (unsigned char*)out;
-  for(int i = 0; i < cnt; i++) {
-    switch(serial[i].type) {
-    case XML_STYPE_STRING:
-      xmlFree(*(char**)(outbuf+serial[i].offset));
-      break;
-    default:
-      break;
-    }
-  }
-}
-
-static int deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
-			   xml_serialisation_desc* serial,
-			   void* out) {
-  unsigned char* outbuf = (unsigned char*)out;
-  for(int i = 0; serial[i].name != NULL; i++) {
-    if(!check_node(node,serial[i].name)) {
-      free_partial_deserial_xml(serial, out, i);
-      return 0;
-    }
-    switch(serial[i].type) {
-    case XML_STYPE_SKIP:
-      break; // do nothing.
-    case XML_STYPE_STRING:
-      *(char**)(outbuf+serial[i].offset) = 
-	(char*)xmlNodeListGetString(doc, node->children, 1);
-      break;
-    case XML_STYPE_UUID:
-      {
-	xmlNodePtr guid = node->children;
-	if(!check_node(guid, "Guid")) {
-	  free_partial_deserial_xml(serial, out, i);
-	  return 0;
-	}
-	char *s = (char*)xmlNodeListGetString(doc, guid->children, 1);
-	// FIXME - handle whitespace!
-	if(s == NULL || uuid_parse(s, (unsigned char*)(outbuf+serial[i].offset))) {
-	  printf("ERROR: couldn't parse UUID for %s", serial[i].name);
-	  xmlFree(s); free_partial_deserial_xml(serial, out, i);
-	  return 0;
-	}
-	xmlFree(s);
-      }
-      break;
-    case XML_STYPE_INT:
-      {
-	char *s = (char*)xmlNodeListGetString(doc, node->children, 1);
-	*(int*)(outbuf+serial[i].offset) = atoi(s);
-	xmlFree(s);
-      }
-      break;
-    default:
-      printf("ERROR: bad type passed to deserialise_xml");
-      free_partial_deserial_xml(serial, out, i);
-      return 0;
-    }
-
-    node = node->next;
-  }
-  return 1;
-}
-
-static int serialise_xml(xmlTextWriterPtr writer,
-			 xml_serialisation_desc* serial,
-			 void* in) {
-  unsigned char* inbuf = (unsigned char*)in;
-  for(int i = 0; serial[i].name != NULL; i++) {
-    /* if(!check_node(node,serial[i].name)) {
-      free_partial_deserial_xml(serial, out, i);
-      return 0;
-      } */
-    switch(serial[i].type) {
-    case XML_STYPE_STRING:
-      if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
-				       "%s",*(char**)(inbuf+serial[i].offset)) < 0) 
-	return 0;
-      break;
-    case XML_STYPE_UUID:
-      {
-	char buf[40]; uuid_unparse((unsigned char*)(inbuf+serial[i].offset), buf);
-	 if(xmlTextWriterStartElement(writer, BAD_CAST serial[i].name) < 0) 
-	   return 0;
-	if(xmlTextWriterWriteFormatElement(writer,BAD_CAST "Guid",
-					   "%s",buf) < 0) 
-	  return 0;
-	if(xmlTextWriterEndElement(writer) < 0) 
-	  return 0;
-      }
-      break;
-    case XML_STYPE_INT:
-      {
-	 if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
-					    "%i",*(int*)(inbuf+serial[i].offset)) < 0) 
-	   return 0;
-      }
-      break;
-    case XML_STYPE_SKIP:
-    default:
-      printf("ERROR: bad type passed to deserialise_xml");
-      return 0;
-    }
-  }
-  return 1;
-}
 
 struct os_inv_folder {
   char *name;
@@ -254,7 +137,7 @@ struct os_inv_folder {
   int version; // FIXME - use long/int32_t?
 };
 
-xml_serialisation_desc deserialise_inv_folder[] = {
+static xml_serialisation_desc deserialise_inv_folder[] = {
   { "Name", XML_STYPE_STRING, offsetof(os_inv_folder, name) },
   { "ID", XML_STYPE_UUID, offsetof(os_inv_folder, folder_id) },
   { "Owner", XML_STYPE_UUID,offsetof(os_inv_folder, owner_id) },
@@ -271,8 +154,8 @@ static void parse_inv_folders(xmlDocPtr doc, xmlNodePtr node,
     if(!check_node(node,"InventoryFolderBase")) continue;
 
     os_inv_folder folder;
-    if(!deserialise_xml(doc, node->children, deserialise_inv_folder,
-			&folder)) continue;
+    if(!osglue_deserialise_xml(doc, node->children, deserialise_inv_folder,
+			       &folder)) continue;
 
     // DEBUG
     char buf[40];
@@ -305,7 +188,7 @@ struct os_inv_item {
   int creation_date; // FIXME - should be int32_t (or larger?)
 };
 
-xml_serialisation_desc deserialise_inv_item[] = {
+static xml_serialisation_desc deserialise_inv_item[] = {
   { "Name", XML_STYPE_STRING, offsetof(os_inv_item, name) },
   { "ID", XML_STYPE_UUID, offsetof(os_inv_item, item_id) },
   { "Owner", XML_STYPE_UUID,offsetof(os_inv_item, owner_id) },
@@ -337,8 +220,8 @@ static void parse_inv_items(xmlDocPtr doc, xmlNodePtr node,
     if(!check_node(node,"InventoryItemBase")) continue;
 
     os_inv_item item;
-    if(!deserialise_xml(doc, node->children, deserialise_inv_item,
-			&item)) continue;
+    if(!osglue_deserialise_xml(doc, node->children, deserialise_inv_item,
+			       &item)) continue;
 
     // DEBUG
     char buf[40];
@@ -622,7 +505,7 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
   invitem.name = ""; invitem.description = ""; invitem.creator_id = "";
   uuid_copy(invitem.item_id, item_id);
 
-  serialise_xml(writer, deserialise_inv_item, &invitem);
+  osglue_serialise_xml(writer, deserialise_inv_item, &invitem);
 
   if(xmlTextWriterEndElement(writer) < 0) 
     goto free_fail;

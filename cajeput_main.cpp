@@ -813,6 +813,28 @@ int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
   return TRUE; // FIXME - need actual permission checks
 }
 
+void sim_asset_finished_load(struct simulator_ctx *sim, 
+			     struct simple_asset *asset, int success) {
+  // FIXME - use something akin to containerof?
+  std::map<obj_uuid_t,asset_desc*>::iterator iter =
+    sim->assets.find(asset->id);
+  assert(iter != sim->assets.end());
+  asset_desc *desc = iter->second;
+  assert(desc->status == CAJ_ASSET_PENDING);
+  assert(asset == &desc->asset);
+
+  if(success) desc->status = CAJ_ASSET_READY;
+  else desc->status = CAJ_ASSET_MISSING;
+
+  for(std::set<asset_cb_desc*>::iterator iter = desc->cbs.begin(); 
+      iter != desc->cbs.end(); iter++) {
+    (*iter)->cb(sim, (*iter)->cb_priv, success ? &desc->asset : NULL);
+    delete (*iter);
+  }
+  desc->cbs.clear();
+  // FIXME - TODO
+}
+
 void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
 		   void(*cb)(struct simulator_ctx *sim, void *priv,
 			     struct simple_asset *asset), void *cb_priv) {
@@ -825,10 +847,14 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
     desc = new asset_desc();
     uuid_copy(desc->asset.id, asset_id);
     desc->status = CAJ_ASSET_PENDING;
+    desc->asset.name = desc->asset.description = NULL;
+    desc->asset.data.data = NULL;
     sim->assets[asset_id] = desc;
-
+    
     // FIXME - need to actually do the fetch!!
-    printf("FIXME: we don't actually know how to fetch assets yet!\n");
+    //printf("FIXME: we don't actually know how to fetch assets yet!\n");
+    printf("DEBUG: sending asset request via grid\n");
+    sim->gridh.get_asset(sim, &desc->asset);
   }
   
   switch(desc->status) {
@@ -1939,6 +1965,19 @@ static gboolean shutdown_timer(gpointer data) {
   for(std::map<obj_uuid_t,inventory_contents*>::iterator iter = sim->inv_lib.begin();
       iter != sim->inv_lib.end(); iter++) {
     caj_inv_free_contents_desc(iter->second);
+  }
+
+  for(std::map<obj_uuid_t,asset_desc*>::iterator iter = sim->assets.begin();
+      iter != sim->assets.end(); iter++) {
+    asset_desc *desc = iter->second;
+    for(std::set<asset_cb_desc*>::iterator iter = desc->cbs.begin(); 
+	iter != desc->cbs.end(); iter++) {
+      (*iter)->cb(sim, (*iter)->cb_priv, NULL);
+      delete (*iter);
+    }
+    free(desc->asset.name); free(desc->asset.description);
+    free(desc->asset.data.data);
+    delete desc;
   }
   
   world_octree_destroy(sim->world_tree);
