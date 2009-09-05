@@ -446,6 +446,9 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
   return iter->second;
 }
 
+// NOTE: if you're adding new fields to prims and want them to be initialised
+// properly, you *must* edit cajeput_dump.cpp as well as here, since it doesn't
+// use world_begin_new_prim when revivifying loaded prims.
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   struct primitive_obj *prim = new primitive_obj();
   memset(prim, 0, sizeof(struct primitive_obj));
@@ -453,7 +456,7 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->ob.type = OBJ_TYPE_PRIM;
   prim->ob.scale.x = prim->ob.scale.y = prim->ob.scale.z = 1.0f;
   prim->ob.rot.x = 0.0f; prim->ob.rot.y = 0.0f; prim->ob.rot.z = 0.0f; 
-  prim->ob.rot.w = 1.0f;
+  prim->ob.rot.w = 1.0f; prim->crc_counter = 0;
   prim->profile_curve = PROFILE_SHAPE_SQUARE | PROFILE_HOLLOW_DEFAULT;
   prim->path_curve = PATH_CURVE_STRAIGHT;
   prim->path_scale_x = 100; prim->path_scale_y = 100;  
@@ -1925,6 +1928,8 @@ static gboolean shutdown_timer(gpointer data) {
   soup_session_abort(sim->soup_session); // yes, again!
   g_object_unref(sim->soup_session);
 
+  world_int_dump_prims(sim);
+
   for(std::map<obj_uuid_t,texture_desc*>::iterator iter = sim->textures.begin();
       iter != sim->textures.end(); iter++) {
     struct texture_desc *desc = iter->second;
@@ -2289,7 +2294,8 @@ int main(void) {
     printf("Couldn't init script engine!\n"); return 1;
   }
 
-  world_insert_demo_objects(sim);
+  world_int_load_prims(sim);
+  // world_insert_demo_objects(sim);
 
   sim->gridh.do_grid_login(sim);
   set_sigint_handler();

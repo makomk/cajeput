@@ -198,6 +198,14 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	// in theory, we can handle non-zero PathBegin/End here, but we'd need an offset
 	printf("DEBUG: got a box prim in physics\n");
 	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+#if 0 // FIXME - this doesn't work right
+      } else if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_CIRCLE &&
+	 prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
+	 prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
+	 prim->path_begin == 0 && prim->path_end == 0) {
+	printf("DEBUG: got a cylinder prim in physics\n");
+	return new btCylinderShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+#endif
       } else {
 	printf("DEBUG: got a convex boxlike prim in physics\n");
 	switch(prim->profile_curve & PROFILE_SHAPE_MASK) {
@@ -207,13 +215,15 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	  // you may think we have to take into account that the centre of the
 	  // triangle isn't the center of the object when tapering. You'd be
 	  // wrong - the viewer doesn't. Try it for yourself - create a big 
-	  // prism, taper it, and stick an 0.1m sphere on the tip!
+	  // prism, taper it to a point, and stick an 0.1m sphere on the tip!
 	  return make_boxlike_shape(prim, equil_tri_profile, 3);
 	case PROFILE_SHAPE_CIRCLE:
 	  // for now, we model a circle as an octagon.
 	  // FIXME: probably need higher LOD for larger objects
 	  return make_boxlike_shape(prim, circle_profile_8, 8);
-	default: // FIXME - implement more shapes
+	default:
+	  // I don't think any other shapes are used by the viewer, but they're
+	  // theoretically possible.
 	  printf("WARNING: unhandled profile shape in make_boxlike_shape path\n");
 	  // this is a closer approximation than a plain bounding box
 	  return make_boxlike_shape(prim, square_profile, 4);
@@ -249,6 +259,7 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     physobj->is_deleted = 0; physobj->pos_update = 0;
     physobj->obj = obj;
     physobj->objtype = obj->type; // can't safely access obj in thread
+
 
     g_static_mutex_lock(&phys->mutex);
     if(obj->type == OBJ_TYPE_AVATAR)

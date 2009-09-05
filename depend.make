@@ -1,3 +1,5 @@
+cajeput_dump.o: cajeput_dump.cpp cajeput_core.h caj_types.h \
+  cajeput_world.h cajeput_int.h caj_llsd.h cajeput_user.h
 cajeput_evqueue.o: cajeput_evqueue.cpp caj_types.h caj_llsd.h \
   cajeput_core.h cajeput_int.h cajeput_world.h cajeput_user.h
 cajeput_hooks.o: cajeput_hooks.cpp cajeput_int.h caj_llsd.h caj_types.h \

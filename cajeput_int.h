@@ -375,6 +375,9 @@ int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
 
 void user_call_delete_hook(struct user_ctx *ctx);
 
+void world_int_dump_prims(simulator_ctx *sim);
+void world_int_load_prims(simulator_ctx *sim);
+
 // --- this is messy --------------------
 
 #define CAJ_MULTI_UPD_POS 1
