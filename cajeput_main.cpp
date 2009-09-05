@@ -455,6 +455,7 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->ob.rot.x = 0.0f; prim->ob.rot.y = 0.0f; prim->ob.rot.z = 0.0f; 
   prim->ob.rot.w = 1.0f;
   prim->profile_curve = PROFILE_SHAPE_SQUARE | PROFILE_HOLLOW_DEFAULT;
+  prim->path_curve = PATH_CURVE_STRAIGHT;
   prim->path_scale_x = 100; prim->path_scale_y = 100;  
   prim->name = strdup("Object");
   prim->description = strdup("");

@@ -98,7 +98,7 @@ static inline float caj_vect3_dist(const struct caj_vector3 *v1, const struct ca
 }
 
 static void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
-			       const struct caj_vector3 *vec) {
+			        const struct caj_vector3 *vec) {
   // FIXME - blind copy and paste from OpenSim code
   caj_vector3 ret;
   ret.x =

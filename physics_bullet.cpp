@@ -106,6 +106,10 @@ struct phys_obj {
 //        PathScaleX/Y ("taper" in UI)
 //        PathShearX/Y ("top shear" in UI)
 //        PathBegin/End ("slice begin/end" in UI)
+// prism: PROFILE_SHAPE_EQUIL_TRI, PATH_CURVE_STRAIGHT
+//   uses same params as box
+// cylinder:  PROFILE_SHAPE_CIRCLE, PATH_CURVE_STRAIGHT
+//   again, same params as box
 // sphere: 
 //   PROFILE_SHAPE_SEMICIRC, PATH_CURVE_CIRCLE
 //   uses PathBegin/End ("path cut" in UI)
@@ -113,13 +117,10 @@ struct phys_obj {
 //        PathTwist, PathTwistBegin, ("twist" in UI, not 1:1 with UI controls)
 //        ProfileBegin/End, ("dimple" in UI)
 
-
-
-
 static btConvexHullShape *make_boxlike_shape(primitive_obj *prim) {
   btConvexHullShape* hull = new btConvexHullShape();
   float x = prim->ob.scale.x/2.0f, y = prim->ob.scale.y/2.0f;
-  float z = prim->ob.scale.z/2.0f;
+  float z = prim->ob.scale.z/2.0f, z_top = z, z_bottom = -z;
   float x_top = x, y_top = y, x_bottom = x, y_bottom = y;
 
   if(prim->path_scale_x <= 100) x_bottom *= prim->path_scale_x/100.0f;
@@ -131,17 +132,32 @@ static btConvexHullShape *make_boxlike_shape(primitive_obj *prim) {
   float x_shear = (prim->path_shear_x > 128 ? 256-prim->path_shear_x : prim->path_shear_x)/50.0f*x;
   float y_shear = (prim->path_shear_y > 128 ? 256-prim->path_shear_y : prim->path_shear_y)/50.0f*y;
 
-  // FIXME - handle path_begin/end
+  if(prim->path_begin != 0 || prim->path_end != 0) {
+    float newtop, newbottom;
+    z_bottom = z_bottom + (2.0f*z)*(prim->path_begin/50000.0f);
+    z_top = z_top - (2.0f*z)*(prim->path_end/50000.0f);
+
+    newtop = x_top + (x_bottom-x_top)*(prim->path_end/50000.0f);
+    newbottom = x_bottom + (x_top-x_bottom)*(prim->path_begin/50000.0f);
+    x_top = newtop; x_bottom = newbottom;
+    
+    newtop = y_top + (y_bottom-y_top)*(prim->path_end/50000.0f);
+    newbottom = y_bottom + (y_top-y_bottom)*(prim->path_begin/50000.0f);
+    y_top = newtop; y_bottom = newbottom;
+  }
+
+  printf("DEBUG: bottom %fx%f @ %f, top %fx%f @ %f\n",
+	 x_bottom, y_bottom, z_bottom, x_top, y_top, z_top);
 
   // FIXME - remove duplicate points
-  hull->addPoint(btVector3(-x_bottom,-z,-y_bottom));
-  hull->addPoint(btVector3(-x_bottom,-z,y_bottom));
-  hull->addPoint(btVector3(x_bottom,-z,-y_bottom));
-  hull->addPoint(btVector3(x_bottom,-z,y_bottom));
-  hull->addPoint(btVector3(x_shear-x_top,z,y_shear-y_top));
-  hull->addPoint(btVector3(x_shear-x_top,z,y_shear+y_top));
-  hull->addPoint(btVector3(x_shear+x_top,z,y_shear-y_top));
-  hull->addPoint(btVector3(x_shear+x_top,z,y_shear+y_top));
+  hull->addPoint(btVector3(-x_bottom,z_bottom,-y_bottom));
+  hull->addPoint(btVector3(-x_bottom,z_bottom,y_bottom));
+  hull->addPoint(btVector3(x_bottom,z_bottom,-y_bottom));
+  hull->addPoint(btVector3(x_bottom,z_bottom,y_bottom));
+  hull->addPoint(btVector3(x_shear-x_top,z_top,y_shear-y_top));
+  hull->addPoint(btVector3(x_shear-x_top,z_top,y_shear+y_top));
+  hull->addPoint(btVector3(x_shear+x_top,z_top,y_shear-y_top));
+  hull->addPoint(btVector3(x_shear+x_top,z_top,y_shear+y_top));
   return hull;
 }
 
