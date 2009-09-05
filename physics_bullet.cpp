@@ -117,7 +117,10 @@ struct phys_obj {
 //        PathTwist, PathTwistBegin, ("twist" in UI, not 1:1 with UI controls)
 //        ProfileBegin/End, ("dimple" in UI)
 
-static btConvexHullShape *make_boxlike_shape(primitive_obj *prim) {
+struct coord_2d { float x, y; };
+
+static btConvexHullShape *make_boxlike_shape(primitive_obj *prim, 
+					     coord_2d *profile, int num_points) {
   btConvexHullShape* hull = new btConvexHullShape();
   float x = prim->ob.scale.x/2.0f, y = prim->ob.scale.y/2.0f;
   float z = prim->ob.scale.z/2.0f, z_top = z, z_bottom = -z;
@@ -149,17 +152,32 @@ static btConvexHullShape *make_boxlike_shape(primitive_obj *prim) {
   printf("DEBUG: bottom %fx%f @ %f, top %fx%f @ %f\n",
 	 x_bottom, y_bottom, z_bottom, x_top, y_top, z_top);
 
-  // FIXME - remove duplicate points
-  hull->addPoint(btVector3(-x_bottom,z_bottom,-y_bottom));
-  hull->addPoint(btVector3(-x_bottom,z_bottom,y_bottom));
-  hull->addPoint(btVector3(x_bottom,z_bottom,-y_bottom));
-  hull->addPoint(btVector3(x_bottom,z_bottom,y_bottom));
-  hull->addPoint(btVector3(x_shear-x_top,z_top,y_shear-y_top));
-  hull->addPoint(btVector3(x_shear-x_top,z_top,y_shear+y_top));
-  hull->addPoint(btVector3(x_shear+x_top,z_top,y_shear-y_top));
-  hull->addPoint(btVector3(x_shear+x_top,z_top,y_shear+y_top));
+  for(int i = 0; i < num_points; i++) {
+    // FIXME - remove duplicate points
+    hull->addPoint(btVector3(profile[i].x * x_bottom, z_bottom, 
+			     profile[i].y * y_bottom));
+    hull->addPoint(btVector3(x_shear + profile[i].x * x_top, z_top,
+			     y_shear + profile[i].y * y_top));
+  }
   return hull;
 }
+
+static coord_2d square_profile[] = { { -1.0f, -1.0f },
+				     { 1.0f, -1.0f },
+				     { -1.0f, 1.0f },
+				     { 1.0f, 1.0f }};
+static coord_2d equil_tri_profile[] = { { 1.0f, 0.0f} , 
+					{ -0.7320508075688772f, -1.0f },
+					{ -0.7320508075688772f, 1.0f } };
+static coord_2d circle_profile_8[] = { { 0.000000f, 1.000000f },
+				       { 0.707107f, 0.707107f },
+				       { 1.000000f, 0.000000f },
+				       { 0.707107f, -0.707107f },
+				       { 0.000000f, -1.000000f },
+				       { -0.707107f, -0.707107f },
+				       { -1.000000f, -0.000000f },
+				       { -0.707107f, 0.707107f } };
+				       
 
 static btCollisionShape* shape_from_obj(struct world_obj *obj) {
   if(obj->type == OBJ_TYPE_AVATAR) {
@@ -167,13 +185,14 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
     return new btCapsuleShape(0.25f,1.25f); /* radius, height */
   } else if (obj->type == OBJ_TYPE_PRIM) {
     primitive_obj *prim = (primitive_obj*)obj;
-    if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_SQUARE &&
-       (prim->path_curve & PATH_CURVE_MASK) == PATH_CURVE_STRAIGHT &&
+    if((prim->path_curve & PATH_CURVE_MASK) == PATH_CURVE_STRAIGHT &&
        prim->profile_hollow == 0 && 
        prim->profile_begin == 0 && prim->profile_end == 0 &&
        prim->path_twist == 0 && prim->path_twist_begin == 0) {
       // so long as we have no twist, hollow, or profile cut this is a convex object
-      if(prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
+      
+      if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_SQUARE &&
+	 prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
 	 prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
 	 prim->path_begin == 0 && prim->path_end == 0) {
 	// in theory, we can handle non-zero PathBegin/End here, but we'd need an offset
@@ -181,8 +200,24 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
       } else {
 	printf("DEBUG: got a convex boxlike prim in physics\n");
-	// FIXME - TODO
-	return make_boxlike_shape(prim);
+	switch(prim->profile_curve & PROFILE_SHAPE_MASK) {
+	case PROFILE_SHAPE_SQUARE:
+	  return make_boxlike_shape(prim, square_profile, 4);
+	case PROFILE_SHAPE_EQUIL_TRI:
+	  // you may think we have to take into account that the centre of the
+	  // triangle isn't the center of the object when tapering. You'd be
+	  // wrong - the viewer doesn't. Try it for yourself - create a big 
+	  // prism, taper it, and stick an 0.1m sphere on the tip!
+	  return make_boxlike_shape(prim, equil_tri_profile, 3);
+	case PROFILE_SHAPE_CIRCLE:
+	  // for now, we model a circle as an octagon.
+	  // FIXME: probably need higher LOD for larger objects
+	  return make_boxlike_shape(prim, circle_profile_8, 8);
+	default: // FIXME - implement more shapes
+	  printf("WARNING: unhandled profile shape in make_boxlike_shape path\n");
+	  // this is a closer approximation than a plain bounding box
+	  return make_boxlike_shape(prim, square_profile, 4);
+	}
       }
     } else {
       printf("WARNING: unhandled prim shape in physics\n");
