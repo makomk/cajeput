@@ -22,6 +22,7 @@
 
 #include "cajeput_core.h" // for sim_get_heightfield
 #include "cajeput_world.h"
+#include "cajeput_prim.h"
 #include <btBulletDynamicsCommon.h>
 #include <BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h>
 #include <stdio.h> /* for debugging */
@@ -96,42 +97,111 @@ struct phys_obj {
 #define GROUND_COLLIDES_WITH (COL_AVATAR|COL_PHYS_PRIM)
 #define BORDER_COLLIDES_WITH COL_AVATAR
 
+// we're going to have fun with this
+// box:
+//   PROFILE_SHAPE_SQUARE, PATH_CURVE_STRAIGHT
+//   uses ProfileBegin/End, ("path cut" in UI
+//        ProfileHollow, 
+//        PathTwist, PathTwistBegin, ("twist" in UI, not 1:1 with UI controls)
+//        PathScaleX/Y ("taper" in UI)
+//        PathShearX/Y ("top shear" in UI)
+//        PathBegin/End ("slice begin/end" in UI)
+// sphere: 
+//   PROFILE_SHAPE_SEMICIRC, PATH_CURVE_CIRCLE
+//   uses PathBegin/End ("path cut" in UI)
+//        ProfileHollow
+//        PathTwist, PathTwistBegin, ("twist" in UI, not 1:1 with UI controls)
+//        ProfileBegin/End, ("dimple" in UI)
+
+
+
+
+static btConvexHullShape *make_boxlike_shape(primitive_obj *prim) {
+  btConvexHullShape* hull = new btConvexHullShape();
+  float x = prim->ob.scale.x/2.0f, y = prim->ob.scale.y/2.0f;
+  float z = prim->ob.scale.z/2.0f;
+  float x_top = x, y_top = y, x_bottom = x, y_bottom = y;
+
+  if(prim->path_scale_x <= 100) x_bottom *= prim->path_scale_x/100.0f;
+  else if(prim->path_scale_x <= 200) x_top *= (200-prim->path_scale_x)/100.0f;
+
+  if(prim->path_scale_y <= 100) y_bottom *= prim->path_scale_y/100.0f;
+  else if(prim->path_scale_y <= 200) y_top *= (200-prim->path_scale_y)/100.0f;
+
+  float x_shear = (prim->path_shear_x > 128 ? 256-prim->path_shear_x : prim->path_shear_x)/50.0f*x;
+  float y_shear = (prim->path_shear_y > 128 ? 256-prim->path_shear_y : prim->path_shear_y)/50.0f*y;
+
+  // FIXME - handle path_begin/end
+
+  // FIXME - remove duplicate points
+  hull->addPoint(btVector3(-x_bottom,-z,-y_bottom));
+  hull->addPoint(btVector3(-x_bottom,-z,y_bottom));
+  hull->addPoint(btVector3(x_bottom,-z,-y_bottom));
+  hull->addPoint(btVector3(x_bottom,-z,y_bottom));
+  hull->addPoint(btVector3(x_shear-x_top,z,y_shear-y_top));
+  hull->addPoint(btVector3(x_shear-x_top,z,y_shear+y_top));
+  hull->addPoint(btVector3(x_shear+x_top,z,y_shear-y_top));
+  hull->addPoint(btVector3(x_shear+x_top,z,y_shear+y_top));
+  return hull;
+}
+
+static btCollisionShape* shape_from_obj(struct world_obj *obj) {
+  if(obj->type == OBJ_TYPE_AVATAR) {
+    // FIXME - take into account avatar's height
+    return new btCapsuleShape(0.25f,1.25f); /* radius, height */
+  } else if (obj->type == OBJ_TYPE_PRIM) {
+    primitive_obj *prim = (primitive_obj*)obj;
+    if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_SQUARE &&
+       (prim->path_curve & PATH_CURVE_MASK) == PATH_CURVE_STRAIGHT &&
+       prim->profile_hollow == 0 && 
+       prim->profile_begin == 0 && prim->profile_end == 0 &&
+       prim->path_twist == 0 && prim->path_twist_begin == 0) {
+      // so long as we have no twist, hollow, or profile cut this is a convex object
+      if(prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
+	 prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
+	 prim->path_begin == 0 && prim->path_end == 0) {
+	// in theory, we can handle non-zero PathBegin/End here, but we'd need an offset
+	printf("DEBUG: got a box prim in physics\n");
+	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+      } else {
+	printf("DEBUG: got a convex boxlike prim in physics\n");
+	// FIXME - TODO
+	return make_boxlike_shape(prim);
+      }
+    } else {
+      printf("WARNING: unhandled prim shape in physics\n");
+      return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+    }
+  } else { 
+    assert(0); return NULL;
+  }
+}
+
 static void add_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
-  if(obj->type == OBJ_TYPE_AVATAR) {
+  if(obj->type == OBJ_TYPE_AVATAR || obj->type == OBJ_TYPE_PRIM) {
     struct phys_obj *physobj = new phys_obj();
     obj->phys = physobj;
-    physobj->shape = new btCapsuleShape(0.25f,1.25f); /* radius, height */
-    physobj->body = NULL; physobj->newshape = NULL;
-    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  
-    physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
-    physobj->target_velocity = btVector3(0,0,0);
-    physobj->velocity = btVector3(0,0,0);
-    physobj->is_flying = 1; // probably the safe assumption. FIXME - do right.
-    physobj->is_deleted = 0; physobj->pos_update = 0;
-    physobj->obj = obj;
-    physobj->objtype = OBJ_TYPE_AVATAR;
-
-    g_static_mutex_lock(&phys->mutex);
-    phys->avatars.insert(physobj);
-    phys->changed.insert(physobj);
-    g_static_mutex_unlock(&phys->mutex);
-  } else if(obj->type == OBJ_TYPE_PRIM) {
-    struct phys_obj *physobj = new phys_obj();
-    obj->phys = physobj;
-    physobj->shape = new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+    physobj->shape = shape_from_obj(obj);
     physobj->body = NULL; physobj->newshape = NULL;
     physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);
-    physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
-    printf("DEBUG: object rotation <%f,%f,%f,%f>\n",obj->rot.x,obj->rot.y,obj->rot.z,obj->rot.w);
+    if(obj->type == OBJ_TYPE_AVATAR) {
+      physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
+      physobj->is_flying = 1; // probably the safe assumption. FIXME - do right.
+    } else {
+       physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+    }
     physobj->target_velocity = btVector3(0,0,0);
     physobj->velocity = btVector3(0,0,0);
+    
     physobj->is_deleted = 0; physobj->pos_update = 0;
     physobj->obj = obj;
-    physobj->objtype = OBJ_TYPE_PRIM;
+    physobj->objtype = obj->type; // can't safely access obj in thread
 
     g_static_mutex_lock(&phys->mutex);
+    if(obj->type == OBJ_TYPE_AVATAR)
+      phys->avatars.insert(physobj);
     phys->changed.insert(physobj);
     g_static_mutex_unlock(&phys->mutex);
   } else {
@@ -162,7 +232,7 @@ static void upd_object_full(struct simulator_ctx *sim, void *priv,
     struct phys_obj *physobj = (struct phys_obj *)obj->phys;
     g_static_mutex_lock(&phys->mutex);
     delete physobj->newshape;
-    physobj->newshape = new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+    physobj->newshape = shape_from_obj(obj);
     physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  // don't always want this, but...
     physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
     physobj->pos_update = 0;
@@ -358,7 +428,7 @@ static gpointer physics_thread(gpointer data) {
       btVector3 impulse = physobj->target_velocity;
       assert(physobj->body != NULL);
       impulse -= physobj->body->getLinearVelocity();
-      impulse *= 0.8f * 50.0f; // FIXME - don't hardcode mass
+      impulse *= 0.9f * 50.0f; // FIXME - don't hardcode mass
 
       if(!physobj->is_flying) impulse.setY(0.0f);
       physobj->body->applyCentralImpulse(impulse);

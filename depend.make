@@ -23,7 +23,7 @@ opensim_intersim.o: opensim_intersim.cpp cajeput_core.h caj_types.h \
 opensim_inventory_glue.o: opensim_inventory_glue.cpp cajeput_core.h \
   caj_types.h cajeput_user.h opensim_grid_glue.h
 physics_bullet.o: physics_bullet.cpp cajeput_core.h caj_types.h \
-  cajeput_world.h
+  cajeput_world.h cajeput_prim.h
 cajeput_anims.o: cajeput_anims.c
 cajeput_j2k.o: cajeput_j2k.c cajeput_j2k.h libopenjpeg/openjpeg.h
 cajeput_j2k_test.o: cajeput_j2k_test.c cajeput_j2k.h

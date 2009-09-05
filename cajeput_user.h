@@ -168,6 +168,9 @@ int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);
   // check whether the asset can be retrieved from prim inventory
 int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 				   inventory_item *inv);
+
+// calculate the permissions part of the ObjectUpdate UpdateFlags
+uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much

@@ -53,12 +53,12 @@ struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id) {
 }
 
 void caj_inv_free_contents_desc(struct inventory_contents* inv) {
-  for(int i = 0; i < inv->num_subfolder; i++) {
+  for(unsigned i = 0; i < inv->num_subfolder; i++) {
     free(inv->subfolders[i].name);
   }
   free(inv->subfolders);
 
-  for(int i = 0; i < inv->num_items; i++) {
+  for(unsigned i = 0; i < inv->num_items; i++) {
     free(inv->items[i].name);
     free(inv->items[i].description);
     free(inv->items[i].creator_id);

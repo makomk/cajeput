@@ -13,11 +13,15 @@
 #define PROFILE_HOLLOW_SQUARE 0x20
 #define PROFILE_HOLLOW_TRIANGLE 0x30
 
+// both of these are stored in ProfileCurve
+#define PROFILE_SHAPE_MASK 0xf
+#define PROFILE_HOLLOW_MASK 0xf0
 
 // FIXME - what are these
 #define PATH_CURVE_STRAIGHT 0x10
-#define PATH_CURVE_A 0x20
+#define PATH_CURVE_CIRCLE 0x20
 #define PATH_CURVE_B 0x30
 #define PATH_CURVE_FLEXI 0x80
+#define PATH_CURVE_MASK 0xf0 // actually the only part of the param that's used
 
 #endif

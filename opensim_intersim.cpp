@@ -662,6 +662,7 @@ static void do_teleport_put_agent_resp(SoupSession *session, SoupMessage *msg, g
     const char *reason = "[NO REASON - FIXME!]";
     int success = helper_parse_json_resp(parser, msg->response_body->data,
 					 msg->response_body->length, &reason);
+    // FIXME - need to do something with the return value from helper_parse_json_resp
     if(strcasecmp(msg->response_body->data, "True") == 0) {
       // FIXME - this is where we should actually send the avatar across
       teleport_desc *tp = tp_priv->tp;

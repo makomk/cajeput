@@ -38,7 +38,7 @@ struct obj_chat_listeners;
 
 #define WORLD_HEIGHT 4096
 
-// internal intended to be usable as a mask
+// internal, intended to be usable as a mask
 #define OBJ_TYPE_PRIM 1
 #define OBJ_TYPE_AVATAR 2
 
@@ -54,6 +54,7 @@ struct world_obj {
   struct obj_chat_listener *chat;
 };
 
+  // bunch of SL constants
 #define MATERIAL_STONE   0
 #define MATERIAL_METAL   1
 #define MATERIAL_GLASS   2
@@ -62,6 +63,34 @@ struct world_obj {
 #define MATERIAL_PLASTIC 5
 #define MATERIAL_RUBBER  6
 #define MATERIAL_LIGHT   7 // ???
+
+  // bunch more SL constants (ObjectUpdate.RegionData.UpdateFlags)
+#define PRIM_FLAG_PHYSICAL 0x1
+#define PRIM_FLAG_CREATE_SELECTED 0x2
+#define PRIM_FLAG_CAN_MODIFY 0x4
+#define PRIM_FLAG_CAN_COPY 0x8
+#define PRIM_FLAG_ANY_OWNER 0x10
+#define PRIM_FLAG_YOU_OWNER 0x20
+#define PRIM_FLAG_SCRIPTED 0x40
+#define PRIM_FLAG_TOUCH 0x80
+#define PRIM_FLAG_CAN_MOVE 0x100
+#define PRIM_FLAG_TAKES_PAYMENT 0x200
+#define PRIM_FLAG_PHANTOM 0x400
+#define PRIM_FLAG_INVENTORY_EMPTY 0x800
+  // bunch of joint flags omitted here
+#define PRIM_FLAG_ALLOW_INV_DROP 0x10000
+#define PRIM_FLAG_CAN_TRANSFER 0x20000
+#define PRIM_FLAG_GROUP_OWNER 0x40000
+#define PRIM_FLAG_OBJECT_YOU_OFFICER 0x80000
+#define PRIM_FLAG_CAMERA_DECOUPLED 0x100000
+#define PRIM_FLAG_ANIM_SOURCE 0x200000 // viewer local
+#define PRIM_FLAG_CAMERA_SOURCE 0x400000 // viewer local
+#define PRIM_FLAG_CAST_SHADOWS   0x800000
+  // bunch of server-only flags omitted here
+#define PRIM_FLAG_OWNER_MODIFY 0x10000000
+#define PRIM_FLAG_TEMP_ON_REZ 0x20000000
+#define PRIM_FLAG_TEMPORARY 0x40000000
+#define OBJ_UPD_FLAG_ZLIB_COMPRESSED 0x80000000 // ick
 
 struct primitive_obj {
   struct world_obj ob; // must be first!

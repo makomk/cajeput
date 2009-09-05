@@ -228,13 +228,13 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
     caj_vector3 velocity; 
     velocity.x = 0.0f; velocity.y = 0.0f; velocity.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
-      velocity.x = is_flying ? 6.0 : 3.0;
+      velocity.x = is_flying ? 6.0 : 2.0;
     if(control_flags & AGENT_CONTROL_AT_NEG)
-      velocity.x =  is_flying ? 4.0 : -2.0;
+      velocity.x =  is_flying ? 4.0 : -1.5;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
-      velocity.y = -2.0;
+      velocity.y = -1.5;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
-      velocity.y = 2.0;
+      velocity.y = 1.5;
     if(control_flags & AGENT_CONTROL_UP_POS)
       velocity.z = 4.0;
     if(control_flags & AGENT_CONTROL_UP_NEG)
@@ -1186,6 +1186,8 @@ static void handle_ObjectShape_msg(struct omuser_ctx* lctx, struct sl_message* m
   SL_DECLBLK_GET1(ObjectShape, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   int count = SL_GETBLK(ObjectShape, ObjectData, msg).count;
+
+  sl_dump_packet(msg); // DEBUG!
 
   for(int i = 0; i < count; i++) {
     SL_DECLBLK_ONLY(ObjectShape, ObjectData, objd) =
@@ -2191,7 +2193,9 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0; // FIXME - todo
-  objd->UpdateFlags = 0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
+  objd->UpdateFlags = PRIM_FLAG_ANY_OWNER  | user_calc_prim_flags(lctx->u, prim);;
+  
+    //0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
 
   objd->PathCurve = prim->path_curve;
   objd->ProfileCurve = prim->profile_curve;
@@ -2221,6 +2225,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
 
   uuid_copy(objd->OwnerID, prim->owner);
   memset(objd->Sound,0,16);
+  objd->Gain = 0.0f; objd->Flags = 0; objd->Radius = 0.0f; // sound-related
 
   objd->NameValue.len = 0;
 

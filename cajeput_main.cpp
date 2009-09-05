@@ -508,7 +508,7 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 				   uuid_t item_id, int script_running,
 				   unsigned char *data, int data_len,
 				   compile_done_cb cb, void *cb_priv) {
-  for(int i = 0; i < prim->inv.num_items; i++) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
     if(uuid_compare(prim->inv.items[i]->item_id, item_id) == 0) {
       inventory_item *inv = prim->inv.items[i];
       if(inv->asset_type != ASSET_LSL_TEXT) {
@@ -546,7 +546,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags) {
   inventory_item *inv = NULL;
 
-  for(int i = 0; i < prim->inv.num_items; i++) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
     if(strcmp(name, prim->inv.items[i]->name) == 0) {
       inv = prim->inv.items[i];
     }
@@ -631,9 +631,31 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			    UPDATE_LEVEL_FULL : UPDATE_LEVEL_POSROT);
 }
 
+
+uint32_t user_calc_prim_perms(struct user_ctx* ctx, struct primitive_obj *prim) {
+  uint32_t perms = prim->everyone_perms;
+  if(uuid_compare(ctx->user_id, prim->owner) == 0) {
+    perms |= prim->owner_perms;
+  }
+  return perms & prim->base_perms; // ???
+}
+
 int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {
   if(obj->type != OBJ_TYPE_PRIM) return false;
-  return true; // FIXME!
+  return user_calc_prim_perms(ctx,(primitive_obj*)obj); // FIXME!
+}
+
+uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim) {
+  uint32_t flags = 0; uint32_t perms = user_calc_prim_perms(ctx, prim);
+  if(uuid_compare(ctx->user_id, prim->owner) == 0) {
+    // owner can always move. FIXME - PRIM_FLAG_OWNER_MODIFY?
+    flags |= PRIM_FLAG_YOU_OWNER|PRIM_FLAG_CAN_MOVE|PRIM_FLAG_OWNER_MODIFY;
+  }
+  if(perms & PERM_MOVE) flags |= PRIM_FLAG_CAN_MOVE;
+  if(perms & PERM_MODIFY) flags |= PRIM_FLAG_CAN_MODIFY;
+  if(perms & PERM_COPY) flags |= PRIM_FLAG_CAN_COPY;
+  if(perms & PERM_TRANSFER) flags |= PRIM_FLAG_CAN_TRANSFER;
+  return flags;
 }
 
 void user_reset_timeout(struct user_ctx* ctx) {

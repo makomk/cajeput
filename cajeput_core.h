@@ -258,6 +258,15 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 #define ASSET_ANIMATION 20
 #define ASSET_GESTURE 21
 
+  // another bunch of SL flags, this time permissions
+#define PERM_TRANSFER (1 << 13)
+#define PERM_MODIFY (1 << 14)
+#define PERM_COPY (1 << 15)
+  // #define PERM_ENTER_PARCEL (1 << 16)
+  // #define PERM_TERRAFORM (1 << 17)
+  // #define PERM_OWNER_DEBT (1 << 18)
+#define PERM_MOVE (1 << 19)
+#define PERM_DAMAGE (1 << 20)
 
 void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
 		   void(*cb)(struct simulator_ctx *sim, void *priv,
