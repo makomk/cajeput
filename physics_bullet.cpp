@@ -53,7 +53,7 @@ struct physics_ctx {
   btStaticPlaneShape *plane_1y;
 
   // protected by mutex
-  std::set<phys_obj*> avatars;
+  std::set<phys_obj*> physical;
   std::set<phys_obj*> changed;
   int shutdown;
 };
@@ -69,12 +69,18 @@ struct phys_obj {
   int is_deleted;
   int pos_update;
   int objtype;
+  int phystype;
   world_obj *obj; // main thread use only
 #if 0
   btPairCachingGhostObject* ghost;
   btKinematicCharacterController* control;
 #endif
 };
+
+// internal to this module
+#define PHYS_TYPE_PHANTOM 0
+#define PHYS_TYPE_NORMAL 1 /* collided with, but not physical */
+#define PHYS_TYPE_PHYSICAL 2
 
 #define MAX_OBJECTS 15000
 
@@ -94,6 +100,7 @@ struct phys_obj {
 // for now, static prims don't collide with other static prims. This may change,
 // though
 #define PRIM_COLLIDES_WITH (COL_AVATAR|COL_PHYS_PRIM)
+#define PHYS_PRIM_COLLIDES_WITH (COL_GROUND|COL_PRIM|COL_PHYS_PRIM|COL_AVATAR)
 #define GROUND_COLLIDES_WITH (COL_AVATAR|COL_PHYS_PRIM)
 #define BORDER_COLLIDES_WITH COL_AVATAR
 
@@ -240,12 +247,33 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
   }
 }
 
+
+static int compute_phys_type(struct world_obj *obj) {
+  if(obj->type == OBJ_TYPE_AVATAR) {
+    return PHYS_TYPE_PHYSICAL;
+  } else if(obj->type == OBJ_TYPE_PRIM) {
+    primitive_obj *prim = (primitive_obj*)obj;
+    if(prim->flags & PRIM_FLAG_PHANTOM) {
+      return PHYS_TYPE_PHANTOM;
+    } else if(prim->flags & PRIM_FLAG_PHYSICAL) {
+      return PHYS_TYPE_PHYSICAL;
+    } else {
+      return PHYS_TYPE_NORMAL;
+    }
+  } else {
+    return PHYS_TYPE_PHANTOM;
+  }
+}
+
 static void add_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
-  if(obj->type == OBJ_TYPE_AVATAR || obj->type == OBJ_TYPE_PRIM) {
+  int phys_type = compute_phys_type(obj);
+  if(phys_type != PHYS_TYPE_PHANTOM) {
     struct phys_obj *physobj = new phys_obj();
-    obj->phys = physobj;
+    obj->phys = physobj; 
+
+    physobj->phystype = phys_type;
     physobj->shape = shape_from_obj(obj);
     physobj->body = NULL; physobj->newshape = NULL;
     physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);
@@ -264,8 +292,8 @@ static void add_object(struct simulator_ctx *sim, void *priv,
 
 
     g_static_mutex_lock(&phys->mutex);
-    if(obj->type == OBJ_TYPE_AVATAR)
-      phys->avatars.insert(physobj);
+    if(phys_type == PHYS_TYPE_PHYSICAL)
+      phys->physical.insert(physobj);
     phys->changed.insert(physobj);
     g_static_mutex_unlock(&phys->mutex);
   } else {
@@ -289,23 +317,6 @@ static void upd_object_pos(struct simulator_ctx *sim, void *priv,
 }
 
 
-static void upd_object_full(struct simulator_ctx *sim, void *priv,
-			    struct world_obj *obj) {
-  struct physics_ctx *phys = (struct physics_ctx*)priv;
-  if(obj->phys != NULL && obj->type == OBJ_TYPE_PRIM) {
-    struct phys_obj *physobj = (struct phys_obj *)obj->phys;
-    g_static_mutex_lock(&phys->mutex);
-    delete physobj->newshape;
-    physobj->newshape = shape_from_obj(obj);
-    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  // don't always want this, but...
-    physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
-    physobj->pos_update = 0;
-    phys->changed.insert(physobj);
-    g_static_mutex_unlock(&phys->mutex);
-
-  }
-}
-
 static void del_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
@@ -319,6 +330,41 @@ static void del_object(struct simulator_ctx *sim, void *priv,
     }
     g_static_mutex_unlock(&phys->mutex);
     obj->phys = NULL;
+  }
+}
+
+static void upd_object_full(struct simulator_ctx *sim, void *priv,
+			    struct world_obj *obj) {
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+  if(obj->type == OBJ_TYPE_PRIM) {
+    int phys_type = compute_phys_type(obj);
+    if(phys_type == PHYS_TYPE_PHANTOM) {
+      del_object(sim, priv, obj);
+    } else if(obj->phys == NULL) {
+      add_object(sim, priv, obj);
+    } else {
+      // FIXME - shouldn't *really* need to regenerate the shape if we're just
+      // making an object physical (though currently we do have to, or the 
+      // physics thread won't pick up the update).
+      struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+
+      g_static_mutex_lock(&phys->mutex);
+
+      delete physobj->newshape;
+      physobj->newshape = shape_from_obj(obj);
+
+      physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  // don't always want this, but...
+      physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+      physobj->pos_update = 0; physobj->phystype = phys_type;
+      phys->changed.insert(physobj);
+
+      // FIXME - should really only do this if phys_type has changed...
+      if(phys_type == PHYS_TYPE_PHYSICAL)
+	phys->physical.insert(physobj);
+      else phys->physical.erase(physobj);
+
+      g_static_mutex_unlock(&phys->mutex);
+    }
   }
 }
 
@@ -362,7 +408,7 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
   g_static_mutex_lock(&phys->mutex); // FIXME - do we really need this?
   if(physobj->is_flying != is_flying) {
     physobj->is_flying = is_flying;
-#if 0 // FIXME
+#if 0 // FIXME - need to re-add this!
     physobj->body->applyCentralImpulse(btVector3(0.0f,-40.0f,0.0f)); // HACK
     physobj->body->setActivationState(ACTIVE_TAG); // so we fall properly
 #endif
@@ -391,7 +437,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       delete physobj->shape;
       delete physobj;
 
-      phys->avatars.erase(physobj); // should really only do this for avatars
+      phys->physical.erase(physobj); // should really only do this for physical objs
     } else if(physobj->body == NULL || physobj->newshape != NULL) {
       assert(physobj->shape != NULL);
       if(physobj->body != NULL) {
@@ -406,8 +452,12 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 	physobj->shape = physobj->newshape; physobj->newshape = NULL;
       }
 
-      btScalar mass(50.f);
-      if(physobj->objtype == OBJ_TYPE_PRIM) { mass = 0.0f; } // prims not physical yet
+      btScalar mass;
+      if(physobj->phystype != PHYS_TYPE_PHYSICAL) 
+	mass = 0.0f;
+      else if(physobj->objtype == OBJ_TYPE_AVATAR)
+	mass = 50.0f;
+      else mass = 10.0f; // FIXME - dynamic mass?
 	
       btTransform transform;
       transform.setIdentity();
@@ -425,7 +475,11 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       if(physobj->objtype == OBJ_TYPE_AVATAR) {
 	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
-      } else if(physobj->objtype == OBJ_TYPE_PRIM) {
+      } else if(physobj->phystype == PHYS_TYPE_PHYSICAL) {
+	printf("DEBUG: adding physical prim, mass %f\n", (double)mass);
+	phys->dynamicsWorld->addRigidBody(physobj->body, COL_PHYS_PRIM, PHYS_PRIM_COLLIDES_WITH);
+      } else {
+	printf("DEBUG: adding normal prim\n");
 	physobj->body->setCollisionFlags( physobj->body->getCollisionFlags() |
 					  btCollisionObject::CF_KINEMATIC_OBJECT);
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_PRIM, PRIM_COLLIDES_WITH);
@@ -436,9 +490,9 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       if(physobj->objtype != OBJ_TYPE_AVATAR)
 	transform.setRotation(physobj->rot.inverse());
       transform.setOrigin(physobj->pos);
-      // FIXME - handle rotation
       physobj->body->getMotionState()->setWorldTransform(transform);
-      physobj->body->setActivationState(ACTIVE_TAG); // do we need this?
+      physobj->body->setWorldTransform(transform); // needed for physical objects
+      physobj->body->activate(TRUE); // very much necessary
       physobj->pos_update = 0;
     }
   }
@@ -459,8 +513,8 @@ static gpointer physics_thread(gpointer data) {
 
     do_phys_updates_locked(phys);
 
-    for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
-	iter != phys->avatars.end(); iter++) {
+    for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+	iter != phys->physical.end(); iter++) {
       struct phys_obj *physobj = *iter;
       btTransform trans;
       physobj->body->getMotionState()->getWorldTransform(trans);
@@ -485,9 +539,12 @@ static gpointer physics_thread(gpointer data) {
       g_static_mutex_unlock(&phys->mutex); break;
     }
     do_phys_updates_locked(phys);
-    for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
-	iter != phys->avatars.end(); iter++) {
+    for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+	iter != phys->physical.end(); iter++) {
       struct phys_obj *physobj = *iter; 
+
+      // FIXME - generalise this to more general target velocity support?
+      if(physobj->objtype != OBJ_TYPE_AVATAR) continue;
 
       btVector3 impulse = physobj->target_velocity;
       assert(physobj->body != NULL);
@@ -519,8 +576,8 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
     
     g_static_mutex_lock(&phys->mutex);
 
-    for(std::set<phys_obj*>::iterator iter = phys->avatars.begin(); 
-	iter != phys->avatars.end(); iter++) {
+    for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+	iter != phys->physical.end(); iter++) {
       struct phys_obj *physobj = *iter;
       caj_vector3 newpos;
 
@@ -537,7 +594,9 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
       if(fabs(newpos.x - physobj->obj->pos.x) >= 0.01 ||
 	 fabs(newpos.y - physobj->obj->pos.y) >= 0.01 ||
 	 fabs(newpos.z - physobj->obj->pos.z) >= 0.01) {
-	world_move_obj_int(phys->sim, physobj->obj, newpos);
+	// FIXME - probably should send an update if velocity (previous or 
+	// current) is non-zero, too.
+	world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
       }
       
       // FIXME - TODO;
@@ -557,8 +616,12 @@ static void destroy_physics(struct simulator_ctx *sim, void *priv) {
   g_static_mutex_unlock(&phys->mutex);
   g_thread_join(phys->thread);
 
-  // FIXME - TODO delete physics objects properly
+  // You know I said this is only called from the physics thread? That's not
+  // quite true. After we've shut down physics, there may be deleted objects
+  // that need cleaning up, and this is as good a place as any to do so.
+  do_phys_updates_locked(phys);
 
+  // is this needed anymore?
   int count = phys->dynamicsWorld->getNumCollisionObjects();
   for(int i = count-1; i >= 0; i--) {
     btCollisionObject* obj = phys->dynamicsWorld->getCollisionObjectArray()[i];

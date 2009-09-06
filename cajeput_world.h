@@ -108,6 +108,7 @@ struct primitive_obj {
   uuid_t creator, owner;
   uint32_t base_perms, owner_perms, group_perms, everyone_perms, next_perms;
   int32_t sale_price;
+  uint32_t flags; // PRIM_FLAG_*
   char *name, *description;
   caj_string tex_entry;
 
@@ -176,6 +177,8 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob);
 
+void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim);
+
 struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
@@ -187,6 +190,10 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			const caj_vector3 &new_pos);
+
+  // for use by the physics engine only
+void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
+			      const caj_vector3 *new_pos);
 
   // don't ask. Really. Also, don't free or store returned string.
   char* world_prim_upd_inv_filename(struct primitive_obj* prim);

@@ -1132,6 +1132,24 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
 
 // TODO - ObjectRotation?
 
+static void handle_ObjectFlagUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectFlagUpdate, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  
+  struct primitive_obj* prim = get_prim_for_update(lctx, ad->ObjectLocalID);
+  if(prim == NULL) return;
+  
+  // FIXME - difference between PRIM_FLAG_TEMP_ON_REZ and PRIM_FLAG_TEMPORARY?
+  prim->flags &= ~(uint32_t)(PRIM_FLAG_PHANTOM|PRIM_FLAG_PHYSICAL|
+			     PRIM_FLAG_TEMP_ON_REZ);
+  if(ad->UsePhysics) prim->flags |= PRIM_FLAG_PHYSICAL;
+  else if(ad->IsPhantom) prim->flags |= PRIM_FLAG_PHANTOM;
+  if(ad->IsTemporary) prim->flags |= PRIM_FLAG_TEMP_ON_REZ; 
+  /* if(ad->CastsShadows) ???; - FIXME */
+  
+  world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+}
+
 // TODO - ObjectFlagUpdate
 
 // TODO - ObjectClickAction?
@@ -1274,6 +1292,50 @@ static void handle_ObjectDescription_msg(struct omuser_ctx* lctx, struct sl_mess
 
 
 // TODO: ObjectCategory message
+
+#define DEREZ_SAVE_TO_EXISTING 0 // save to existing inventory item
+#define DEREZ_TAKE_COPY 1 
+#define DEREZ_TAKE 4
+#define DEREZ_GOD_TAKE_COPY 5
+#define DEREZ_DELETE 6
+#define DEREZ_RETURN 9
+
+// FIXME - is this actually *USED*? What should we do here
+static void  handle_DeRezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(DeRezObject, AgentData, ad, msg);
+  SL_DECLBLK_GET1(DeRezObject, AgentBlock, ablk, msg);
+  if(ad == NULL || ablk == NULL || VALIDATE_SESSION(ad)) return;
+  int count = SL_GETBLK(DeRezObject, ObjectData, msg).count;
+
+  if(ablk->Destination != DEREZ_DELETE) {
+    printf("FIXME: can't handle DeRezObject unless it's a deletion\n");
+    return;
+  }
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(DeRezObject, ObjectData, objd) =
+      SL_GETBLKI(DeRezObject, ObjectData, msg, i);
+
+    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
+						    objd->ObjectLocalID);
+    if(obj == NULL) {
+      printf("ERROR: attempt to delete non-existent object\n");
+      continue;
+    } else if(!user_can_modify_object(lctx->u, obj)) {
+      // FIXME - this check isn't quite right
+      printf("ERROR: attempt to delete non-permitted object\n");
+      continue; // FIXME - send error to originating client.
+    } else if(obj->type != OBJ_TYPE_PRIM) {
+      printf("ERROR: attempt to delete non-prim object\n");
+      continue;
+    }
+
+    // once we have trees, this will have to change
+    struct primitive_obj* prim = (primitive_obj*)obj;
+
+    world_delete_prim(lctx->u->sim, prim);
+  }
+}
 
 static void handle_RequestObjectPropertiesFamily_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RequestObjectPropertiesFamily, AgentData, ad, msg);
@@ -2191,7 +2253,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0; // FIXME - todo
-  objd->UpdateFlags = PRIM_FLAG_ANY_OWNER  | user_calc_prim_flags(lctx->u, prim);;
+  objd->UpdateFlags = PRIM_FLAG_ANY_OWNER | prim->flags | user_calc_prim_flags(lctx->u, prim);;
   
     //0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
 
@@ -2237,9 +2299,22 @@ static gboolean obj_update_timer(gpointer data) {
     user_ctx *ctx = lctx->u;
     if((ctx->flags & AGENT_FLAG_RHR) == 0) continue;
     user_update_throttles(ctx);
+    std::vector<uint32_t>::iterator diter = ctx->deleted_objs.begin();
+    while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
+	  diter != ctx->deleted_objs.end()) {
+      SL_DECLMSG(KillObject, kill);
+      for(int i = 0; i < 256 && diter != ctx->deleted_objs.end(); i++, diter++) {
+	SL_DECLBLK(KillObject, ObjectData, objd, &kill);
+	objd->ID = *diter;
+      }
+      sl_send_udp_throt(lctx, &kill, SL_THROTTLE_TASK);
+      ctx->deleted_objs.erase(ctx->deleted_objs.begin(),diter);
+      diter = ctx->deleted_objs.begin();
+    }
     std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
     while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
 	  iter != ctx->obj_upd.end()) {
+
       if(iter->second == UPDATE_LEVEL_NONE) {
 	iter++; continue;
       } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
@@ -2522,6 +2597,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(RezScript);
   ADD_HANDLER(RequestTaskInventory);
   ADD_HANDLER(TransferRequest);
+  ADD_HANDLER(ObjectFlagUpdate);
+  ADD_HANDLER(DeRezObject);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

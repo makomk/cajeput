@@ -221,6 +221,7 @@ struct user_ctx {
   void *grid_priv; 
 
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
+  std::vector<uint32_t> deleted_objs;
 
   int shutdown_ctr; // for slow user removal (AGENT_FLAG_IN_SLOW_REMOVAL)
 

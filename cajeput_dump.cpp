@@ -291,8 +291,10 @@ static int load_prim_v1(int fd, simulator_ctx *sim) {
     free(prim->tex_entry.data); delete prim;
     return 1;
   }
+  
   prim->ob.phys = NULL; prim->ob.chat = NULL;
   prim->crc_counter = 0; 
+  prim->flags = 0; // FIXME - save this
   prim->inv.num_items = prim->inv.alloc_items = 0;
   prim->inv.items = NULL; prim->inv.serial = 0;
   prim->inv.filename = NULL;

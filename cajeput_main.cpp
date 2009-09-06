@@ -53,6 +53,7 @@ struct cap_descrip;
 
 static void user_remove_int(user_ctx **user);
 static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj);
+static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 
 // --- START sim query code ---
 
@@ -428,6 +429,7 @@ void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   sim->localid_map.erase(ob->local_id);
   world_octree_delete(sim->world_tree, ob);
   sim->physh.del_object(sim,sim->phys_priv,ob);
+  mark_deleted_obj_for_updates(sim, ob);
   delete ob->chat; ob->chat = NULL;
 }
 
@@ -464,12 +466,36 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->description = strdup("");
   prim->next_perms = prim->owner_perms = prim->base_perms = 0x7fffffff;
   prim->group_perms = prim->everyone_perms = 0;
+  prim->flags = 0;
   prim->inv.num_items = prim->inv.alloc_items = 0;
   prim->inv.items = NULL; prim->inv.serial = 0;
   prim->inv.filename = NULL;
   return prim;
 }
 
+void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
+  world_remove_obj(sim, &prim->ob);
+
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->priv != NULL) {
+      sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
+      inv->priv = NULL;
+    }
+    free(inv->name); free(inv->description); free(inv->creator_id);
+
+    if(inv->asset_hack != NULL) {
+      free(inv->asset_hack->name); free(inv->asset_hack->description);
+      caj_string_free(&inv->asset_hack->data);
+      delete inv->asset_hack;
+    }
+    delete inv;
+  }
+  free(prim->name); free(prim->description); free(prim->inv.filename);
+  caj_string_free(&prim->tex_entry);
+  free(prim->inv.items); delete prim;
+}
 
 char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
   if(prim->inv.filename != NULL) return prim->inv.filename;
@@ -943,6 +969,16 @@ static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
   }
 }
 
+static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
+  // interestingly, this does handle avatars as well as prims.
+
+  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
+    user->obj_upd.erase(obj->local_id);
+    user->deleted_objs.push_back(obj->local_id);
+  }
+}
+
+
 void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level) {
   if(obj->type != OBJ_TYPE_PRIM) return;
 
@@ -957,6 +993,17 @@ void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_le
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     // FIXME - use update level provided!
     user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL; 
+  }
+}
+
+void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
+			      const caj_vector3 *new_pos) {
+  world_move_obj_int(sim, ob, *new_pos);
+
+  if(ob->type != OBJ_TYPE_PRIM) return;
+
+  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
+    user->obj_upd[ob->local_id] = UPDATE_LEVEL_POSROT; 
   }
 }
 
@@ -1939,8 +1986,7 @@ static gboolean shutdown_timer(gpointer data) {
 
   g_key_file_free(sim->config);
   sim->config = NULL;
-  sim->physh.destroy(sim, sim->phys_priv);
-  sim->phys_priv = NULL;
+  // FIXME - want to shutdown physics here, really.
   sim->gridh.cleanup(sim);
   sim->grid_priv = NULL;
 
@@ -1979,6 +2025,19 @@ static gboolean shutdown_timer(gpointer data) {
     free(desc->asset.data.data);
     delete desc;
   }
+
+  for(std::map<uint32_t, world_obj*>::iterator iter = sim->localid_map.begin();
+      iter != sim->localid_map.end(); /* nowt */) {
+    if(iter->second->type == OBJ_TYPE_PRIM) {
+      std::map<uint32_t, world_obj*>::iterator iter2 = iter; iter2++;
+      primitive_obj *prim = (primitive_obj*)iter->second;
+      world_delete_prim(sim, prim);
+      iter = iter2;
+    } else iter++;
+  }
+
+  sim->physh.destroy(sim, sim->phys_priv);
+  sim->phys_priv = NULL;
   
   world_octree_destroy(sim->world_tree);
   g_timer_destroy(sim->timer);
