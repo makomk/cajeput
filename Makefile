@@ -1,7 +1,10 @@
-CXXFLAGS=-Wall -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/include/libsoup-2.4 -I /usr/lib64/glib-2.0/include -I /usr/include/bullet -I /usr/include/json-glib-1.0 -ggdb -DDEBUG
-CFLAGS=-Wall -ggdb -I /usr/include/libxml2 -I /usr/include/glib-2.0 -I /usr/lib64/glib-2.0/include
+GLIB_INCLUDES := $(shell pkg-config glib-2.0 --cflags) $(shell pkg-config libxml-2.0 --cflags) $(shell pkg-config libsoup-2.4 --cflags) $(shell pkg-config json-glib-1.0 --cflags)
+GLIB_LIBS := $(shell pkg-config glib-2.0 --libs) $(shell pkg-config libxml-2.0 --libs) $(shell pkg-config libsoup-2.4 --libs) $(shell pkg-config json-glib-1.0 --libs)
 
-# we dont bother compiling caj_llsd_test anyomre; not useful
+CXXFLAGS=-Wall  -I /usr/include/bullet $(GLIB_INCLUDES) -ggdb -DDEBUG
+CFLAGS=-Wall -ggdb $(GLIB_INCLUDES)
+
+# we dont bother compiling caj_llsd_test anymore; not useful
 all: cajeput_sim cajeput_j2k_test lsl_compile
 
 .PHONY: all clean depend
@@ -50,7 +53,7 @@ include depend.make
 CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o caj_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o opensim_xml_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_vm.o cajeput_dump.o libopenjpeg/openjpeg.a
 
 cajeput_sim: $(CAJEPUT_OBJS)
-	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) -luuid -lglib-2.0 -lsoup-2.4 -lxml2 -lbulletdynamics -lbulletcollision -lbulletmath -ljson-glib-1.0
+	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) $(GLIB_LIBS) -luuid -lbulletdynamics -lbulletcollision -lbulletmath
 
 sl_messages.c sl_messages.h: message_template.msg msgtmpl2c.py
 	python msgtmpl2c.py
