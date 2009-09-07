@@ -30,7 +30,6 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stddef.h>
-#include <assert.h> // FIXME remove this
 
 static int dump_write_u32(int fd, uint32_t val) {
   unsigned char buf[4];
@@ -561,17 +560,17 @@ void world_int_load_prims(simulator_ctx *sim) {
     case PRIM_MAGIC_V1:
       if(load_prim_v1(fd, sim)) {
 	printf("ERROR: failure loading v1 prim from saved simstate\n"); 
-	close(fd); return;
+	close(fd); exit(1);
       }
       break;
     case PRIM_MAGIC_V2:
       if(load_prim_v2(fd, sim)) {
 	printf("ERROR: failure loading v2 prim from saved simstate\n"); 
-	close(fd); return;
+	close(fd); exit(1);
       }
       break;
     default:
-      printf("ERROR: unexpected magic in simstate\n"); close(fd); return;
+      printf("ERROR: unexpected magic in simstate\n"); close(fd); exit(1);
     }
   }
   close(fd); 
