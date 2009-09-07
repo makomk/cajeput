@@ -2249,7 +2249,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
 
   // FIXME - endianness issues
   memcpy(obj_data, &prim->ob.pos, 12); 
-  memset(obj_data+12, 0, 12); // velocity
+  memset(obj_data+12, 0, 12); // velocity - FIXME send this
   memset(obj_data+24, 0, 12); // accel
   memcpy(obj_data+36, &prim->ob.rot, 12); 
   memset(obj_data+48, 0, 12);
@@ -2258,8 +2258,6 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->ParentID = 0; // FIXME - todo
   objd->UpdateFlags = PRIM_FLAG_ANY_OWNER | prim->flags | user_calc_prim_flags(lctx->u, prim);
   
-    //0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
-
   objd->PathCurve = prim->path_curve;
   objd->ProfileCurve = prim->profile_curve;
   objd->PathBegin = prim->path_begin;
@@ -2298,6 +2296,60 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   sl_send_udp_throt(lctx, &upd, SL_THROTTLE_TASK);
 }
 
+static void obj_send_terse_upd(omuser_ctx* lctx, world_obj* obj) {
+  unsigned char dat[0x2C];
+  SL_DECLMSG(ImprovedTerseObjectUpdate,terse);
+  SL_DECLBLK(ImprovedTerseObjectUpdate,RegionData,rd,&terse);
+  rd->RegionHandle = lctx->u->sim->region_handle;
+  rd->TimeDilation = 0xffff; // FIXME - report real time dilation
+  SL_DECLBLK(ImprovedTerseObjectUpdate,ObjectData,objd,&terse);
+  objd->TextureEntry.data = NULL;
+  objd->TextureEntry.len = 0;
+
+  dat[0] = obj->local_id & 0xff;
+  dat[1] = (obj->local_id >> 8) & 0xff;
+  dat[2] = (obj->local_id >> 16) & 0xff;
+  dat[3] = (obj->local_id >> 24) & 0xff;
+  dat[4] = 0; // state - ???
+  dat[5] = 0; // object is not an avatar
+  
+  
+  // FIXME - correct endianness
+  memcpy(dat+0x6, &obj->pos, 12); 
+
+  // Velocity
+#if 0 // FIXME !!!
+  sl_float_to_int16(dat+0x12, obj->velocity.x, 128.0f);
+  sl_float_to_int16(dat+0x14, obj->velocity.y, 128.0f);
+  sl_float_to_int16(dat+0x16, obj->velocity.z, 128.0f);
+#else
+  sl_float_to_int16(dat+0x12, 0.0f, 128.0f);
+  sl_float_to_int16(dat+0x14, 0.0f, 128.0f);
+  sl_float_to_int16(dat+0x16, 0.0f, 128.0f);
+#endif
+
+  // Acceleration
+  sl_float_to_int16(dat+0x18, 0.0f, 64.0f);
+  sl_float_to_int16(dat+0x1A, 0.0f, 64.0f);
+  sl_float_to_int16(dat+0x1C, 0.0f, 64.0f);
+ 
+  // Rotation
+  sl_float_to_int16(dat+0x1E, obj->rot.x, 1.0f);
+  sl_float_to_int16(dat+0x20, obj->rot.y, 1.0f);
+  sl_float_to_int16(dat+0x22, obj->rot.z, 1.0f);
+  sl_float_to_int16(dat+0x24, obj->rot.w, 1.0f);
+
+  // Rotational velocity
+  sl_float_to_int16(dat+0x26, 0.0f, 64.0f);
+  sl_float_to_int16(dat+0x28, 0.0f, 64.0f);
+  sl_float_to_int16(dat+0x2A, 0.0f, 64.0f);
+ 
+  caj_string_set_bin(&objd->Data, dat, 0x2C);
+  terse.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &terse);
+}
+
+
 static gboolean obj_update_timer(gpointer data) {
   omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
@@ -2322,6 +2374,10 @@ static gboolean obj_update_timer(gpointer data) {
 
       if(iter->second == UPDATE_LEVEL_NONE) {
 	iter++; continue;
+      } else if(iter->second == UPDATE_LEVEL_POSROT) {
+	printf("DEBUG: sending terse update for %u\n", iter->first);
+	obj_send_terse_upd(lctx, lsim->sim->localid_map[iter->first]);
+	iter->second = UPDATE_LEVEL_NONE;
       } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
 	printf("DEBUG: sending full update for %u\n", iter->first);
 	obj_send_full_upd(lctx, lsim->sim->localid_map[iter->first]);

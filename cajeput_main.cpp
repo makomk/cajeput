@@ -1004,8 +1004,10 @@ void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_le
     sim->physh.upd_object_full(sim, sim->phys_priv, obj);
 
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
-    // FIXME - use update level provided!
-    user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL; 
+    std::map<uint32_t, int>::iterator cur = user->obj_upd.find(obj->local_id);
+    if(cur == user->obj_upd.end() || cur->second < update_level) {
+      user->obj_upd[obj->local_id] = update_level; 
+    }
   }
 }
 
