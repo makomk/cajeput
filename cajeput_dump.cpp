@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <assert.h> // FIXME remove this
 
 static int dump_write_u32(int fd, uint32_t val) {
   unsigned char buf[4];
@@ -81,6 +82,11 @@ static int dump_read_float(int fd, float *val) {
 
 
 #define PRIM_MAGIC_V1 0x7385ad01
+#define PRIM_MAGIC_V2 0x7385ad02
+
+#define INV_MAGIC_V1 0x45892401
+
+#define ASSET_MAGIC_V1 0x2e3b6501
 
 // 0 is reserved as an end marker;
 #define DUMP_TYPE_INT 1
@@ -93,12 +99,13 @@ static int dump_read_float(int fd, float *val) {
 #define DUMP_TYPE_UUID 8
 #define DUMP_TYPE_STR 9
 #define DUMP_TYPE_CAJ_STR 10
+#define DUMP_TYPE_UINT 11
 
 struct dump_desc {
   int type, offset;
 };
 
-dump_desc prim_dump_v1[] = {
+static dump_desc prim_dump_v1[] = {
   // skipping ob.type
   { DUMP_TYPE_VECT3, offsetof(primitive_obj, ob.pos) },
   { DUMP_TYPE_VECT3, offsetof(primitive_obj, ob.scale) },
@@ -143,6 +150,101 @@ dump_desc prim_dump_v1[] = {
   { 0, 0 }
 };
 
+static dump_desc prim_dump_v2[] = {
+  // skipping ob.type
+  { DUMP_TYPE_VECT3, offsetof(primitive_obj, ob.pos) },
+  { DUMP_TYPE_VECT3, offsetof(primitive_obj, ob.scale) },
+  { DUMP_TYPE_VECT3, offsetof(primitive_obj, ob.velocity) },
+  { DUMP_TYPE_QUAT, offsetof(primitive_obj, ob.rot) },
+  { DUMP_TYPE_UUID, offsetof(primitive_obj, ob.id) },
+  // skipping ob.local_id, ob.phys, ob.chat, crc_counter
+  { DUMP_TYPE_U8, offsetof(primitive_obj, sale_type) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, material) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_curve) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, profile_curve) },
+
+  { DUMP_TYPE_U16, offsetof(primitive_obj, path_begin) },
+  { DUMP_TYPE_U16, offsetof(primitive_obj, path_end) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_scale_x) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_scale_y) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_shear_x) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_shear_y) },
+  
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_twist) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_twist_begin) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_radius_offset) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_taper_x) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_taper_y) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_revolutions) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, path_skew) },
+  { DUMP_TYPE_U16, offsetof(primitive_obj, profile_begin) },
+  { DUMP_TYPE_U16, offsetof(primitive_obj, profile_end) },
+  { DUMP_TYPE_U16, offsetof(primitive_obj, profile_hollow) },
+  { DUMP_TYPE_UUID, offsetof(primitive_obj, creator) },
+  { DUMP_TYPE_UUID, offsetof(primitive_obj, owner) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, base_perms) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, owner_perms) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, group_perms) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, everyone_perms) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, next_perms) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, sale_price) },
+  { DUMP_TYPE_STR, offsetof(primitive_obj, name) },
+  { DUMP_TYPE_STR, offsetof(primitive_obj, description) },
+  { DUMP_TYPE_CAJ_STR, offsetof(primitive_obj, tex_entry) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, flags) },
+  { DUMP_TYPE_STR, offsetof(primitive_obj, hover_text) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, text_color[0]) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, text_color[1]) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, text_color[2]) },
+  { DUMP_TYPE_U8, offsetof(primitive_obj, text_color[3]) },
+  { DUMP_TYPE_U32, offsetof(primitive_obj, inv.serial) },
+  { DUMP_TYPE_UINT, offsetof(primitive_obj, inv.num_items) },
+  { 0, 0 }
+};
+
+static dump_desc inv_dump_v1[] = {
+  { DUMP_TYPE_STR, offsetof(inventory_item, name) },
+  { DUMP_TYPE_UUID, offsetof(inventory_item, item_id) },
+  { DUMP_TYPE_UUID, offsetof(inventory_item, folder_id) },
+  { DUMP_TYPE_UUID, offsetof(inventory_item, owner_id) },
+
+  { DUMP_TYPE_STR, offsetof(inventory_item, creator_id) },
+  { DUMP_TYPE_UUID, offsetof(inventory_item, creator_as_uuid) },
+  { DUMP_TYPE_STR, offsetof(inventory_item, description) },
+
+  { DUMP_TYPE_U32, offsetof(inventory_item, next_perms) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, current_perms) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, base_perms) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, everyone_perms) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, group_perms) },
+
+  { DUMP_TYPE_U8, offsetof(inventory_item, inv_type) },
+  { DUMP_TYPE_U8, offsetof(inventory_item, asset_type) },
+  { DUMP_TYPE_U8, offsetof(inventory_item, sale_type) },
+  { DUMP_TYPE_U8, offsetof(inventory_item, group_owned) },
+
+  
+  { DUMP_TYPE_UUID, offsetof(inventory_item, asset_id) },
+  { DUMP_TYPE_UUID, offsetof(inventory_item, group_id) },
+
+  { DUMP_TYPE_U32, offsetof(inventory_item, flags) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, sale_price) },
+  { DUMP_TYPE_U32, offsetof(inventory_item, creation_date) },
+
+  { 0, 0 }  
+};
+
+static dump_desc asset_dump_v1[] = {
+  { DUMP_TYPE_STR, offsetof(simple_asset, name) },
+  { DUMP_TYPE_STR, offsetof(simple_asset, description) },
+  { DUMP_TYPE_U8, offsetof(simple_asset, type) },
+  { DUMP_TYPE_UUID, offsetof(simple_asset, id) },
+  { DUMP_TYPE_CAJ_STR, offsetof(simple_asset, data) },
+
+  { 0, 0 }  
+};
+
+
 static int dump_object(int fd, dump_desc *dump, void *obj) {
   char *data = (char*)obj;
   for(int i = 0; dump[i].type != 0; i++) {
@@ -150,6 +252,12 @@ static int dump_object(int fd, dump_desc *dump, void *obj) {
     case DUMP_TYPE_INT:
       {
 	int32_t val = *(int*)(data+dump[i].offset);
+	if(dump_write_u32(fd, val)) return 1;
+	break;
+      }
+    case DUMP_TYPE_UINT:
+      {
+	uint32_t val = *(unsigned int*)(data+dump[i].offset);
 	if(dump_write_u32(fd, val)) return 1;
 	break;
       }
@@ -217,6 +325,13 @@ static int undump_object(int fd, dump_desc *dump, void *obj) {
 	*(int*)(data+dump[i].offset) = val;
 	break;
       }
+    case DUMP_TYPE_UINT:
+      {
+	uint32_t val;
+	if(dump_read_u32(fd, &val)) return 1;
+	*(unsigned int*)(data+dump[i].offset) = val;
+	break;
+      }
     case DUMP_TYPE_FLOAT:
       if(dump_read_float(fd, (float*)(data+dump[i].offset))) return 1;
       break;
@@ -276,10 +391,90 @@ static int undump_object(int fd, dump_desc *dump, void *obj) {
   return 0;
 }
 
-static int dump_prim(int fd, primitive_obj *prim) {
-  if(dump_write_u32(fd, PRIM_MAGIC_V1)) return 1;
-  return dump_object(fd, prim_dump_v1, prim);
+static int dump_prim_inv(int fd, inventory_item *inv) {
+  if(dump_write_u32(fd, INV_MAGIC_V1)) return 1;
+  if(dump_object(fd, inv_dump_v1, inv)) return 1;
+  if(inv->asset_hack != NULL) {
+    if(dump_write_u32(fd, ASSET_MAGIC_V1)) return 1;
+    if(dump_object(fd, asset_dump_v1, inv->asset_hack)) return 1;
+  }
+  if(dump_write_u32(fd, 0)) return 1; // terminating 0
+  return 0;
 }
+
+static int load_prim_inv_v1(int fd, inventory_item **inv_out) {
+  inventory_item *inv = new inventory_item();
+  inv->name = inv->description = inv->creator_id = NULL;
+  if(undump_object(fd, inv_dump_v1, inv)) {
+    free(inv->name); free(inv->description);
+    free(inv->creator_id); delete inv;
+    return 1;
+  }
+  inv->asset_hack = NULL; inv->priv = NULL; 
+  *inv_out = inv; return 0;
+}
+
+static int load_prim_asset_v1(int fd, inventory_item *inv) {
+  simple_asset *asset = new simple_asset();
+  asset->name = asset->description = NULL;
+  asset->data.data = NULL;
+  if(undump_object(fd, asset_dump_v1, asset)) {
+    free(asset->name); free(asset->description);
+    free(asset->data.data); delete asset;
+    return 1;
+  }
+  inv->asset_hack = asset; return 0;
+}
+
+// FIXME - leaks memory in error case
+static int load_prim_inv(int fd, primitive_obj *prim) {
+  prim->inv.alloc_items = prim->inv.num_items;
+  prim->inv.items = (inventory_item**)calloc(prim->inv.alloc_items, sizeof(inventory_item*));
+
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    prim->inv.items[i] = NULL;
+    uint32_t magic;
+    do {
+      if(dump_read_u32(fd, &magic)) return 1;
+      switch(magic) {
+      case 0: // terminating 0
+	if(prim->inv.items[i] == NULL) {
+	  printf("ERROR: bad prim inventory item\n");
+	  return 1;
+	}
+	break;
+      case INV_MAGIC_V1: 
+	if(load_prim_inv_v1(fd, &prim->inv.items[i])) return 1;
+	break;
+      case ASSET_MAGIC_V1:
+	if(prim->inv.items[i] == NULL || 
+	   prim->inv.items[i]->asset_hack != NULL) {
+	  printf("ERROR: bad prim inventory item\n");
+	  return 1;
+	}
+	if(load_prim_asset_v1(fd, prim->inv.items[i])) return 1;
+	break;
+      default:
+	printf("ERROR: bad/unsupported prim inventory magic\n");
+	return 1;
+      }
+    } while(magic != 0);
+    
+  }
+  return 0;
+}
+
+static int dump_prim(int fd, primitive_obj *prim) {
+  if(dump_write_u32(fd, PRIM_MAGIC_V2)) return 1;
+  if(dump_object(fd, prim_dump_v2, prim)) return 1;
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    if(dump_prim_inv(fd, prim->inv.items[i])) return 1;
+  }
+  return 0;
+}
+
+static void revivify_prim(simulator_ctx *sim, primitive_obj *prim, 
+			  int version);
 
 static int load_prim_v1(int fd, simulator_ctx *sim) {
   primitive_obj *prim = new primitive_obj();
@@ -291,21 +486,46 @@ static int load_prim_v1(int fd, simulator_ctx *sim) {
     free(prim->tex_entry.data); delete prim;
     return 1;
   }
-  
-  prim->ob.phys = NULL; prim->ob.chat = NULL;
-  prim->crc_counter = 0; 
-  prim->flags = 0; // FIXME - save this
 
-  prim->hover_text = strdup(""); // FIXME - save this too
-  memset(prim->text_color, 0, sizeof(prim->text_color));
-
-  prim->inv.num_items = prim->inv.alloc_items = 0;
-  prim->inv.items = NULL; prim->inv.serial = 0;
-  prim->inv.filename = NULL;
-  world_insert_obj(sim, &prim->ob);
-  printf("DEBUG: loaded a prim from saved state\n");
-  // FIXME - TODO
+  revivify_prim(sim, prim, 1);
   return 0;
+}  
+
+static int load_prim_v2(int fd, simulator_ctx *sim) {
+  primitive_obj *prim = new primitive_obj();
+  prim->ob.type = OBJ_TYPE_PRIM;
+  prim->name = prim->description = NULL;
+  prim->tex_entry.data = NULL; prim->hover_text = NULL;
+  prim->inv.alloc_items = 0; prim->inv.items = NULL;
+  if(undump_object(fd, prim_dump_v2, prim) || load_prim_inv(fd, prim)) {
+    free(prim->name); free(prim->description);
+    free(prim->tex_entry.data); free(prim->hover_text);
+    delete prim;
+    return 1;
+  }
+
+  revivify_prim(sim, prim, 2);
+  return 0;
+}  
+
+static void revivify_prim(simulator_ctx *sim, primitive_obj *prim, 
+			  int version) {
+  switch(version) {
+  case 1:
+    prim->flags = 0;    
+    prim->hover_text = strdup("");
+    memset(prim->text_color, 0, sizeof(prim->text_color));
+    prim->inv.num_items = prim->inv.alloc_items = 0;
+    prim->inv.items = NULL; prim->inv.serial = 0;
+  case 2:
+  default:
+    prim->ob.phys = NULL; prim->ob.chat = NULL;
+    prim->crc_counter = 0; 
+        
+    prim->inv.filename = NULL;
+    world_insert_obj(sim, &prim->ob);
+    printf("DEBUG: loaded a v%i prim from saved state\n", version);
+  }
 }
 
 void world_int_dump_prims(simulator_ctx *sim) {
@@ -341,6 +561,12 @@ void world_int_load_prims(simulator_ctx *sim) {
     case PRIM_MAGIC_V1:
       if(load_prim_v1(fd, sim)) {
 	printf("ERROR: failure loading v1 prim from saved simstate\n"); 
+	close(fd); return;
+      }
+      break;
+    case PRIM_MAGIC_V2:
+      if(load_prim_v2(fd, sim)) {
+	printf("ERROR: failure loading v2 prim from saved simstate\n"); 
 	close(fd); return;
       }
       break;

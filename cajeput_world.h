@@ -92,6 +92,9 @@ struct world_obj {
 #define PRIM_FLAG_TEMPORARY 0x40000000
 #define OBJ_UPD_FLAG_ZLIB_COMPRESSED 0x80000000 // ick
 
+// WARNING! If you change this structure, you must fix both the dump/restore
+// code in cajeput_dump.cpp and world_begin_new_prim/world_delete_prim in 
+// cajeput_main.cpp. Oh, and bump the ABI revision in cajeput_core.h.
 struct primitive_obj {
   struct world_obj ob; // must be first!
   uint32_t crc_counter;
