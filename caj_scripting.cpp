@@ -23,6 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_world.h"
 #include "caj_vm.h"
+#include "caj_version.h"
 #include <fcntl.h>
 
 #define DEBUG_CHANNEL 2147483647
@@ -208,14 +209,12 @@ static void llWhisper_cb(script_state *st, void *sc_priv, int func_id) {
 
 static void llResetTime_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
-  int chan; char* message;
   scr->time = g_timer_elapsed(scr->simscr->timer, NULL);
   vm_func_return(st, func_id);
 }
 
 static void llGetTime_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
-  int chan; char* message;
   float time = g_timer_elapsed(scr->simscr->timer, NULL) - scr->time;
   vm_func_set_float_ret(st, func_id, time);
   vm_func_return(st, func_id);
@@ -242,6 +241,15 @@ static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
 static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   do_rpc(st, scr, func_id, llSetText_rpc);
+}
+
+// We're not as paranoid as OpenSim yet, so this isn't restricted. May be
+// modified to provide restricted version information to untrusted scripts at
+// some point in the future.
+static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  vm_func_set_str_ret(st, func_id, CAJ_VERSION_FOR_OS_SCRIPT);
+  vm_func_return(st, func_id);
 }
 
 static gpointer script_thread(gpointer data) {
@@ -588,6 +596,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
+  vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
+		    osGetSimulatorVersion_cb, 0);
   
 
   simscr->to_st = g_async_queue_new();

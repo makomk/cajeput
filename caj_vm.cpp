@@ -1329,7 +1329,18 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
   va_end(args);
 }
 
-// FIXME - test this
+void vm_func_set_int_ret(script_state *st, int func_no, int32_t ret) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_INT);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  *(frame_ptr+2) = ret;
+}
+
 void vm_func_set_float_ret(script_state *st, int func_no, float ret) {
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];
   assert(desc.ret_type == VM_TYPE_FLOAT);
@@ -1340,6 +1351,25 @@ void vm_func_set_float_ret(script_state *st, int func_no, float ret) {
     frame_ptr += vm_vtype_size(desc.arg_types[i]);
 
   *(float*)(frame_ptr+2) = ret;
+}
+
+void vm_func_set_str_ret(script_state *st, int func_no, char* ret) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_STR);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  int len = strlen(ret);
+  heap_header *p = script_alloc(st, len, VM_TYPE_STR);
+  if(p == NULL) return;
+  memcpy(script_getptr(p), ret, len);
+  // it may make more sense to deref the old val *before* setting the new one,
+  // but that requires some monkeying around...
+  heap_ref_decr(get_stk_ptr(frame_ptr+2), st);
+  put_stk_ptr(frame_ptr+2,p);
 }
 
 void vm_func_return(script_state *st, int func_no) {

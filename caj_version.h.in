@@ -1,0 +1,8 @@
+/* Cajeput version information */
+
+#define CAJ_VERSION_STR "v0.1 ALPHA"
+#define CAJ_GIT_REVISION "%CAJ_GIT_REVISION%"
+#define CAJ_GIT_DATE "%CAJ_GIT_DATE%"
+
+#define CAJ_VERSION_FOR_OS_SCRIPT "Cajeput " CAJ_VERSION_STR "\n" \
+  CAJ_GIT_REVISION "\n" CAJ_GIT_DATE
