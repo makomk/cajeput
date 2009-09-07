@@ -207,14 +207,14 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	// in theory, we can handle non-zero PathBegin/End here, but we'd need an offset
 	printf("DEBUG: got a box prim in physics\n");
 	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
-#if 0 // FIXME - this doesn't work right
       } else if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_CIRCLE &&
-	 prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
-	 prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
-	 prim->path_begin == 0 && prim->path_end == 0) {
+		prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
+		prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
+		prim->path_begin == 0 && prim->path_end == 0 && 
+		prim->ob.scale.x == prim->ob.scale.z) {
+	// has to be a perfect cylinder for this to work
 	printf("DEBUG: got a cylinder prim in physics\n");
 	return new btCylinderShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
-#endif
       } else {
 	printf("DEBUG: got a convex boxlike prim in physics\n");
 	switch(prim->profile_curve & PROFILE_SHAPE_MASK) {
@@ -250,7 +250,8 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	printf("DEBUG: got a sphere prim in physics\n");
 	return new btSphereShape(obj->scale.x/2.0f);
       } else {
-	// FIXME - implement this
+	// FIXME - implement this. How, though?
+	// Suspect I'll end up approximating it using btConvexHullShape
 	printf("FIXME: got a spheroidal prim in physics\n");
 	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
       }
