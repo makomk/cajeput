@@ -171,8 +171,8 @@ public:
     assert(cfunc->func_num < funcs.size());
     assert(funcs[cfunc->func_num] == cfunc);
 
-    printf("DEBUG: assembler: starting function %s (number %i) @ %i\n", 
-	   cfunc->name, cfunc->func_num, (int)bytecode.size());
+    /* printf("DEBUG: assembler: starting function %s (number %i) @ %i\n", 
+       cfunc->name, cfunc->func_num, (int)bytecode.size()); */
 
     vm_function *func = funcs[cfunc->func_num];
     func->insn_ptr = func_start = bytecode.size();

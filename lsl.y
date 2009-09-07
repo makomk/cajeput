@@ -31,25 +31,32 @@ int yylex (void);
 void yyerror (char const *);
 int yydebug;
 
+typedef struct lsl_location YYLTYPE;
+# define YYLTYPE_IS_DECLARED 1
+
+
  typedef struct list_head {
    struct list_node* first;
    struct list_node** add_here;
  } list_head;
 
 
+ static void enode_set_loc(struct expr_node *enode, YYLTYPE *loc) {
+   enode->loc = *loc;
+ }
 
- static expr_node * enode_make_int(char *s, int line_no) {
+ static expr_node * enode_make_int(char *s, YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
   enode->u.i = strtol(s, NULL, 0); // do we really want octal? Hmmm...
-  enode->node_type = NODE_CONST; enode->line_no = line_no;
+  enode->node_type = NODE_CONST; enode_set_loc(enode, loc);
   enode->vtype = VM_TYPE_INT;
   free(s);
   return enode;
 }
 
-static expr_node * enode_make_float(char *s, int line_no) {
+static expr_node * enode_make_float(char *s, YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
-  enode->u.f = strtof(s, NULL); enode->line_no = line_no;
+  enode->u.f = strtof(s, NULL); enode_set_loc(enode, loc);
   enode->node_type = NODE_CONST;
   enode->vtype = VM_TYPE_FLOAT;
   free(s);
@@ -57,18 +64,19 @@ static expr_node * enode_make_float(char *s, int line_no) {
 }
 
 /* FIXME - need to remove quotes either here or in lexer */
-static expr_node * enode_make_str(char *s, int line_no) {
+static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
-  enode->u.s = s; enode->line_no = line_no;
+  enode->u.s = s; enode_set_loc(enode, loc);
   enode->node_type = NODE_CONST;
   enode->vtype = VM_TYPE_STR;
   return enode;
 }
 
 /* FIXME - propagate constants down to this node? */
- static expr_node * enode_make_vect(expr_node *x, expr_node *y, expr_node *z, int line_no) {
+ static expr_node * enode_make_vect(expr_node *x, expr_node *y, expr_node *z,
+				    YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
-  enode->node_type = NODE_VECTOR; enode->line_no = line_no;
+  enode->node_type = NODE_VECTOR; enode_set_loc(enode, loc);
   enode->vtype = VM_TYPE_VECT;
   enode->u.child[0] = x; enode->u.child[1] = y; enode->u.child[2] = z;
   return enode;
@@ -76,28 +84,28 @@ static expr_node * enode_make_str(char *s, int line_no) {
 
  static expr_node * enode_make_rot(expr_node *x, expr_node *y, 
 				   expr_node *z, expr_node *w,
-				   int line_no) {
+				    YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
-  enode->node_type = NODE_ROTATION;  enode->line_no = line_no;
+  enode->node_type = NODE_ROTATION; enode_set_loc(enode, loc);
   enode->vtype = VM_TYPE_ROT;
   enode->u.child[0] = x; enode->u.child[1] = y; 
   enode->u.child[2] = z; enode->u.child[3] = w;
   return enode;
 }
 
- static expr_node * enode_make_list(list_node *list, int line_no) {
+ static expr_node * enode_make_list(list_node *list, YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
-  enode->u.list = list;  enode->line_no = line_no;
+  enode->u.list = list; enode_set_loc(enode, loc);
   enode->node_type = NODE_LIST;
   enode->vtype = VM_TYPE_LIST;
   return enode;
 }
 
 
- static expr_node * enode_make_id(char *s, int line_no) {
+ static expr_node * enode_make_id(char *s, YYLTYPE *loc) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    const lsl_const *c = find_lsl_const(s);
-   enode->line_no = line_no;
+   enode_set_loc(enode, loc);
    if(c == NULL) {
      enode->node_type = NODE_IDENT;
      enode->u.s = s;
@@ -119,31 +127,31 @@ static expr_node * enode_make_str(char *s, int line_no) {
    return enode;
 }
 
- static expr_node * enode_make_id_type(char *s, uint8_t vtype, int line_no) {
+ static expr_node * enode_make_id_type(char *s, uint8_t vtype, YYLTYPE *loc) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    enode->node_type = NODE_IDENT; enode->vtype = vtype;
-   enode->u.s = s; enode->line_no = line_no;
+   enode->u.s = s; enode_set_loc(enode, loc);
    return enode;
 }
 
- static expr_node *enode_make_call(char* name, list_node* args, int line_no) {
+ static expr_node *enode_make_call(char* name, list_node* args, YYLTYPE *loc) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    enode->node_type = NODE_CALL; enode->u.call.name = name;
-   enode->u.call.args = args; enode->line_no = line_no;
+   enode->u.call.args = args; enode_set_loc(enode, loc);
    return enode;
  }
 
- static  expr_node * enode_binop(expr_node *l, expr_node *r, int node_type, int line_no) {
+ static  expr_node * enode_binop(expr_node *l, expr_node *r, int node_type, YYLTYPE *loc) {
     expr_node *enode = malloc(sizeof(expr_node));
-    enode->node_type = node_type; enode->line_no = line_no;
+    enode->node_type = node_type; enode_set_loc(enode, loc);
     enode->u.child[0] = l; enode->u.child[1] = r;
     return enode;
 }
 
-static  expr_node * enode_unaryop(expr_node *expr, int node_type, int line_no) {
+ static  expr_node * enode_unaryop(expr_node *expr, int node_type, YYLTYPE *loc) {
     expr_node *enode = malloc(sizeof(expr_node));
     enode->node_type = node_type; enode->vtype = expr->vtype;
-    enode->u.child[0] = expr; enode->line_no = line_no;
+    enode->u.child[0] = expr; enode_set_loc(enode, loc);
     return enode;  
 }
 
@@ -151,7 +159,7 @@ static  expr_node * enode_unaryop(expr_node *expr, int node_type, int line_no) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    assert(expr->node_type == NODE_IDENT);
    enode->node_type = NODE_IDENT; enode->u.s = strdup(expr->u.s);
-   enode->vtype = expr->vtype; enode->line_no = expr->line_no;
+   enode->vtype = expr->vtype; enode->loc = expr->loc;
    return enode;
  }
 
@@ -160,19 +168,19 @@ static  expr_node * enode_unaryop(expr_node *expr, int node_type, int line_no) {
    id2 = enode_clone_id(expr->u.child[0]);
    switch(expr->node_type) {
    case NODE_ASSIGNADD:
-     binop = enode_binop(id2, expr->u.child[1], NODE_ADD, expr->line_no);
+     binop = enode_binop(id2, expr->u.child[1], NODE_ADD, &expr->loc);
      break;
    case NODE_ASSIGNSUB:
-     binop = enode_binop(id2, expr->u.child[1], NODE_SUB, expr->line_no);
+     binop = enode_binop(id2, expr->u.child[1], NODE_SUB, &expr->loc);
      break;
    case NODE_ASSIGNMUL:
-     binop = enode_binop(id2, expr->u.child[1], NODE_MUL, expr->line_no);
+     binop = enode_binop(id2, expr->u.child[1], NODE_MUL, &expr->loc);
      break;
    case NODE_ASSIGNDIV:
-     binop = enode_binop(id2, expr->u.child[1], NODE_DIV, expr->line_no);
+     binop = enode_binop(id2, expr->u.child[1], NODE_DIV, &expr->loc);
      break;
    case NODE_ASSIGNMOD:
-     binop = enode_binop(id2, expr->u.child[1], NODE_MOD, expr->line_no);
+     binop = enode_binop(id2, expr->u.child[1], NODE_MOD, &expr->loc);
      break;
    default:
      assert(0);
@@ -194,11 +202,11 @@ expr_node *enode_cast(expr_node *expr, uint8_t vtype) {
       }
     }
   }
-  new_node = enode_unaryop(expr, NODE_CAST, expr->line_no);
+  new_node = enode_unaryop(expr, NODE_CAST, &expr->loc);
   new_node->vtype = vtype; return new_node;
 }
 
-static expr_node *enode_negate(expr_node *expr, int line_no) {
+static expr_node *enode_negate(expr_node *expr, YYLTYPE *loc) {
   if(expr->node_type == NODE_CONST) {
     switch(expr->vtype) {
     case VM_TYPE_INT:
@@ -210,7 +218,7 @@ static expr_node *enode_negate(expr_node *expr, int line_no) {
     default: break;
     }
   }
-  return enode_unaryop(expr, NODE_NEGATE, line_no);
+  return enode_unaryop(expr, NODE_NEGATE, loc);
 }
 
  static statement* new_statement(void) {
@@ -373,11 +381,11 @@ block_stmt : '{' statements '}' {
  } ;
 local : type IDENTIFIER {
   $$ = new_statement(); $$->stype = STMT_DECL; 
-  $$->expr[0] = enode_make_id_type($2,$1, @1.first_line); $$->expr[1] = NULL;
+  $$->expr[0] = enode_make_id_type($2,$1, &@1); $$->expr[1] = NULL;
  }
     | type IDENTIFIER '=' expr {
   $$ = new_statement(); $$->stype = STMT_DECL; 
-  $$->expr[0] = enode_make_id_type($2,$1, @1.first_line); $$->expr[1] = $4;
+  $$->expr[0] = enode_make_id_type($2,$1, &@1); $$->expr[1] = $4;
  }; 
 if_stmt : IF '(' expr ')' statement {
   $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
@@ -410,10 +418,10 @@ opt_expr : /* nothing */ { $$ = NULL } | expr ;
 ret_stmt : RETURN { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = NULL; }
          | RETURN expr { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = $2; }
          ;
-variable: IDENTIFIER { $$ = enode_make_id($1, @1.first_line); }
-| IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1, @1.first_line); } /* FIXME - handle .x right */
+variable: IDENTIFIER { $$ = enode_make_id($1, &@1); }
+| IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1, &@1); } /* FIXME - handle .x right */
    ; 
-call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first, @1.first_line); free($3); }
+call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first, &@1); free($3); }
 list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->first; }
        | expr { 
 	 $$ = malloc(sizeof(list_head)); $$->first = make_list_entry($1);
@@ -423,50 +431,50 @@ list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->f
 	 list_node *lnode = make_list_entry($3);
 	 *($1->add_here) = lnode; $1->add_here = &lnode->next; $$ = $1;
       } ;
-num_const : NUMBER { $$ = enode_make_int($1, @1.first_line); }
-       | REAL { $$ = enode_make_float($1, @1.first_line); }
-       | IDENTIFIER  { $$ = enode_make_id($1, @1.first_line); }
-       | '-' num_const { $$ = enode_negate($2, @1.first_line); } ;
-expr : NUMBER { $$ = enode_make_int($1, @1.first_line); }
-       | REAL { $$ = enode_make_float($1, @1.first_line); }
-       | STR { $$ = enode_make_str($1, @1.first_line); }
+num_const : NUMBER { $$ = enode_make_int($1, &@1); }
+       | REAL { $$ = enode_make_float($1, &@1); }
+       | IDENTIFIER  { $$ = enode_make_id($1, &@1); }
+       | '-' num_const { $$ = enode_negate($2, &@1); } ;
+expr : NUMBER { $$ = enode_make_int($1, &@1); }
+       | REAL { $$ = enode_make_float($1, &@1); }
+       | STR { $$ = enode_make_str($1, &@1); }
        | call { $$ = $1; } 
        | variable { $$ = $1; }
-       | variable '=' expr { $$ = enode_binop($1,$3,NODE_ASSIGN, @2.first_line); }
-       | variable ASSIGNADD expr { $$ = enode_binop($1,$3,NODE_ASSIGNADD, @2.first_line); }
-       | variable ASSIGNSUB expr { $$ = enode_binop($1,$3,NODE_ASSIGNSUB, @2.first_line); }
-       | variable ASSIGNMUL expr { $$ = enode_binop($1,$3,NODE_ASSIGNMUL, @2.first_line); }
-       | variable ASSIGNDIV expr { $$ = enode_binop($1,$3,NODE_ASSIGNDIV, @2.first_line); }
-       | variable ASSIGNMOD expr { $$ = enode_binop($1,$3,NODE_ASSIGNMOD, @2.first_line); }
-       | expr '+' expr { $$ = enode_binop($1,$3,NODE_ADD, @2.first_line); }
-       | expr '-' expr { $$ = enode_binop($1,$3,NODE_SUB, @2.first_line); }
-       | expr '*' expr { $$ = enode_binop($1,$3,NODE_MUL, @2.first_line); }
-       | expr '/' expr { $$ = enode_binop($1,$3,NODE_DIV, @2.first_line); }
-       | expr '%' expr { $$ = enode_binop($1,$3,NODE_MOD, @2.first_line); }
-       | expr EQUAL expr { $$ = enode_binop($1,$3,NODE_EQUAL, @2.first_line); }
-       | expr NEQUAL expr { $$ = enode_binop($1,$3,NODE_NEQUAL, @2.first_line); }
-       | expr LEQUAL expr { $$ = enode_binop($1,$3,NODE_LEQUAL, @2.first_line); }
-       | expr GEQUAL expr { $$ = enode_binop($1,$3,NODE_GEQUAL, @2.first_line); }
-       | expr '<' expr { $$ = enode_binop($1,$3,NODE_LESS, @2.first_line); }
-       | expr '>' expr { $$ = enode_binop($1,$3,NODE_GREATER, @2.first_line); }
-       | expr '|' expr { $$ = enode_binop($1,$3,NODE_OR, @2.first_line); }
-       | expr '&' expr { $$ = enode_binop($1,$3,NODE_AND, @2.first_line); }
-       | expr '^' expr { $$ = enode_binop($1,$3,NODE_XOR, @2.first_line); }
-       | expr L_OR expr { $$ = enode_binop($1,$3,NODE_L_OR, @2.first_line); }
-       | expr L_AND expr { $$ = enode_binop($1,$3,NODE_L_AND, @2.first_line); }
-       | expr SHLEFT expr { $$ = enode_binop($1,$3,NODE_SHL, @2.first_line); }
-       | expr SHRIGHT expr { $$ = enode_binop($1,$3,NODE_SHR, @2.first_line); }
+       | variable '=' expr { $$ = enode_binop($1,$3,NODE_ASSIGN, &@2); }
+       | variable ASSIGNADD expr { $$ = enode_binop($1,$3,NODE_ASSIGNADD, &@2); }
+       | variable ASSIGNSUB expr { $$ = enode_binop($1,$3,NODE_ASSIGNSUB, &@2); }
+       | variable ASSIGNMUL expr { $$ = enode_binop($1,$3,NODE_ASSIGNMUL, &@2); }
+       | variable ASSIGNDIV expr { $$ = enode_binop($1,$3,NODE_ASSIGNDIV, &@2); }
+       | variable ASSIGNMOD expr { $$ = enode_binop($1,$3,NODE_ASSIGNMOD, &@2); }
+       | expr '+' expr { $$ = enode_binop($1,$3,NODE_ADD, &@2); }
+       | expr '-' expr { $$ = enode_binop($1,$3,NODE_SUB, &@2); }
+       | expr '*' expr { $$ = enode_binop($1,$3,NODE_MUL, &@2); }
+       | expr '/' expr { $$ = enode_binop($1,$3,NODE_DIV, &@2); }
+       | expr '%' expr { $$ = enode_binop($1,$3,NODE_MOD, &@2); }
+       | expr EQUAL expr { $$ = enode_binop($1,$3,NODE_EQUAL, &@2); }
+       | expr NEQUAL expr { $$ = enode_binop($1,$3,NODE_NEQUAL, &@2); }
+       | expr LEQUAL expr { $$ = enode_binop($1,$3,NODE_LEQUAL, &@2); }
+       | expr GEQUAL expr { $$ = enode_binop($1,$3,NODE_GEQUAL, &@2); }
+       | expr '<' expr { $$ = enode_binop($1,$3,NODE_LESS, &@2); }
+       | expr '>' expr { $$ = enode_binop($1,$3,NODE_GREATER, &@2); }
+       | expr '|' expr { $$ = enode_binop($1,$3,NODE_OR, &@2); }
+       | expr '&' expr { $$ = enode_binop($1,$3,NODE_AND, &@2); }
+       | expr '^' expr { $$ = enode_binop($1,$3,NODE_XOR, &@2); }
+       | expr L_OR expr { $$ = enode_binop($1,$3,NODE_L_OR, &@2); }
+       | expr L_AND expr { $$ = enode_binop($1,$3,NODE_L_AND, &@2); }
+       | expr SHLEFT expr { $$ = enode_binop($1,$3,NODE_SHL, &@2); }
+       | expr SHRIGHT expr { $$ = enode_binop($1,$3,NODE_SHR, &@2); }
        | '(' expr ')' { $$ = $2; }
-| '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8, @1.first_line); } 
-| '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6, @1.first_line); } 
-| '[' list ']' { $$ = enode_make_list($2->first, @1.first_line); free($2); }
-| variable INCR { $$ = enode_unaryop($1, NODE_POSTINC, @1.first_line); } 
-| variable DECR { $$ = enode_unaryop($1, NODE_POSTDEC, @1.first_line); } 
-| INCR variable { $$ = enode_unaryop($2, NODE_PREINC, @1.first_line); }
-| DECR variable { $$ = enode_unaryop($2, NODE_PREDEC, @1.first_line); } 
-| '!' expr { $$ = enode_unaryop($2, NODE_L_NOT, @1.first_line); } 
-| '~' expr { $$ = enode_unaryop($2, NODE_NOT, @1.first_line); }
-| '-' expr { $$ = enode_negate($2, @1.first_line); } 
+| '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8, &@1); } 
+| '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6, &@1); } 
+| '[' list ']' { $$ = enode_make_list($2->first, &@1); free($2); }
+| variable INCR { $$ = enode_unaryop($1, NODE_POSTINC, &@1); } 
+| variable DECR { $$ = enode_unaryop($1, NODE_POSTDEC, &@1); } 
+| INCR variable { $$ = enode_unaryop($2, NODE_PREINC, &@1); }
+| DECR variable { $$ = enode_unaryop($2, NODE_PREDEC, &@1); } 
+| '!' expr { $$ = enode_unaryop($2, NODE_L_NOT, &@1); } 
+| '~' expr { $$ = enode_unaryop($2, NODE_NOT, &@1); }
+| '-' expr { $$ = enode_negate($2, &@1); } 
 | '(' type ')' expr %prec CAST { $$ = enode_cast($4,$2); } 
        
    ;
@@ -703,10 +711,12 @@ static void print_stmts(statement *statem, int indent) {
 }
 
 lsl_program *caj_parse_lsl(const char* fname) {
-  extern FILE *yyin; extern int yylineno;
+  extern FILE *yyin;
   /* function *func; */
+  yylloc.first_line = yylloc.last_line = 0;
+  yylloc.first_column = yylloc.last_column = 0;
   yydebug = 1;
-  yyin = fopen(fname,"r"); yylineno = 0;
+  yyin = fopen(fname,"r");
   if(yyin == NULL) {
     printf("ERROR: file not found\n");
     return NULL;

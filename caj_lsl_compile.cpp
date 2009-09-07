@@ -21,7 +21,7 @@ struct var_desc {
 };
 
 struct lsl_compile_state {
-  int error; int line_no;
+  int error; int line_no, column_no;
   std::map<std::string, var_desc> globals;
   std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
@@ -33,15 +33,14 @@ struct lsl_compile_state {
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
 
 static void update_loc(lsl_compile_state &st, expr_node *expr) {
-  st.line_no = expr->line_no;
-  
+  st.line_no = expr->loc.first_line;
+  st.column_no = expr->loc.first_column;
 }
 
 static void do_error(lsl_compile_state &st, const char* format, ...) {
   va_list args;
   if(st.error != 0) return;
-  // FIXME - add column number
-  printf("(%i, 0): ", st.line_no);
+  printf("(%i, %i): ", st.line_no, st.column_no);
   va_start (args, format);
   vprintf (format, args);
   va_end (args);
@@ -551,14 +550,14 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       }
 
       if(iter->second->func_num == 0xffff) {
-	printf("DEBUG: beginning call to fake func %s\n", expr->u.call.name);
+	// printf("DEBUG: beginning call to fake func %s\n", expr->u.call.name);
 	for(list_node *lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
-	  printf("DEBUG: assembling an argument %p\n", lnode);
+	  // printf("DEBUG: assembling an argument %p\n", lnode);
 	  assemble_expr(vasm, st, lnode->expr);
 	  if(st.error != 0) return;
 	}
 	update_loc(st, expr);
-	printf("DEBUG: doing call to fake func %s\n", expr->u.call.name);
+	// printf("DEBUG: doing call to fake func %s\n", expr->u.call.name);
 	vasm.insn(iter->second->insn_ptr);
       } else {
 	//printf("DEBUG: beginning call to %s\n", expr->u.call.name);
@@ -909,6 +908,8 @@ int main(int argc, char** argv) {
     printf(" *** Compile failed.\n"); return 1;
   }
 
+  st.line_no = 0; st.column_no = 0;
+
   // The first step is to find all the global variables.
   for(global *g = prog->globals; g != NULL; g = g->next) {
     if(st.globals.count(g->name)) {
@@ -1036,7 +1037,7 @@ int main(int argc, char** argv) {
   // above, since the code here assumes this to be the case.
   func_no = 0;
   for(function *func = prog->funcs; func != NULL; func = func->next, func_no++) {
-    printf("DEBUG: assembling function %s\n", func->name);
+    // printf("DEBUG: assembling function %s\n", func->name);
 
     compile_function(vasm, st, func, funcs[func_no]);
     if(st.error != 0) return 1;
@@ -1046,7 +1047,7 @@ int main(int argc, char** argv) {
   for(lsl_state *lstate = prog->states; lstate != NULL; lstate = lstate->next) {
     int state_no = lstate->name == NULL ? 0 : state_ctr++;
     for(function *func = lstate->funcs; func != NULL; func = func->next, func_no++) {
-      printf("DEBUG: assembling state func %i:%s\n", state_no, func->name);
+      // printf("DEBUG: assembling state func %i:%s\n", state_no, func->name);
       compile_function(vasm, st, func, funcs[func_no]);
       if(st.error != 0) return 1;
     }

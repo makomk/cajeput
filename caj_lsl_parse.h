@@ -29,6 +29,13 @@
 extern "C" {
 #endif
 
+  struct lsl_location {
+    int first_line;
+    int first_column;
+    int last_line;
+    int last_column;
+  };
+
  typedef struct expr_node expr_node;
 
  typedef struct list_node {
@@ -37,7 +44,7 @@ extern "C" {
  } list_node;
 
 struct expr_node {
-  int node_type; int line_no; 
+  int node_type; struct lsl_location loc;
   uint8_t vtype;
   union {
     expr_node* child[4];
