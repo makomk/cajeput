@@ -247,7 +247,6 @@ static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
 // modified to provide restricted version information to untrusted scripts at
 // some point in the future.
 static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
   vm_func_set_str_ret(st, func_id, CAJ_VERSION_FOR_OS_SCRIPT);
   vm_func_return(st, func_id);
 }
@@ -484,6 +483,7 @@ static gboolean got_compile_output(GIOChannel *source, GIOCondition cond,
   if((cond & (G_IO_IN|G_IO_NVAL)) != cond) {
     printf("FIXME: got_compile_output: unexpected cond\n"); return FALSE;
   }
+  return TRUE; // shouldn't actually ever reach here...
 }
 
 static compiler_output* listen_compiler_output(int stdout_compile, 

@@ -443,6 +443,8 @@ static void got_inventory_item_resp(SoupSession *session, SoupMessage *msg, gpoi
   node = node->children;
   if(!check_node(node,"Folders")) goto free_fail;
 
+  // FIXME - actually finish implementing this
+
 #if 0
   req->cb(invit, req->cb_priv);
   xmlFreeDoc(doc);

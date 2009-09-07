@@ -10,10 +10,10 @@ int cajeput_j2k_info(unsigned char* data, int len, struct cajeput_j2k *info) {
   opj_set_default_decoder_parameters(&params);
   params.cp_limit_decoding = LIMIT_TO_TIER2;
   opj_setup_decoder(dinfo, &params);
-  opj_set_event_mgr((opj_common_ptr*)dinfo, NULL, NULL); // FIXME - HACK!
-  opj_cio_t* cio = opj_cio_open(dinfo, data, len);
+  opj_set_event_mgr((opj_common_ptr)dinfo, NULL, NULL); // FIXME - HACK!
+  opj_cio_t* cio = opj_cio_open((opj_common_ptr)dinfo, data, len);
   opj_image_t* image = opj_decode_with_info(dinfo, cio, &imginfo);
-  int i, j, numprec = 0;
+  int i, numprec = 0;
 
   if(image == NULL) {
     printf("J2K ERROR: decode failed\n");

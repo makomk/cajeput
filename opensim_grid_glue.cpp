@@ -560,7 +560,7 @@ static void user_logoff(struct simulator_ctx* sim,
   sim_get_region_uuid(sim, u);
   uuid_unparse(u, buf);
   soup_value_hash_insert(hash,"region_uuid",G_TYPE_STRING,buf);
-  sprintf(buf,"%llu",sim_get_region_handle(sim));
+  sprintf(buf,"%llu",(long long unsigned)sim_get_region_handle(sim));
   soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,buf);
   sprintf(buf,"%f",(double)pos->x);
   soup_value_hash_insert(hash,"region_pos_x",G_TYPE_STRING,buf);
@@ -1129,7 +1129,7 @@ static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
   SoupMessage *msg;
 
   hash = soup_value_hash_new();
-  sprintf(buf, "%llu", handle);
+  sprintf(buf, "%llu", (long long unsigned)handle);
   soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,buf);
   soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
 
@@ -1416,7 +1416,6 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
 
  bad_data:
   printf("ERROR: bad/missing data in user by ID response\n");
- out_free_fail:
   g_hash_table_destroy(hash);
  out_fail:
   st->cb(NULL, st->cb_priv);

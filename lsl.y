@@ -152,7 +152,7 @@ static  expr_node * enode_unaryop(expr_node *expr, int node_type, int line_no) {
    assert(expr->node_type == NODE_IDENT);
    enode->node_type = NODE_IDENT; enode->u.s = strdup(expr->u.s);
    enode->vtype = expr->vtype; enode->line_no = expr->line_no;
-   
+   return enode;
  }
 
  void enode_split_assign(expr_node *expr) {
@@ -704,7 +704,8 @@ static void print_stmts(statement *statem, int indent) {
 
 lsl_program *caj_parse_lsl(const char* fname) {
   extern FILE *yyin; extern int yylineno;
-  function *func; yydebug = 1;
+  /* function *func; */
+  yydebug = 1;
   yyin = fopen(fname,"r"); yylineno = 0;
   if(yyin == NULL) {
     printf("ERROR: file not found\n");

@@ -517,6 +517,19 @@ static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_mes
   printf("DEBUG: Completed AgentSetAppearance\n");
 }
 
+// FIXME - need to actually handle ViewerEffect message.
+// (this is just a stub to prevent warning spam)
+static void handle_ViewerEffect_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  static int done_warning = 0;
+  SL_DECLBLK_GET1(ViewerEffect, AgentData, ad, msg);
+  if(ad == NULL ||  VALIDATE_SESSION(ad)) 
+    return;
+  if(!done_warning) {
+    printf("\nFIXME: need to handle ViewerEffect message\n\n");
+    done_warning = 1;
+  }
+}
+
 static void send_agent_data_update(struct omuser_ctx* lctx) {
   user_ctx* ctx = lctx->u;
   SL_DECLMSG(AgentDataUpdate,upd);
@@ -2375,7 +2388,6 @@ static gboolean obj_update_timer(gpointer data) {
       if(iter->second == UPDATE_LEVEL_NONE) {
 	iter++; continue;
       } else if(iter->second == UPDATE_LEVEL_POSROT) {
-	printf("DEBUG: sending terse update for %u\n", iter->first);
 	obj_send_terse_upd(lctx, lsim->sim->localid_map[iter->first]);
 	iter->second = UPDATE_LEVEL_NONE;
       } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
@@ -2660,6 +2672,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(TransferRequest);
   ADD_HANDLER(ObjectFlagUpdate);
   ADD_HANDLER(DeRezObject);
+  ADD_HANDLER(ViewerEffect);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

@@ -345,7 +345,7 @@ static void real_octree_send_chat(struct simulator_ctx *sim, struct world_octree
 	OCTREE_LEAF_CHECK_MAGIC(leaf);
 	std::pair<octree_chat_map_iter,octree_chat_map_iter> span =
 	  leaf->chat_map.equal_range(chat->channel);
-	int count = 0;
+	// int count = 0; // ??? what was this meant for?
 	for(octree_chat_map_iter iter = span.first; iter != span.second;iter++) {
 	  obj_chat_listener* listen = iter->second;
 	  if(caj_vect3_dist(&listen->obj->pos, &chat->pos) < range)
@@ -807,7 +807,7 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
       sprintf(fname, "%s/%s.jp2", texture_dirs[i], asset_str);
       if(stat(fname, &st) != 0 || st.st_size == 0) continue;
 
-      printf("DEBUG: loading texture from %s, len %i\n",fname,st.st_size);
+      printf("DEBUG: loading texture from %s, len %i\n",fname,(int)st.st_size);
 
       desc->len = st.st_size;
       fd = open(fname, O_RDONLY);
@@ -1250,7 +1250,7 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
 
 static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   update_script_desc *upd = (update_script_desc*)user_data;
-  caj_llsd *resp; primitive_obj * prim; inventory_item *inv;
+  primitive_obj * prim; inventory_item *inv;
   
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);

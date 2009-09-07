@@ -139,18 +139,18 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
   }
   if (a_node->type == XML_ELEMENT_NODE) {
     caj_llsd* llsd = malloc(sizeof(caj_llsd));
-    if(strcmp(a_node->name, "undef") == 0) {
+    if(strcmp((char*)a_node->name, "undef") == 0) {
       llsd->type_id = LLSD_UNDEF;
-    } else if(strcmp(a_node->name, "integer") == 0) {
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+    } else if(strcmp((char*)a_node->name, "integer") == 0) {
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       llsd->type_id = LLSD_INT;
       llsd->t.i = atoi(str); xmlFree(str);
-    } else if(strcmp(a_node->name, "real") == 0) {
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+    } else if(strcmp((char*)a_node->name, "real") == 0) {
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       llsd->type_id = LLSD_REAL;
       llsd->t.r = atof(str); xmlFree(str);
-    } else if(strcmp(a_node->name, "uuid") == 0) {
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+    } else if(strcmp((char*)a_node->name, "uuid") == 0) {
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       char *str2;
       llsd->type_id = LLSD_UUID;
       for(str2 = str; isspace(*str2); str2++);
@@ -159,14 +159,14 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
 	xmlFree(str); free(llsd); return NULL;
       }
       xmlFree(str);
-    } else if(strcmp(a_node->name, "string") == 0) {
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+    } else if(strcmp((char*)a_node->name, "string") == 0) {
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       llsd->type_id = LLSD_STRING;
       llsd->t.str = strdup(str); 
       xmlFree(str);
-    } else if(strcmp(a_node->name, "binary") == 0) {
+    } else if(strcmp((char*)a_node->name, "binary") == 0) {
       // FIXME - shouldn't assume base64 encoding
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       gsize sz;
       llsd->type_id = LLSD_BINARY;
       // HACK - we're overwriting data that's only loosely ours.
@@ -175,7 +175,7 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
       llsd->t.bin.data = malloc(sz);
       memcpy(llsd->t.bin.data, str, sz);
       xmlFree(str);
-    } else if(strcmp(a_node->name, "array") == 0) {
+    } else if(strcmp((char*)a_node->name, "array") == 0) {
       llsd->type_id = LLSD_ARRAY;
       llsd->t.arr.count = 0;
       llsd->t.arr.max = 8;
@@ -194,7 +194,7 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
 	llsd_array_append(llsd, child);
 	cur_node = cur_node->next;
       }
-    } else if(strcmp(a_node->name, "map") == 0) {
+    } else if(strcmp((char*)a_node->name, "map") == 0) {
       llsd->type_id = LLSD_MAP;
       llsd->t.map.count = 0;
       llsd->t.map.max = 8;
@@ -206,10 +206,11 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
 				   cur_node->type == XML_COMMENT_NODE)) 
 	  cur_node = cur_node->next;
 	if(cur_node == NULL) break;
-	if(cur_node->type != XML_ELEMENT_NODE || strcmp(cur_node->name,"key") != 0) {
+	if(cur_node->type != XML_ELEMENT_NODE || 
+	   strcmp((char*)cur_node->name,"key") != 0) {
 	  printf("%i unexpected node %s while looking for key\n", depth, cur_node->name);
 	}
-	key = xmlNodeListGetString(doc, cur_node->children, 1);
+	key = (char*)xmlNodeListGetString(doc, cur_node->children, 1);
 	cur_node = cur_node->next;
 	child = parse_llsd_xml(doc,cur_node,depth+1);
 	if(child == NULL) {
@@ -219,8 +220,8 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
 	xmlFree(key);
 	cur_node = cur_node->next;
       }
-    } else if(strcmp(a_node->name, "boolean") == 0) {
-      char *str = xmlNodeListGetString(doc, a_node->children, 1);
+    } else if(strcmp((char*)a_node->name, "boolean") == 0) {
+      char *str = (char*)xmlNodeListGetString(doc, a_node->children, 1);
       llsd->type_id = LLSD_BOOLEAN;
       if(strcasecmp(str,"true") == 0 || strcmp(str,"0") == 0) {
 	llsd->t.i = 1;
@@ -330,7 +331,6 @@ static int serialise_xml(caj_llsd *llsd, xmlTextWriterPtr writer) {
 
 char* llsd_serialise_xml(caj_llsd *llsd) {
   char *out = NULL;
-  int ret;
   xmlTextWriterPtr writer;
   xmlBufferPtr buf;
   buf = xmlBufferCreate();
@@ -356,7 +356,7 @@ char* llsd_serialise_xml(caj_llsd *llsd) {
     
   }
 
-  out = strdup(buf->content);
+  out = strdup((char*)buf->content);
 
  fail:
   // FIXME - free stuff

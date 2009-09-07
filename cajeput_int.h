@@ -126,7 +126,7 @@ struct image_request {
   texture_desc *texture;
   float priority;
   int discard;
-  int packet_no;
+  unsigned packet_no;
 };
 
 #define CAJ_ANIM_TYPE_NORMAL 0 // normal
@@ -140,7 +140,7 @@ struct avatar_obj {
 struct animation_desc {
   uuid_t anim, obj;
   int32_t sequence;
-  uint32_t caj_type; // internal animation type info - FIXME remove?
+  int caj_type; // internal animation type info - FIXME remove?
 };
 
 /* !!!     WARNING   WARNING   WARNING    !!!

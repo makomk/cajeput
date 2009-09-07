@@ -7,7 +7,7 @@
 
 
 %}
-%option   yylineno
+%option yylineno batch 8bit noyywrap nounput noinput
 %%
 state {yylloc.first_line = yylineno; return STATE; }
 default {yylloc.first_line = yylineno;return DEFAULT; }

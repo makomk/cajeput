@@ -451,7 +451,7 @@ static void agent_DELETE_release_handler(SoupServer *server,
 					 uuid_t agent_id,
 					 JsonParser *parser,
 					 struct simulator_ctx* sim) {
-  JsonNode * node = json_parser_get_root(parser);
+  JsonNode * node = json_parser_get_root(parser); // FIXME - ???
   JsonObject *object; user_ctx *user;
   user_grid_glue *user_glue;
   int is_ok = 1;
@@ -747,7 +747,8 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   // TODO (FIXME)!
 
   helper_json_add_string(obj, "message_type", "AgentData");
-  sprintf(buf, "%llu", our_region_handle); // yes, *our* region handle!
+  // yes, *our* region handle!
+  sprintf(buf, "%llu", (long long unsigned)our_region_handle); 
   helper_json_add_string(obj, "region_handle", buf);
 
   // OpenSim sets this to 0 itself, but doing that seems to break teleports
@@ -801,7 +802,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   // FIXME - get wearables to *actually* work right
   json_object_add_member(obj, "wearables",jsonise_wearables(tp->ctx));
 
-  sprintf(buf,"%llu",tp->region_handle);
+  sprintf(buf,"%llu",(long long unsigned)tp->region_handle);
   helper_json_add_string(obj,"destination_handle",buf);
   //helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
   
@@ -811,7 +812,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
     uuid_unparse(agent_id,buf);
     snprintf(callback_uri, 256, "http://%s:%i/agent/%s/%llu/release/",
 	     my_ip_addr, (int)sim_get_http_port(sim), buf,
-	     our_region_handle);
+	     (long long unsigned)our_region_handle);
     printf("DEBUG: sending \"%s\" as callback URI\n", callback_uri);
     helper_json_add_string(obj,"callback_uri",callback_uri);
   }
@@ -906,7 +907,7 @@ void osglue_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_string(obj,"last_name",user_get_last_name(tp->ctx));
 
   helper_json_add_bool(obj,"child",true);
-  sprintf(buf,"%llu",tp->region_handle);
+  sprintf(buf,"%llu",(long long unsigned)tp->region_handle);
   helper_json_add_string(obj,"destination_handle",buf);
   helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
 
