@@ -2253,7 +2253,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
   objd->ParentID = 0; // FIXME - todo
-  objd->UpdateFlags = PRIM_FLAG_ANY_OWNER | prim->flags | user_calc_prim_flags(lctx->u, prim);;
+  objd->UpdateFlags = PRIM_FLAG_ANY_OWNER | prim->flags | user_calc_prim_flags(lctx->u, prim);
   
     //0x00000004|0x00000008|0x00000010|0x00000020|0x00000100|0x00020000|0x10000000; // TODO - FIXME
 
@@ -2270,6 +2270,8 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->PathRadiusOffset = prim->path_radius_offset;
   objd->PathTaperX = prim->path_taper_x;
   objd->PathTaperY = prim->path_taper_y;
+  objd->PathRevolutions = prim->path_revolutions;
+  objd->PathSkew = prim->path_skew;
   objd->ProfileBegin = prim->profile_begin;
   objd->ProfileEnd = prim->profile_end;
   objd->ProfileHollow = prim->profile_hollow;
