@@ -238,6 +238,22 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
 	  return make_boxlike_shape(prim, square_profile, 4);
 	}
       }
+
+    } else if((prim->path_curve & PATH_CURVE_MASK) == PATH_CURVE_CIRCLE && 
+	      (prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_SEMICIRC &&
+	      prim->path_begin == 0 && prim->path_end == 0 &&
+	      prim->profile_hollow == 0 && 
+	      prim->profile_begin == 0 && prim->profile_end == 0 &&
+	      prim->path_twist == 0 && prim->path_twist_begin == 0) {
+      if(prim->ob.scale.x == prim->ob.scale.y && 
+	 prim->ob.scale.x == prim->ob.scale.z) {
+	printf("DEBUG: got a sphere prim in physics\n");
+	return new btSphereShape(obj->scale.x/2.0f);
+      } else {
+	// FIXME - implement this
+	printf("FIXME: got a spheroidal prim in physics\n");
+	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
+      }
     } else {
       printf("WARNING: unhandled prim shape in physics\n");
       return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
@@ -472,6 +488,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 							 physobj->shape,
 							 local_inertia);
       physobj->body = new btRigidBody(body_info);
+      physobj->body->setDamping(0.1f, 0.2f); // FIXME - is this right?
       if(physobj->objtype == OBJ_TYPE_AVATAR) {
 	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
@@ -519,6 +536,7 @@ static gpointer physics_thread(gpointer data) {
       btTransform trans;
       physobj->body->getMotionState()->getWorldTransform(trans);
       physobj->pos = trans.getOrigin();
+      physobj->rot = trans.getRotation().inverse();
       physobj->velocity = physobj->body->getLinearVelocity();
     }
 
@@ -579,13 +597,20 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
     for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
 	iter != phys->physical.end(); iter++) {
       struct phys_obj *physobj = *iter;
-      caj_vector3 newpos;
+      caj_vector3 newpos; caj_quat newrot;
 
       if(physobj->obj == NULL) continue;
 
       newpos.x = physobj->pos.getX();
       newpos.y = physobj->pos.getZ(); // swap Y and Z
       newpos.z = physobj->pos.getY();
+
+      // FIXME - there seems to be something subtly dodgy about the
+      // rotation code. Try creating a sphere and rolling it...
+      newrot.x = physobj->rot.getX();
+      newrot.y = physobj->rot.getZ();
+      newrot.z = physobj->rot.getY();
+      newrot.w = physobj->rot.getW();
       
       physobj->obj->velocity.x = physobj->velocity.getX();
       physobj->obj->velocity.y = physobj->velocity.getZ();
@@ -593,9 +618,14 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
     
       if(fabs(newpos.x - physobj->obj->pos.x) >= 0.01 ||
 	 fabs(newpos.y - physobj->obj->pos.y) >= 0.01 ||
-	 fabs(newpos.z - physobj->obj->pos.z) >= 0.01) {
+	 fabs(newpos.z - physobj->obj->pos.z) >= 0.01 ||
+	 fabs(newrot.x - physobj->obj->rot.x) >= 0.01 ||
+	 fabs(newrot.y - physobj->obj->rot.y) >= 0.01 ||
+	 fabs(newrot.z - physobj->obj->rot.z) >= 0.01 ||
+	 fabs(newrot.w - physobj->obj->rot.w) >= 0.01) {
 	// FIXME - probably should send an update if velocity (previous or 
 	// current) is non-zero, too.
+	physobj->obj->rot = newrot; // FIXME - may have to change once linking added
 	world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
       }
       
