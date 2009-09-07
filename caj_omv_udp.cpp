@@ -1080,10 +1080,13 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
     if(obj == NULL)
       continue;
 
-    if(objd->Type & 0xf0) {
+    if(objd->Type & 0xe0) {
       printf("ERROR: MultipleObjectUpdate with unrecognised flags %i\n",
 	     (int)objd->Type);
       continue;
+    } else if(objd->Type & MULTI_UPDATE_16) {
+      // FIXME FIXME FIXME - not sure how to handle this!!!
+      printf("FIXME: MultipleObjectUpdate with flag 0x10!\n");
     }
 
     unsigned char *dat = objd->Data.data;
