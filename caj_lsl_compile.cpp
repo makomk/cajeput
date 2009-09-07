@@ -123,6 +123,17 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
   }
 }
 
+static expr_node* arg_implicit_cast(lsl_compile_state &st, expr_node *expr, uint8_t arg_type) {
+  if(expr->vtype == arg_type) return expr;
+  if(expr->vtype == VM_TYPE_INT && arg_type == VM_TYPE_FLOAT) {
+    return enode_cast(expr, arg_type);
+  } else {
+    do_error(st, "ERROR: bad implicit cast from %s to %s\n",
+	     type_names[expr->vtype], type_names[arg_type]);
+    return expr;
+  }
+}
+
 static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
   uint16_t insn; uint8_t ltype, rtype; list_node *lnode;
   update_loc(st, expr);
@@ -266,32 +277,45 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
     propagate_types(vasm, st, expr->u.child[0]);
     break;
   case NODE_CALL:
-    /* FIXME - this is incomplete (doesn't verify args) */
-    for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
-      propagate_types(vasm, st, lnode->expr);
-      if(st.error != 0) return;
-    }
-    update_loc(st, expr);
-
-    if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
-      expr->vtype = VM_TYPE_NONE; // HACK!
-    } else {
-      std::map<std::string, const vm_function*>::iterator iter =
-	st.funcs.find(expr->u.call.name);
-      if(iter == st.funcs.end()) {
-	std::map<std::string, function*>::iterator sfiter = 
-	  st.sys_funcs.find(expr->u.call.name);
-	
-	if(sfiter == st.sys_funcs.end()) {
-	  do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
-	  return;
-	} else {
-	  st.funcs[expr->u.call.name] = make_function(vasm, sfiter->second);
-	  iter = st.funcs.find(expr->u.call.name); // HACK.
-	  assert(iter != st.funcs.end());
-	}
+    {
+      int arg_count = 0, i;
+      for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next) {
+	propagate_types(vasm, st, lnode->expr);
+	if(st.error != 0) return;
+	arg_count++;
       }
-      expr->vtype = iter->second->ret_type;
+      update_loc(st, expr);
+      
+      if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
+	expr->vtype = VM_TYPE_NONE; // HACK! - FIXME remove this!
+      } else {
+	std::map<std::string, const vm_function*>::iterator iter =
+	  st.funcs.find(expr->u.call.name);
+	if(iter == st.funcs.end()) {
+	  std::map<std::string, function*>::iterator sfiter = 
+	    st.sys_funcs.find(expr->u.call.name);
+	  
+	  if(sfiter == st.sys_funcs.end()) {
+	    do_error(st, "ERROR: call to unknown function %s\n", expr->u.call.name);
+	    return;
+	  } else {
+	    st.funcs[expr->u.call.name] = make_function(vasm, sfiter->second);
+	    iter = st.funcs.find(expr->u.call.name); // HACK.
+	    assert(iter != st.funcs.end());
+	  }
+	}
+	if(iter->second->arg_count != arg_count) {
+	  do_error(st, "ERROR: wrong number of arguments to function %s\n", expr->u.call.name);
+	  return;
+	}
+	i = 0;
+	for(lnode = expr->u.call.args; lnode != NULL; lnode = lnode->next, i++) {
+	  lnode->expr = arg_implicit_cast(st, lnode->expr, 
+					  iter->second->arg_types[i]);
+	  if(st.error != 0) return;
+	}
+	expr->vtype = iter->second->ret_type;
+      }
     }
     break;
   }
@@ -430,6 +454,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       vasm.const_real(expr->u.f); break;
     case VM_TYPE_STR:
        vasm.const_str(expr->u.s); break;
+    case VM_TYPE_VECT:
+      for(int i = 2; i >= 0; i--)
+	vasm.const_real(expr->u.v[i]);
+      break;
     default:
       do_error(st, "FIXME: unhandled const type %s\n", type_names[expr->vtype]);
       return;

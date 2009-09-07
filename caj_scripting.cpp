@@ -49,6 +49,7 @@ struct list_head {
 #define SCR_MT_COMPILE_ERROR 2
 #define SCR_MT_RUNNING 3
 #define SCR_MT_PAUSED 4
+#define SCR_MT_KILLING 5
 
 #define SCRIPT_MAGIC 0xd0f87153
 
@@ -62,7 +63,7 @@ struct compiler_output {
 struct sim_script {
   // section used by scripting thread
   list_head list;
-  int is_running;
+  int is_running, in_rpc;
   script_state *vm;
   int state_entry; // HACK!
   double time; // for llGetTime etc
@@ -84,6 +85,10 @@ struct sim_script {
 #define CAJ_SMSG_LLSAY 3
 #define CAJ_SMSG_KILL_SCRIPT 4
 #define CAJ_SMSG_SCRIPT_KILLED 5
+#define CAJ_SMSG_RPC 6
+#define CAJ_SMSG_RPC_RETURN 7
+
+typedef void(*script_rpc_func)(script_state *st, sim_script *sc, int func_id);
 
 struct script_msg {
   int msg_type;
@@ -92,8 +97,16 @@ struct script_msg {
     struct {
       int32_t channel; char* msg; int chat_type;
     } say;
+    struct {
+      script_rpc_func rpc_func;
+      script_state *st; int func_id;
+    } rpc;
   } u;
 };
+
+static void rpc_func_return(script_state *st, sim_script *scr, int func_id);
+
+// -------------- script thread code -----------------------------------------
 
 static void list_head_init(list_head *head) {
   head->next = head; head->prev = head;
@@ -155,6 +168,17 @@ static void do_say(sim_script *scr, int chan, char* message, int chat_type) {
   send_to_mt(scr->simscr, smsg);
 }
 
+static void do_rpc(script_state *st, sim_script *scr, int func_id, 
+		   script_rpc_func func) {
+  scr->in_rpc = 1;
+  script_msg *smsg = new script_msg();
+  smsg->msg_type = CAJ_SMSG_RPC;
+  smsg->scr = scr;
+  smsg->u.rpc.rpc_func = func; 
+  smsg->u.rpc.st = st; smsg->u.rpc.func_id = func_id;
+  send_to_mt(scr->simscr, smsg);
+}
+
 static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   int chan; char* message;
@@ -197,6 +221,29 @@ static void llGetTime_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+#define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
+
+// actually called from main thread
+static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *text; caj_vector3 color; float alpha;
+  uint8_t textcol[4];
+  vm_func_get_args(st, func_id, &text, &color, &alpha);
+  printf("FIXME: llSetText(%s, <%f,%f,%f>, %f)\n",
+	 text, color.x, color.y, color.z, alpha);
+  textcol[0] = CONVERT_COLOR(color.x);
+  textcol[1] = CONVERT_COLOR(color.y);
+  textcol[2] = CONVERT_COLOR(color.z);
+  textcol[3] = 255-CONVERT_COLOR(alpha);
+  world_prim_set_text(scr->simscr->sim, scr->prim, text, textcol);
+  free(text);
+  rpc_func_return(st, scr, func_id);
+}
+
+static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  do_rpc(st, scr, func_id, llSetText_rpc);
+}
+
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   list_head running, waiting;
@@ -205,10 +252,15 @@ static gpointer script_thread(gpointer data) {
   for(;;) {
     for(int i = 0; i < 20; i++) {
       if(running.next == &running) break;
-
       sim_script *scr = (sim_script*)running.next; 
       printf("DEBUG: handling script on run queue\n");
       assert(scr->is_running);
+      if(scr->in_rpc) {
+	// deschedule. Special-cased because we don't have ownership of scr->vm
+	// during RPC calls to the main thread.
+	scr->is_running = 0;  list_remove(&scr->list);
+	list_insert_after(&scr->list, &waiting);
+      }
       if(vm_script_is_idle(scr->vm)) {
 	printf("DEBUG: script idle\n");
 	if(scr->state_entry) {
@@ -269,6 +321,15 @@ static gpointer script_thread(gpointer data) {
 	msg->msg_type = CAJ_SMSG_SCRIPT_KILLED;
 	send_to_mt(simscr, msg); msg = NULL;
 	break;
+      case CAJ_SMSG_RPC_RETURN:
+	printf("DEBUG: got RPC_RETURN\n");
+	assert(msg->scr->in_rpc); msg->scr->in_rpc = 0;
+	if(!msg->scr->is_running) {
+	  // yes, we really do schedule this to run next.
+	  msg->scr->is_running = 1;
+	  list_insert_after(&msg->scr->list, &running);
+	}
+	break;
       }
 
       delete msg;
@@ -280,6 +341,14 @@ static gpointer script_thread(gpointer data) {
 
 static void send_to_script(sim_scripts *simscr, script_msg *msg) {
   g_async_queue_push(simscr->to_st, msg);
+}
+
+static void rpc_func_return(script_state *st, sim_script *scr, int func_id) {
+  vm_func_return(st, func_id);
+  script_msg *smsg = new script_msg();
+  smsg->msg_type = CAJ_SMSG_RPC_RETURN;
+  smsg->scr = scr;
+  send_to_script(scr->simscr, smsg);
 }
 
 static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
@@ -460,6 +529,7 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   assert(scr->magic == SCRIPT_MAGIC);
   scr->prim = NULL;
   if(scr->mt_state == SCR_MT_RUNNING) {
+    scr->mt_state = SCR_MT_KILLING;
     script_msg *msg = new script_msg();
     msg->msg_type = CAJ_SMSG_KILL_SCRIPT;
     msg->scr = scr;
@@ -488,6 +558,12 @@ static gboolean script_poll_timer(gpointer data) {
       assert(msg->scr->prim == NULL);
       mt_free_script(msg->scr);
       break;
+    case CAJ_SMSG_RPC:
+      if(msg->scr->prim != NULL) {
+	printf("DEBUG: got RPC call in main thread\n");
+	msg->u.rpc.rpc_func(msg->u.rpc.st, msg->scr, msg->u.rpc.func_id);
+      }
+      break;
     }
     delete msg;
     
@@ -510,6 +586,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
+  vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
+		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
+  
 
   simscr->to_st = g_async_queue_new();
   simscr->to_mt = g_async_queue_new();

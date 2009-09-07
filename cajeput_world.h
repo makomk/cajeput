@@ -112,6 +112,8 @@ struct primitive_obj {
   char *name, *description;
   caj_string tex_entry;
 
+  char *hover_text; uint8_t text_color[4];
+
   struct {
     unsigned int num_items, alloc_items;
     struct inventory_item** items;
@@ -186,6 +188,8 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 			  int32_t chan, char *msg, int chat_type);
+void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
+			 const char *text, uint8_t color[4]);
 
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,

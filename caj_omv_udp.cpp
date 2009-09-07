@@ -2279,8 +2279,8 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   caj_string_copy(&objd->TextureEntry, &prim->tex_entry);
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
-  objd->Text.len = 0;
-  memset(objd->TextColor, 0, 4);
+  caj_string_set(&objd->Text, prim->hover_text);
+  memcpy(objd->TextColor, prim->text_color, 4);
   objd->MediaURL.len = 0;
   objd->PSBlock.len = 0;
   objd->ExtraParams.len = 0;

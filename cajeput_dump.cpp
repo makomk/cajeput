@@ -295,6 +295,10 @@ static int load_prim_v1(int fd, simulator_ctx *sim) {
   prim->ob.phys = NULL; prim->ob.chat = NULL;
   prim->crc_counter = 0; 
   prim->flags = 0; // FIXME - save this
+
+  prim->hover_text = strdup(""); // FIXME - save this too
+  memset(prim->text_color, 0, sizeof(prim->text_color));
+
   prim->inv.num_items = prim->inv.alloc_items = 0;
   prim->inv.items = NULL; prim->inv.serial = 0;
   prim->inv.filename = NULL;

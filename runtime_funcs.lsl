@@ -24,3 +24,6 @@ llResetScript() { }
 llResetOtherScript(string name) { }
 llSetRemoteScriptAccessPin(integer pin) { }
 llRemoteLoadScriptPin(key target, string name, integer pin, integer running, integer start_param) { }
+llSetTimerEvent(float interval) { }
+llSetText(string text, vector color, float alpha) { }
+string osGetSimulatorVersion() { }

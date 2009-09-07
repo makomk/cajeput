@@ -22,6 +22,7 @@
 
 #include "caj_vm.h"
 #include "caj_vm_internal.h"
+#include "caj_types.h"
 #include <cassert>
 #include <stdarg.h>
 #include <math.h>
@@ -1299,6 +1300,14 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
     case VM_TYPE_FLOAT:
       *va_arg(args, float*) = *(float*)(frame_ptr--);
       break;
+    case VM_TYPE_VECT:
+      {
+	caj_vector3 * vect = va_arg(args, caj_vector3*);
+	vect->z = *(float*)(frame_ptr--);
+	vect->y = *(float*)(frame_ptr--);
+	vect->x = *(float*)(frame_ptr--);
+	break;
+      }
     case VM_TYPE_STR:
       { 
 	// FIXME - need to make strings null-terminated, I think!
@@ -1341,6 +1350,10 @@ void vm_func_return(script_state *st, int func_no) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       st->stack_top++; break;
+    case VM_TYPE_VECT:
+      st->stack_top += 3; break;
+    case VM_TYPE_ROT:
+      st->stack_top += 4; break;      
     case VM_TYPE_STR:
       {
 	heap_header *p = get_stk_ptr(st->stack_top+1);

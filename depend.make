@@ -17,7 +17,8 @@ caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h caj_types.h sl_udp_proto.h \
   cajeput_anims.h caj_omv.h terrain_compress.h
 caj_scripting.o: caj_scripting.cpp cajeput_core.h caj_types.h \
   cajeput_world.h caj_vm.h caj_vm_insns.h
-caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_internal.h
+caj_vm.o: caj_vm.cpp caj_vm.h caj_vm_insns.h caj_vm_internal.h \
+  caj_types.h
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h caj_types.h \
   cajeput_user.h opensim_grid_glue.h opensim_xml_glue.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h caj_types.h \

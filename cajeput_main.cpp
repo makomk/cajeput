@@ -467,9 +467,13 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->next_perms = prim->owner_perms = prim->base_perms = 0x7fffffff;
   prim->group_perms = prim->everyone_perms = 0;
   prim->flags = 0;
+
   prim->inv.num_items = prim->inv.alloc_items = 0;
   prim->inv.items = NULL; prim->inv.serial = 0;
   prim->inv.filename = NULL;
+
+  prim->hover_text = strdup(""); 
+  memset(prim->text_color, 0, sizeof(prim->text_color)); // technically redundant
   return prim;
 }
 
@@ -493,7 +497,7 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
     delete inv;
   }
   free(prim->name); free(prim->description); free(prim->inv.filename);
-  caj_string_free(&prim->tex_entry);
+  caj_string_free(&prim->tex_entry); free(prim->hover_text);
   free(prim->inv.items); delete prim;
 }
 
@@ -507,6 +511,15 @@ char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
   prim->inv.filename = (char*)malloc(51);
   snprintf(prim->inv.filename, 51, "inventory_%s.tmp", buf);
   return prim->inv.filename;
+}
+
+void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
+			 const char *text, uint8_t color[4]) {
+  int len = strlen(text); if(len > 254) len = 254;
+  free(prim->hover_text); prim->hover_text = (char*)malloc(len+1);
+  memcpy(prim->hover_text, text, len); prim->hover_text[len] = 0;
+  memcpy(prim->text_color, color, sizeof(prim->text_color));
+  world_mark_object_updated(sim, &prim->ob, UPDATE_LEVEL_FULL);
 }
 
 static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) {
