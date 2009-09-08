@@ -662,12 +662,12 @@ int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim) {
   return (uuid_compare(ctx->user_id, prim->owner) == 0 && (perms & PERM_COPY));
 }
 
-static primitive_obj * clone_prim(primitive_obj *prim) {
+static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   primitive_obj *newprim = new primitive_obj();
   *newprim = *prim;
   newprim->name = strdup(prim->name);
   newprim->description = strdup(prim->description);
-  newprim->hover_text = strdup(prim->hover_text);
+  newprim->hover_text = strdup(faithful ? prim->hover_text : "");
   caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
   uuid_generate(newprim->ob.id);
   
@@ -684,7 +684,9 @@ void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
   // FIXME - should allow other people to copy prims too  
   if(uuid_compare(ctx->user_id, prim->owner) != 0) return;
   
-  primitive_obj *newprim = clone_prim(prim);
+  // the duplication loses certain properties, as in Second Life
+  // (e.g hover text)
+  primitive_obj *newprim = clone_prim(prim, 0);
   newprim->ob.pos = position;
   world_insert_obj(ctx->sim, &newprim->ob);
 }
@@ -733,17 +735,12 @@ static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
   }
 }
 
-
-void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level) {
+static void mark_object_updated_nophys(simulator_ctx* sim, world_obj *obj, 
+				       int update_level) {
   if(obj->type != OBJ_TYPE_PRIM) return;
 
   primitive_obj *prim = (primitive_obj*)obj;
   prim->crc_counter++;
-
-  if(update_level == UPDATE_LEVEL_POSROT) 
-    sim->physh.upd_object_pos(sim, sim->phys_priv, obj);
-  else
-    sim->physh.upd_object_full(sim, sim->phys_priv, obj);
 
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     std::map<uint32_t, int>::iterator cur = user->obj_upd.find(obj->local_id);
@@ -753,15 +750,21 @@ void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_le
   }
 }
 
+void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level) {
+  if(obj->type != OBJ_TYPE_PRIM) return;
+
+  if(update_level == UPDATE_LEVEL_POSROT) 
+    sim->physh.upd_object_pos(sim, sim->phys_priv, obj);
+  else
+    sim->physh.upd_object_full(sim, sim->phys_priv, obj);
+
+  mark_object_updated_nophys(sim, obj, update_level);
+}
+
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 			      const caj_vector3 *new_pos) {
   world_move_obj_int(sim, ob, *new_pos);
-
-  if(ob->type != OBJ_TYPE_PRIM) return;
-
-  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
-    user->obj_upd[ob->local_id] = UPDATE_LEVEL_POSROT; 
-  }
+  mark_object_updated_nophys(sim, ob, UPDATE_LEVEL_POSROT);
 }
 
 void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
