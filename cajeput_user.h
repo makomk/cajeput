@@ -99,6 +99,7 @@ float user_get_draw_dist(struct user_ctx *user);
 // as with sim_get_*, you mustn't free or store the strings
 const char* user_get_first_name(struct user_ctx *user);
 const char* user_get_last_name(struct user_ctx *user);
+const char* user_get_name(struct user_ctx *user);
 const caj_string* user_get_texture_entry(struct user_ctx *user);
 const caj_string* user_get_visual_params(struct user_ctx *user);
 
@@ -161,6 +162,11 @@ void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);
+
+void user_touch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim, int is_start);
+void user_untouch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim);
 
 // check whether the asset can be retrieved without giving an inventory item
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);

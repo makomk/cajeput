@@ -1,8 +1,9 @@
 GLIB_INCLUDES := $(shell pkg-config glib-2.0 --cflags) $(shell pkg-config libxml-2.0 --cflags) $(shell pkg-config libsoup-2.4 --cflags) $(shell pkg-config json-glib-1.0 --cflags)
 GLIB_LIBS := $(shell pkg-config glib-2.0 --libs) $(shell pkg-config libxml-2.0 --libs) $(shell pkg-config libsoup-2.4 --libs) $(shell pkg-config json-glib-1.0 --libs)
 
-CXXFLAGS=-Wall  -I /usr/include/bullet $(GLIB_INCLUDES) -ggdb -DDEBUG
-CFLAGS=-Wall -ggdb $(GLIB_INCLUDES)
+WARNING_OPTS=-Wall -Werror=format-security -Werror=init-self -Werror=parentheses -Werror=sequence-point -Werror=uninitialized
+CXXFLAGS=$(WARNING_OPTS) -O -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG 
+CFLAGS=$(WARNING_OPTS) -O -ggdb $(GLIB_INCLUDES)
 
 # we dont bother compiling caj_llsd_test anymore; not useful
 all: cajeput_sim cajeput_j2k_test lsl_compile

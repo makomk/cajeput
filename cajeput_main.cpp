@@ -27,6 +27,7 @@
 #include "cajeput_j2k.h"
 #include "cajeput_prim.h"
 #include "cajeput_anims.h"
+#include "caj_script.h"
 #include "terrain_compress.h"
 #include "caj_parse_nini.h"
 #include <sys/types.h> 
@@ -521,6 +522,71 @@ void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
   memcpy(prim->text_color, color, sizeof(prim->text_color));
   world_mark_object_updated(sim, &prim->ob, UPDATE_LEVEL_FULL);
 }
+
+void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
+			     void *script_priv, int evmask) {
+  int prim_evmask = 0;
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+    if(/* inv->inv_type == ???  && - FIXME */ inv->asset_type == ASSET_LSL_TEXT 
+       && inv->priv != NULL) {
+      prim_evmask |= sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
+    }
+  }
+  
+  uint32_t newflags = prim->flags & ~(uint32_t)PRIM_FLAG_TOUCH;
+  if(prim_evmask & (CAJ_EVMASK_TOUCH|CAJ_EVMASK_TOUCH_CONT)) {
+    newflags |= PRIM_FLAG_TOUCH;
+  }
+  if(newflags != prim->flags) {
+    prim->flags = newflags;
+    // FIXME - don't really want a full update here!
+    world_mark_object_updated(sim, &prim->ob, UPDATE_LEVEL_FULL);
+  }
+}
+
+void user_touch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim, int is_start) {
+  printf("DEBUG: in user_touch_prim\n");
+  // FIXME - this is going to become a whole lot more complex once we start
+  // supporting linksets in Cajeput
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->asset_type == ASSET_LSL_TEXT && inv->priv != NULL) {
+      int evmask = sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
+      if(is_start ? (evmask & CAJ_EVMASK_TOUCH) : (evmask & CAJ_EVMASK_TOUCH_CONT)) {
+	 printf("DEBUG: sending touch event to script\n");
+	sim->scripth.do_touch(sim, sim->script_priv, inv->priv,
+			      ctx, &ctx->av->ob, is_start);
+      } else {
+	 printf("DEBUG: ignoring script not interested in touch event\n");
+      }
+    }
+  }
+}
+
+void user_untouch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim) {
+  // FIXME - this is going to become a whole lot more complex once we start
+  // supporting linksets in Cajeput. Will probably want to merge with 
+  // user_touch_prim at that point...
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->asset_type == ASSET_LSL_TEXT && inv->priv != NULL) {
+      int evmask = sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
+      if(evmask & CAJ_EVMASK_TOUCH) {
+	printf("DEBUG: sending untouch event to script\n");
+	sim->scripth.do_untouch(sim, sim->script_priv, inv->priv,
+				ctx, &ctx->av->ob);
+      } else {
+	 printf("DEBUG: ignoring script not interested in untouch event\n");
+      }
+    }
+  }
+}
+
 
 static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) {
   if(prim->inv.num_items >= prim->inv.alloc_items) {
@@ -1406,6 +1472,10 @@ const char* user_get_first_name(struct user_ctx *user) {
 
 const char* user_get_last_name(struct user_ctx *user) {
   return user->last_name;
+}
+
+const char* user_get_name(struct user_ctx *user) {
+  return user->name;
 }
 
 const caj_string* user_get_texture_entry(struct user_ctx *user) {

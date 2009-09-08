@@ -72,6 +72,7 @@ struct script_state {
   uint8_t* gptr_types;
   vm_function *funcs;
   vm_native_func_cb *nfuncs;
+  uint16_t *cur_state; // event functions for current state
   vm_world *world;
   void *priv; // for the user of the VM
   int scram_flag;
@@ -96,6 +97,7 @@ static script_state *new_script(void) {
   st->stack_start = st->stack_top = NULL;
   st->gvals = NULL; st->gptr_types = NULL;
   st->gptrs = NULL; st->funcs = NULL;
+  st->cur_state = NULL;
   return st;
 }
 
@@ -165,6 +167,7 @@ void vm_free_script(script_state * st) {
   }
   delete[] st->funcs;
   delete[] st->stack_start;
+  delete[] st->cur_state;
   delete st;
 }
 
@@ -1168,6 +1171,9 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
   st->stack_start = new int32_t[1024]; // FIXME - pick this properly;
   st->stack_top = st->stack_start+1023;
   st->world = w; st->priv = priv;
+
+  st->cur_state = new uint16_t[w->num_events];
+  for(int i = 0; i < w->num_events; i++) st->cur_state[i] = 0xffff;
  
   for(unsigned i = 0; i < st->num_funcs; i++) {
     if(st->funcs[i].insn_ptr == 0) {
@@ -1180,49 +1186,72 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
 	}
 	st->funcs[i].insn_ptr = 0x80000000 | iter->second;
       }
+    } else if(st->funcs[i].name[0] == '0' && st->funcs[i].name[1] == ':') {
+      // FIXME - need to handle multiple states!
+
+      std::map<std::string, vm_nfunc_desc>::iterator iter = 
+	w->event_map.find((st->funcs[i].name+2));
+      if(iter != w->event_map.end()) {
+	if(check_ncall_args(iter->second, st->funcs[i])){
+	  printf("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
+	  st->scram_flag = 1; return;
+	}
+	st->cur_state[iter->second.number] = i;
+      } else {
+	printf("WARNING: failed to bind event function %s\n", st->funcs[i].name);
+      }
     }
   }
-  // FIXME - need to bind state funcs!
 }
 
-// FIXME - HACK!
-void vm_call_event(script_state *st, const char* name, ...) {
-  char funcname[32]; snprintf(funcname, 32, "0:%s", name);
-  uint32_t func_ip = 0;
+void vm_call_event(script_state *st, int event_id, ...) {
+  va_list args;
 
   assert(st->ip == 0 && st->scram_flag == 0);
   assert(st->stack_top != NULL);
+  assert(st->cur_state != NULL);
 
-  std::map<std::string, vm_nfunc_desc>::iterator iter = 
-    st->world->event_map.find(name);
-  assert(iter != st->world->event_map.end());
+  uint16_t func_no = st->cur_state[event_id];
+  if(func_no == 0xffff) {
+    printf("DEBUG: no handler for event %i\n", event_id);
+    return; // no handler for event
+  }
 
-  for(unsigned i = 0; i < st->num_funcs; i++) {
-    if(strcmp(funcname, st->funcs[i].name) == 0 && st->funcs[i].insn_ptr != 0) {
-      if(check_ncall_args(iter->second,  st->funcs[i])) {
-	printf("ERROR: event prototype mismatch for %s\n", funcname); return;
-      }
-      printf("DEBUG: Found event func %s, number %u @ %u\n", funcname,
-	     i, (unsigned)st->funcs[i].insn_ptr);
-      func_ip = st->funcs[i].insn_ptr;
-    }
-  }  
-  
-  if(func_ip == 0) { printf("DEBUG: no event matching %s\n", name); return; }
+  vm_function *func = &st->funcs[func_no];
+ 
 
-  switch(iter->second.ret_type) {
+  switch(func->ret_type) {
   case VM_TYPE_NONE: break;
   case VM_TYPE_INT: // not really needed 
   case VM_TYPE_FLOAT:
     *(st->stack_top--) = 0; break;
   default:
-    assert(0);
+    assert(0); // can't be triggered by scripts, since return type checked
   }
   *(st->stack_top--) = 0; // return pointer
 
-  // FIXME - pass args
+  va_start(args, event_id);
+  for(int i = 0; i < func->arg_count; i++) {
+    switch(func->arg_types[i]) {
+    case VM_TYPE_INT:
+      *(st->stack_top--) = va_arg(args, int);
+      break;
+    case VM_TYPE_FLOAT:
+      *(float*)(st->stack_top--) = va_arg(args, double); // promoted from float
+      break;
+    default:
+      printf("ERROR: unhandled arg type in vm_call_event\n"); 
+      va_end(args); assert(0); abort(); return;
+    }
+  }
+  va_end(args);
 
-  st->ip = func_ip;
+  st->ip = func->insn_ptr;
+}
+
+int vm_event_has_handler(script_state *st, int event_id) {
+  assert(st->cur_state != NULL);
+  return st->cur_state[event_id] != 0xffff;
 }
 
 void vm_run_script(script_state *st, int num_steps) {
@@ -1257,8 +1286,9 @@ void vm_world_add_func(vm_world *w, const char* name, uint8_t ret_type,
 }
 
 int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type, 
-		       int arg_count, ...) {
+		       int event_id, int arg_count, ...) {
   vm_nfunc_desc desc; va_list vargs;
+  assert(w->num_events == event_id);
   desc.ret_type = ret_type;
   desc.arg_count = arg_count;
   desc.arg_types = new uint8_t[arg_count];

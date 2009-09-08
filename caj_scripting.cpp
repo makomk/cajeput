@@ -22,9 +22,12 @@
 
 #include "cajeput_core.h"
 #include "cajeput_world.h"
+#include "cajeput_user.h"
 #include "caj_vm.h"
 #include "caj_version.h"
+#include "caj_script.h"
 #include <fcntl.h>
+#include <deque>
 
 #define DEBUG_CHANNEL 2147483647
 
@@ -46,6 +49,15 @@ struct list_head {
   struct list_head *next, *prev;
 };
 
+// these are entirely internal. You can change them if you really need to, but
+// they must be consecutive and the events must be added via vm_world_add_event
+// in numerical order.
+#define EVENT_STATE_ENTRY 0
+#define EVENT_TOUCH_START 1
+#define EVENT_TOUCH 2
+#define EVENT_TOUCH_END 3
+
+// internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
 #define SCR_MT_COMPILE_ERROR 2
 #define SCR_MT_RUNNING 3
@@ -61,6 +73,20 @@ struct compiler_output {
   compile_done_cb cb; void *cb_priv;
 };
 
+struct detected_event {
+  int event_id;
+  uuid_t key, owner;
+  char *name;
+  
+  detected_event() : name(NULL) {
+    uuid_clear(key); uuid_clear(owner);
+  }
+
+  ~detected_event() {
+    free(name);
+  }
+};
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -68,11 +94,14 @@ struct sim_script {
   script_state *vm;
   int state_entry; // HACK!
   double time; // for llGetTime etc
+  detected_event *detected;
+  std::deque<detected_event*> pending_detect;
 
   // section used by main thread
   int mt_state; // state as far as main thread is concerned
   primitive_obj *prim;
   compiler_output *comp_out;
+  int evmask;
 
   // used by both threads, basically read-only 
   uint32_t magic;
@@ -88,6 +117,8 @@ struct sim_script {
 #define CAJ_SMSG_SCRIPT_KILLED 5
 #define CAJ_SMSG_RPC 6
 #define CAJ_SMSG_RPC_RETURN 7
+#define CAJ_SMSG_EVMASK 8
+#define CAJ_SMSG_DETECTED 9
 
 typedef void(*script_rpc_func)(script_state *st, sim_script *sc, int func_id);
 
@@ -102,8 +133,12 @@ struct script_msg {
       script_rpc_func rpc_func;
       script_state *st; int func_id;
     } rpc;
+    int evmask;
+    detected_event *detected;
   } u;
 };
+
+#define MAX_QUEUED_EVENTS 32
 
 static void rpc_func_return(script_state *st, sim_script *scr, int func_id);
 
@@ -251,6 +286,31 @@ static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_i
   vm_func_return(st, func_id);
 }
 
+static void script_upd_evmask(sim_script *scr) {
+  int evmask = 0;
+  if(vm_event_has_handler(scr->vm, EVENT_TOUCH_START) ||
+     vm_event_has_handler(scr->vm, EVENT_TOUCH_END)) {
+    evmask |= CAJ_EVMASK_TOUCH;
+  }
+  if(vm_event_has_handler(scr->vm, EVENT_TOUCH)) {
+    evmask |= CAJ_EVMASK_TOUCH_CONT;
+  }
+script_msg *smsg = new script_msg();
+  smsg->msg_type = CAJ_SMSG_EVMASK;
+  smsg->scr = scr;
+  smsg->u.evmask = evmask;
+  send_to_mt(scr->simscr, smsg);
+  
+}
+
+static void awaken_script(sim_script *scr, list_head *running) {
+  if(!scr->is_running) {
+    // yes, we really do schedule this to run next.
+    scr->is_running = 1; list_remove(&scr->list);
+    list_insert_after(&scr->list, running);
+  }
+}
+
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   list_head running, waiting;
@@ -265,15 +325,37 @@ static gpointer script_thread(gpointer data) {
       if(scr->in_rpc) {
 	// deschedule. Special-cased because we don't have ownership of scr->vm
 	// during RPC calls to the main thread.
-	scr->is_running = 0;  list_remove(&scr->list);
+	scr->is_running = 0; list_remove(&scr->list);
 	list_insert_after(&scr->list, &waiting);
       }
       if(vm_script_is_idle(scr->vm)) {
 	printf("DEBUG: script idle\n");
+
+	if(scr->detected != NULL) {
+	  // FIXME - this is leaked if the script is destroyed at the wrong time
+	  delete scr->detected; scr->detected = NULL;
+	}
+
 	if(scr->state_entry) {
 	  printf("DEBUG: calling state_entry\n");
 	  scr->state_entry = 0;
-	  vm_call_event(scr->vm,"state_entry");
+	  vm_call_event(scr->vm,EVENT_STATE_ENTRY);
+	} else if(!scr->pending_detect.empty()) {
+	  // FIXME - coalesce detected events into one call somehow
+	  
+	  printf("DEBUG: handing pending detected event\n");
+	  scr->detected = scr->pending_detect.front();
+	  scr->pending_detect.pop_front();
+	  switch(scr->detected->event_id) {
+	  case EVENT_TOUCH_START:
+	  case EVENT_TOUCH_END:
+	  case EVENT_TOUCH:
+	    vm_call_event(scr->vm, scr->detected->event_id, 1);
+	    break;
+	  default:
+	    printf("INTERNAL ERROR: unhandled detected event type - impossible!\n");
+	    break;
+	  }
 	}
 	// FIXME - schedule events
       }
@@ -313,6 +395,7 @@ static gpointer script_thread(gpointer data) {
 	  // FIXME - should insert at end of running queue
 	  msg->scr->is_running = 1;
 	  list_insert_after(&msg->scr->list, &running);
+	  script_upd_evmask(msg->scr);
 	} else {
 	  printf("DEBUG: failed to load script\n");
 	  // FIXME - what to do?
@@ -331,10 +414,15 @@ static gpointer script_thread(gpointer data) {
       case CAJ_SMSG_RPC_RETURN:
 	printf("DEBUG: got RPC_RETURN\n");
 	assert(msg->scr->in_rpc); msg->scr->in_rpc = 0;
-	if(!msg->scr->is_running) {
-	  // yes, we really do schedule this to run next.
-	  msg->scr->is_running = 1;
-	  list_insert_after(&msg->scr->list, &running);
+	awaken_script(msg->scr, &running);
+	break;
+      case CAJ_SMSG_DETECTED:
+	if(msg->scr->pending_detect.size() >= MAX_QUEUED_EVENTS) {
+	  printf("DEBUG: discarding script event due to queue size\n");
+	  delete msg->u.detected;
+	} else {
+	  msg->scr->pending_detect.push_back(msg->u.detected);
+	  awaken_script(msg->scr, &running);
 	}
 	break;
       }
@@ -519,8 +607,9 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   }
 
   sim_script *scr = new sim_script();
-  scr->prim = prim; scr->mt_state = SCR_MT_COMPILING;
+  scr->prim = prim; scr->mt_state = SCR_MT_COMPILING; scr->evmask = 0;
   scr->is_running = 0; scr->simscr = simscr; scr->magic = SCRIPT_MAGIC;
+  scr->detected = NULL; scr->in_rpc = 0;
   scr->cvm_file = strdup(binname);
   scr->comp_out = listen_compiler_output(stdout_compile, stderr_compile);
   scr->comp_out->cb = cb; scr->comp_out->cb_priv = cb_priv;
@@ -547,6 +636,51 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   }
 }
 
+static int get_evmask(simulator_ctx *sim, void *priv, void *script) {
+  sim_script *scr = (sim_script*)script;
+  assert(scr->magic == SCRIPT_MAGIC);
+  return scr->evmask;
+}
+
+static void send_detected_event(sim_scripts *simscr, sim_script *scr, 
+				detected_event *det) {
+  script_msg *msg = new script_msg();
+  msg->msg_type = CAJ_SMSG_DETECTED;
+  msg->scr = scr;
+  msg->u.detected = det;
+  send_to_script(simscr, msg);
+}
+
+static void do_touch(simulator_ctx *sim, void *priv, void *script,
+		     user_ctx *user, world_obj *av, int is_start) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  if(is_start ? (scr->evmask & CAJ_EVMASK_TOUCH) :
+     (scr->evmask & CAJ_EVMASK_TOUCH_CONT)) {
+    detected_event *det = new detected_event();
+    det->event_id = is_start ? EVENT_TOUCH_START : EVENT_TOUCH;
+
+    det->name = strdup(user_get_name(user));
+    user_get_uuid(user, det->key);
+    send_detected_event(simscr, scr, det);
+  }
+}
+static void do_untouch(simulator_ctx *sim, void *priv, void *script,
+		     user_ctx *user, world_obj *av) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  if(scr->evmask & CAJ_EVMASK_TOUCH) {
+    detected_event *det = new detected_event();
+    det->event_id = EVENT_TOUCH_END;
+
+    det->name = strdup(user_get_name(user));
+    user_get_uuid(user, det->key);
+    send_detected_event(simscr, scr, det);
+  }
+}
+
+
+
 static gboolean script_poll_timer(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   script_msg* msg;
@@ -572,6 +706,15 @@ static gboolean script_poll_timer(gpointer data) {
 	msg->u.rpc.rpc_func(msg->u.rpc.st, msg->scr, msg->u.rpc.func_id);
       }
       break;
+    case CAJ_SMSG_EVMASK:
+      if(msg->scr->prim != NULL) {
+	printf("DEBUG: got new script evmask in main thread\n");
+	msg->scr->evmask = msg->u.evmask;
+	world_set_script_evmask(msg->scr->simscr->sim, msg->scr->prim, 
+				msg->scr, msg->u.evmask);
+      }
+      break;
+      
     }
     delete msg;
     
@@ -588,7 +731,14 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   
   simscr->sim = sim;
   simscr->vmw = vm_world_new();
-  vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, 0);
+  vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, EVENT_STATE_ENTRY, 0);
+  vm_world_add_event(simscr->vmw, "touch_start", VM_TYPE_NONE, EVENT_TOUCH_START,
+		     1, VM_TYPE_INT);
+  vm_world_add_event(simscr->vmw, "touch", VM_TYPE_NONE, EVENT_TOUCH,
+		     1, VM_TYPE_INT);
+  vm_world_add_event(simscr->vmw, "touch_end", VM_TYPE_NONE, EVENT_TOUCH_END,
+		     1, VM_TYPE_INT);
+
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
@@ -615,6 +765,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->shutdown = shutdown_scripting;
   hooks->add_script = add_script;
   hooks->kill_script = kill_script;
+  hooks->get_evmask = get_evmask;
+  hooks->do_touch = do_touch;
+  hooks->do_untouch = do_untouch;
 
   return 1;
 }

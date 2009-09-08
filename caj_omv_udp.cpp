@@ -1038,7 +1038,6 @@ static void handle_ObjectAdd_msg(struct omuser_ctx* lctx, struct sl_message* msg
 
   // FIXME - handle objd->State somehow
 
-  // FIXME - set texture (89556747-24cb-43ed-920b-47caed15465f)
   uuid_t tex; 
   assert(uuid_parse("89556747-24cb-43ed-920b-47caed15465f",tex) == 0);
   prim->tex_entry.data = build_dummy_texture_entry(tex, &prim->tex_entry.len);
@@ -1613,6 +1612,66 @@ static void handle_RezScript_msg(struct omuser_ctx* lctx, struct sl_message* msg
   }
   sl_dump_packet(msg);
 
+}
+
+static void handle_ObjectGrab_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectGrab, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ObjectGrab, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
+    return;
+  
+  struct world_obj* obj = world_object_by_localid(lctx->u->sim, objd->LocalID);
+  if(obj == NULL) {
+    printf("ERROR: grabbed non-existent object\n");
+    return;
+  } else if(obj->type != OBJ_TYPE_PRIM) {
+    printf("ERROR: grabbed non-prim object\n");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  // FIXME - do something with GrabOffset and SurfaceInfo!
+
+  user_touch_prim(lctx->u->sim, lctx->u, prim, TRUE);
+}
+
+static void handle_ObjectGrabUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectGrabUpdate, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ObjectGrabUpdate, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
+    return;
+  
+  // for some reason, unlike ObjectGrab/ObjectDeGrab, this uses the full UUID
+  // of the object. No idea why - especially as this is probably far *more* 
+  // frequent than either of the other two. That's LL for you...
+  struct world_obj* obj = world_object_by_id(lctx->u->sim, objd->ObjectID);
+  if(obj == NULL || obj->type != OBJ_TYPE_PRIM) {
+    printf("WARNING: bogus ObjectGrabUpdate\n");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  // FIXME - do something with GrabOffset and SurfaceInfo!
+
+  user_touch_prim(lctx->u->sim, lctx->u, prim, FALSE);
+}
+
+static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectDeGrab, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ObjectDeGrab, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
+    return;
+  
+  struct world_obj* obj = world_object_by_localid(lctx->u->sim, objd->LocalID);
+  if(obj == NULL)  {
+    printf("WARNING: bogus ObjectDeGrab\n");
+    return;
+  }
+  struct primitive_obj* prim = (primitive_obj*)obj;
+
+  // FIXME - do something with SurfaceInfo!
+
+  user_untouch_prim(lctx->u->sim, lctx->u, prim);
 }
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
@@ -2673,6 +2732,9 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectFlagUpdate);
   ADD_HANDLER(DeRezObject);
   ADD_HANDLER(ViewerEffect);
+  ADD_HANDLER(ObjectGrab);
+  ADD_HANDLER(ObjectGrabUpdate);
+  ADD_HANDLER(ObjectDeGrab);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

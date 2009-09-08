@@ -148,6 +148,12 @@ struct primitive_obj {
 			compile_done_cb cb, void *cb_priv);
     void (*kill_script)(simulator_ctx *sim, void *priv, void *script);
 
+    int (*get_evmask)(simulator_ctx *sim, void *priv, void *script);
+    void (*do_touch)(simulator_ctx *sim, void *priv, void *script,
+		     user_ctx *user, world_obj *av, int is_start);
+    void (*do_untouch)(simulator_ctx *sim, void *priv, void *script,
+		     user_ctx *user, world_obj *av);
+
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
 
@@ -193,6 +199,8 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 			  int32_t chan, char *msg, int chat_type);
 void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 			 const char *text, uint8_t color[4]);
+void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
+			     void *script_priv, int evmask);
 
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,

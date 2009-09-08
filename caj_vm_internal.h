@@ -163,7 +163,7 @@ class asm_verify {
  public:
   int check_rdl_i(int offset) {
     if(offset <= 0) { err = "RDL_I with bogus offset"; return 0; }
-    uint8_t vtype; 
+    uint8_t vtype = VM_TYPE_NONE; 
     int fudge = get_local(offset-1, vtype);
     if(err != NULL) return 0;
     if(caj_vm_check_types(vtype, VM_TYPE_INT)) { err = "RDL_I from wrong type"; return 0; }
@@ -173,7 +173,7 @@ class asm_verify {
 
   int check_wrl_i(int offset) {
     if(offset <= 0) { err = "WRL_I with bogus offset"; return 0; }
-    uint8_t vtype; 
+    uint8_t vtype = VM_TYPE_NONE; 
     int fudge = get_local(offset, vtype);
     if(err != NULL) return 0;
     if(caj_vm_check_types(vtype, VM_TYPE_INT)) { err = "WRL_I from wrong type"; return 0; }
@@ -183,7 +183,7 @@ class asm_verify {
 
   int check_rdl_p(int offset) {
     if(offset <= 0) { err = "RDL_P with bogus offset"; return 0; }
-    uint8_t vtype; 
+    uint8_t vtype = VM_TYPE_NONE; 
     int fudge = get_local(offset-1, vtype);
     if(err != NULL) return 0;
     if(vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY && vtype != VM_TYPE_LIST) {
@@ -196,7 +196,7 @@ class asm_verify {
   int check_wrl_p(int offset) {
     if(offset <= 0) { err = "WRL_P with bogus offset"; return 0; }
     uint8_t vtype2 = pop_val_raw();
-    uint8_t vtype; 
+    uint8_t vtype = VM_TYPE_NONE; 
     int fudge = get_local(offset-1, vtype);
     if(err != NULL) return 0;
     if(vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY && vtype != VM_TYPE_LIST) {
