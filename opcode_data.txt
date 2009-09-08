@@ -80,3 +80,7 @@
 69 ACOS: float -> float func:llAcos
 70 ATAN: float -> float func:llAtan
 71 ATAN2: float float -> float func:llAtan2
+
+72 CAST_V2S: vect -> str
+73 CAST_R2S: rot -> str
+// 74 CAST_L2S: list -> str

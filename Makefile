@@ -2,7 +2,7 @@ GLIB_INCLUDES := $(shell pkg-config glib-2.0 --cflags) $(shell pkg-config libxml
 GLIB_LIBS := $(shell pkg-config glib-2.0 --libs) $(shell pkg-config libxml-2.0 --libs) $(shell pkg-config libsoup-2.4 --libs) $(shell pkg-config json-glib-1.0 --libs)
 
 WARNING_OPTS=-Wall -Werror=format-security -Werror=init-self -Werror=parentheses -Werror=sequence-point -Werror=uninitialized
-CXXFLAGS=$(WARNING_OPTS) -O -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG 
+CXXFLAGS=$(WARNING_OPTS) -O -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG
 CFLAGS=$(WARNING_OPTS) -O -ggdb $(GLIB_INCLUDES)
 
 # we dont bother compiling caj_llsd_test anymore; not useful
@@ -40,8 +40,9 @@ caj_vm_insns.h caj_vm_ops.h: caj_vm_make_insns.py opcode_data.txt
 lsl_consts.c: lsl_consts.py
 	python lsl_consts.py
 
+# if I split off the runtime code properly, libuuid won't be needed anymore
 lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o lsl_consts.o
-	$(CXX) -O0 -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o  lsl_consts.o -lfl
+	$(CXX) -O0 -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o  lsl_consts.o -lfl -luuid
 
 # cajeput_vm_test: caj_vm.o
 #	$(CXX) $(CFLAGS) -o cajeput_vm_test caj_vm.o

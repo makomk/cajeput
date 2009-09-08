@@ -626,7 +626,8 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
 	 fabs(newrot.w - physobj->obj->rot.w) >= 0.01) {
 	// FIXME - probably should send an update if velocity (previous or 
 	// current) is non-zero, too.
-	physobj->obj->rot = newrot; // FIXME - may have to change once linking added
+	if(physobj->objtype != OBJ_TYPE_AVATAR)
+	  physobj->obj->rot = newrot; // FIXME - may have to change once linking added
 	world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
       }
       

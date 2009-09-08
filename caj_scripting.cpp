@@ -29,6 +29,26 @@
 #include <fcntl.h>
 #include <deque>
 
+/* This code is reasonably robust, but a tad interesting internally.
+   A few rules for dealing with the message-passing stuff:
+   
+   - Once the main thread has begun the process of killing a script, as 
+     indicated by the SCR_MT_KILLING state and by scr->prim == NULL, it must
+     *not* send any further messages to the script thread regarding said 
+     script, nor should it handle any messages from the script thread
+     regarding it.
+   - After the scripting thread receives the KILL_SCRIPT message, it must 
+     remove all references to it and cease touching any data structures related
+     to it prior to responding with SCRIPT_KILLED. It's guaranteed not to get
+     any further messages for this script after KILL_SCRIPT, and can't send any
+     after the SCRIPT_KILLED.
+   - Messages are delivered in order.
+   - The RPC stuff is easy - it just passes ownership of scr->vm to the main 
+     thread temporarily in order for it to do the call there.
+   - You may think that you can respond to RPCed native calls asynchronously.
+     You may be right, but on your own head be it!
+*/
+
 #define DEBUG_CHANNEL 2147483647
 
 struct sim_scripts {
@@ -77,9 +97,14 @@ struct detected_event {
   int event_id;
   uuid_t key, owner;
   char *name;
+  caj_vector3 pos, vel;
+  caj_quat rot;
   
   detected_event() : name(NULL) {
     uuid_clear(key); uuid_clear(owner);
+    pos.x = 0.0f; pos.y = 0.0f; pos.z = 0.0f;
+    vel.x = 0.0f; vel.y = 0.0f; vel.z = 0.0f;
+    rot.x = 0.0f; rot.y = 0.0f; rot.z = 0.0f; rot.w = 1.0f;
   }
 
   ~detected_event() {
@@ -283,6 +308,72 @@ static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
 // some point in the future.
 static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_set_str_ret(st, func_id, CAJ_VERSION_FOR_OS_SCRIPT);
+  vm_func_return(st, func_id);
+}
+
+static void llDetectedName_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0 && scr->detected->name != NULL) {
+    vm_func_set_str_ret(st, func_id, scr->detected->name);
+  } else {
+    vm_func_set_str_ret(st, func_id, "");
+  }
+  vm_func_return(st, func_id);
+}
+
+// FIXME - there should be a global definition of these somewhere
+static const caj_vector3 zero_vect = { 0.0f, 0.0f, 0.0f };
+static const caj_quat zero_rot = { 0.0f, 0.0f, 0.0f, 1.0f };
+static const uuid_t zero_uuid= { };
+
+static void llDetectedKey_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_key_ret(st, func_id, scr->detected->key);
+  } else {
+    vm_func_set_key_ret(st, func_id, zero_uuid);
+  }
+  vm_func_return(st, func_id);
+}
+
+
+static void llDetectedPos_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_vect_ret(st, func_id, &scr->detected->pos);
+  } else {
+    vm_func_set_vect_ret(st, func_id, &zero_vect);
+  }
+  vm_func_return(st, func_id);
+}
+
+static void llDetectedRot_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_rot_ret(st, func_id, &scr->detected->rot);
+  } else {
+    vm_func_set_rot_ret(st, func_id, &zero_rot);
+  }
+  vm_func_return(st, func_id);
+}
+
+static void llDetectedVel_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_vect_ret(st, func_id, &scr->detected->vel);
+  } else {
+    vm_func_set_vect_ret(st, func_id, &zero_vect);
+  }
   vm_func_return(st, func_id);
 }
 
@@ -661,6 +752,7 @@ static void do_touch(simulator_ctx *sim, void *priv, void *script,
     det->event_id = is_start ? EVENT_TOUCH_START : EVENT_TOUCH;
 
     det->name = strdup(user_get_name(user));
+    det->pos = av->pos; det->rot = av->rot; det->vel = av->velocity;
     user_get_uuid(user, det->key);
     send_detected_event(simscr, scr, det);
   }
@@ -674,6 +766,7 @@ static void do_untouch(simulator_ctx *sim, void *priv, void *script,
     det->event_id = EVENT_TOUCH_END;
 
     det->name = strdup(user_get_name(user));
+    det->pos = av->pos; det->rot = av->rot; det->vel = av->velocity;
     user_get_uuid(user, det->key);
     send_detected_event(simscr, scr, det);
   }
@@ -746,6 +839,18 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
+
+  vm_world_add_func(simscr->vmw, "llDetectedName", VM_TYPE_STR, llDetectedName_cb,
+		    1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedPos", VM_TYPE_VECT, llDetectedPos_cb,
+		    1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedRot", VM_TYPE_ROT, llDetectedRot_cb,
+		    1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedVel", VM_TYPE_VECT, llDetectedVel_cb,
+		    1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedKey", VM_TYPE_KEY, llDetectedKey_cb,
+		    1, VM_TYPE_INT);
+
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);
   

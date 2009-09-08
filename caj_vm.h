@@ -22,6 +22,9 @@
 #ifndef CAJ_VM_H
 #define CAJ_VM_H
 
+#include "caj_types.h"
+#include "uuid/uuid.h"
+
 #define ICLASS_NORMAL 0
 #define ICLASS_JUMP   1
 #define ICLASS_RDG_I  2
@@ -157,7 +160,10 @@ void vm_call_event(script_state *st, int event_id, ...);
 void vm_func_get_args(script_state *st, int func_no, ...);
 void vm_func_set_int_ret(script_state *st, int func_no, int32_t ret);
 void vm_func_set_float_ret(script_state *st, int func_no, float ret);
-void vm_func_set_str_ret(script_state *st, int func_no, char* ret);
+void vm_func_set_str_ret(script_state *st, int func_no, const char* ret);
+void vm_func_set_key_ret(script_state *st, int func_no, const uuid_t ret);
+void vm_func_set_vect_ret(script_state *st, int func_no, const caj_vector3 *vect);
+void vm_func_set_rot_ret(script_state *st, int func_no, const caj_quat *rot);
 void vm_func_return(script_state *st, int func_no);
 
 #endif

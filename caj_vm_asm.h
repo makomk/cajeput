@@ -290,7 +290,14 @@ public:
     case VM_TYPE_FLOAT:
       const_int(0); break;
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
       const_str(""); break;
+    case VM_TYPE_VECT:
+      const_int(0); const_int(0); const_int(0);
+      break;
+    case VM_TYPE_ROT:
+      const_int(0); const_int(0); const_int(0); const_int(0);
+      break;
     default:
       err = "Unhandled func return type"; return;
     }
@@ -547,6 +554,7 @@ public:
       case VM_TYPE_FLOAT:
 	insn(INSN_DROP_I); break;
       case VM_TYPE_STR:
+      case VM_TYPE_KEY:
       case VM_TYPE_LIST:
 	insn(INSN_DROP_P); break;
       case VM_TYPE_OUR_RET_ADDR:

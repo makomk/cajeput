@@ -14,6 +14,18 @@ string llGetTimestamp( ) { } // TODO
 
 // float llFabs(float val) { }
 
+//  llDetected* functions, not all implemented
+integer llDetectedType( integer number ) { } // ???
+string llDetectedName( integer number ) { }
+key llDetectedKey( integer number ) { }
+key llDetectedOwner( integer number ) { }
+integer llDetectedGroup( integer number ) { }
+vector llDetectedPos( integer number ) { }
+rotation llDetectedRot( integer number ) { }
+vector llDetectedVel( integer number ) { }
+
+// TODO: llDetectedTouch*
+
 // bunch of stuff I need to implement
 key llGetKey() { }
 string llGetScriptName() { }

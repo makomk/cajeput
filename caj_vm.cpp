@@ -1037,6 +1037,29 @@ static void step_script(script_state* st, int num_steps) {
 	((float*)stack_top)[1] = atanf(((float*)stack_top)[1]);
 	break;
 	// case INSN_ATAN2: todo!
+      case INSN_CAST_V2S:
+	{
+	  char buf[60]; snprintf(buf, 60, "<%f,%f,%f>", *(float*)(stack_top+1),
+				*(float*)(stack_top+2), *(float*)(stack_top+3));
+	  stack_top += 3;
+	  stack_top -= ptr_stack_sz();
+	  heap_header *p = make_vm_string(st, buf);  
+	  put_stk_ptr(stack_top+1,p);
+	  if(p == NULL) goto abort_exec;
+	  break;
+	}
+      case INSN_CAST_R2S:
+	{
+	  char buf[60]; snprintf(buf, 60, "<%f,%f,%f,%f>", *(float*)(stack_top+1),
+				 *(float*)(stack_top+2), *(float*)(stack_top+3),
+				 *(float*)(stack_top+4));
+	  stack_top += 4;
+	  stack_top -= ptr_stack_sz();
+	  heap_header *p = make_vm_string(st, buf);  
+	  put_stk_ptr(stack_top+1,p);
+	  if(p == NULL) goto abort_exec;
+	  break;
+	}
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
@@ -1383,7 +1406,7 @@ void vm_func_set_float_ret(script_state *st, int func_no, float ret) {
   *(float*)(frame_ptr+2) = ret;
 }
 
-void vm_func_set_str_ret(script_state *st, int func_no, char* ret) {
+void vm_func_set_str_ret(script_state *st, int func_no, const char* ret) {
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];
   assert(desc.ret_type == VM_TYPE_STR);
 
@@ -1401,6 +1424,60 @@ void vm_func_set_str_ret(script_state *st, int func_no, char* ret) {
   heap_ref_decr(get_stk_ptr(frame_ptr+2), st);
   put_stk_ptr(frame_ptr+2,p);
 }
+
+void vm_func_set_key_ret(script_state *st, int func_no, const uuid_t ret) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_KEY);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  
+  heap_header *p = script_alloc(st, 36, VM_TYPE_STR);
+  if(p == NULL) return;
+
+  // have to use the temporary buffer because CajVM strings not null-terminated
+  char buf[37]; uuid_unparse_lower(ret, buf);
+  memcpy(script_getptr(p), buf, 36);
+
+  // it may make more sense to deref the old val *before* setting the new one,
+  // but that requires some monkeying around...
+  heap_ref_decr(get_stk_ptr(frame_ptr+2), st);
+  put_stk_ptr(frame_ptr+2,p);
+}
+
+
+void vm_func_set_vect_ret(script_state *st, int func_no, const caj_vector3 *vect) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_VECT);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  *(float*)(frame_ptr+2) = vect->x;
+  *(float*)(frame_ptr+3) = vect->y;
+  *(float*)(frame_ptr+4) = vect->z;
+
+}
+void vm_func_set_rot_ret(script_state *st, int func_no, const caj_quat *rot) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_ROT);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
+  *(float*)(frame_ptr+2) = rot->x;
+  *(float*)(frame_ptr+3) = rot->y;
+  *(float*)(frame_ptr+4) = rot->z;
+  *(float*)(frame_ptr+5) = rot->w;
+}
+
 
 void vm_func_return(script_state *st, int func_no) {
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];

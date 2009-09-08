@@ -342,6 +342,8 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_STR): return INSN_CAST_I2S;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_STR): return INSN_CAST_F2S;
+  case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_STR): return INSN_CAST_V2S;
+  case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_STR): return INSN_CAST_R2S;
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -590,7 +592,9 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     break;
   case NODE_CAST:
     insn = get_insn_cast(expr->u.child[0]->vtype, expr->vtype);
-    if(expr->u.child[0]->vtype == expr->vtype) {
+    if(expr->u.child[0]->vtype == expr->vtype ||
+       (expr->u.child[0]->vtype == VM_TYPE_STR && expr->vtype == VM_TYPE_KEY) ||
+       (expr->u.child[0]->vtype == VM_TYPE_KEY && expr->vtype == VM_TYPE_STR)) {
       insn = INSN_NOOP;
     } else if(insn == 0) {
       do_error(st, "ERROR: couldn't cast %s -> %s\n", 
@@ -601,7 +605,8 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
     update_loc(st, expr);
-    vasm.insn(insn);
+    if(insn != INSN_NOOP)
+      vasm.insn(insn);
     break;
   case NODE_PREINC:
   case NODE_PREDEC:
