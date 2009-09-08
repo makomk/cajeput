@@ -352,6 +352,12 @@ void user_int_event_queue_init(user_ctx *ctx);
 void user_int_event_queue_check_timeout(user_ctx *ctx, double time_now);
 void user_int_event_queue_free(user_ctx *ctx);
 
+void user_int_caps_init(simulator_ctx *sim, user_ctx *ctx, 
+			struct sim_new_user *uinfo);
+void user_int_caps_cleanup(user_ctx *ctx);
+
+void user_remove_int(user_ctx **user); // for internal use only.
+
 // called on CompleteAgentMovement - returns success (true/false)
 int user_complete_movement(user_ctx *ctx);
 
@@ -378,6 +384,15 @@ void user_call_delete_hook(struct user_ctx *ctx);
 
 void world_int_dump_prims(simulator_ctx *sim);
 void world_int_load_prims(simulator_ctx *sim);
+
+struct world_octree* world_octree_create();
+void world_octree_destroy(struct world_octree* tree);
+inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_obj *prim,
+				   uuid_t item_id, int script_running,
+				   unsigned char *data, int data_len,
+				   compile_done_cb cb, void *cb_priv);
+void world_int_init_obj_updates(user_ctx *ctx); // ick - HACK.
+
 
 // --- this is messy --------------------
 
