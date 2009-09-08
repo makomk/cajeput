@@ -64,6 +64,7 @@ struct phys_obj {
   btRigidBody* body;
   btVector3 target_velocity;
   btVector3 pos, velocity;
+  btVector3 impulse;
   btQuaternion rot;
   int is_flying; // for avatars only
   int is_deleted;
@@ -301,7 +302,8 @@ static void add_object(struct simulator_ctx *sim, void *priv,
        physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
     }
     physobj->target_velocity = btVector3(0,0,0);
-    physobj->velocity = btVector3(0,0,0);
+    physobj->velocity = btVector3(0,0,0); // FIXME - load from prim?
+    physobj->impulse = btVector3(0,0,0);
     
     physobj->is_deleted = 0; physobj->pos_update = 0;
     physobj->obj = obj;
@@ -401,6 +403,19 @@ static void set_force(struct simulator_ctx *sim, void *priv,
 #endif
 }
 
+static void apply_impulse(struct simulator_ctx *sim, void *priv,
+			  struct world_obj *obj, caj_vector3 impulse,
+			  int is_local) {
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+  struct phys_obj *physobj = (struct phys_obj *)obj->phys;
+  
+  // FIXME - handle impulses in local reference frame
+  g_static_mutex_lock(&phys->mutex);
+  physobj->impulse += btVector3(impulse.x, impulse.z, impulse.y);
+  phys->changed.insert(physobj);
+  g_static_mutex_unlock(&phys->mutex);
+}
+
 static void set_target_velocity(struct simulator_ctx *sim, void *priv,
 		      struct world_obj *obj, caj_vector3 velocity) {
   if(obj->phys == NULL)
@@ -455,7 +470,10 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       delete physobj;
 
       phys->physical.erase(physobj); // should really only do this for physical objs
-    } else if(physobj->body == NULL || physobj->newshape != NULL) {
+
+      continue; // we don't want to do any further processing for this
+    } 
+    if(physobj->body == NULL || physobj->newshape != NULL) {
       assert(physobj->shape != NULL);
       if(physobj->body != NULL) {
 	phys->dynamicsWorld->removeCollisionObject(physobj->body);
@@ -512,6 +530,13 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       physobj->body->setWorldTransform(transform); // needed for physical objects
       physobj->body->activate(TRUE); // very much necessary
       physobj->pos_update = 0;
+    }
+
+    if(physobj->impulse.getX() != 0.0 || physobj->impulse.getY() != 0.0 ||
+       physobj->impulse.getZ() != 0.0) {
+      physobj->body->applyCentralImpulse(physobj->impulse); 
+      physobj->body->activate();
+      physobj->impulse = btVector3(0.0, 0.0, 0.0);
     }
   }
 
@@ -707,10 +732,11 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   hooks->del_object = del_object;
   hooks->upd_object_pos = upd_object_pos;
   hooks->upd_object_full = upd_object_full;
-  hooks->set_force = set_force;
+  // hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
   hooks->set_avatar_flying = set_avatar_flying;
   hooks->destroy = destroy_physics;
+  hooks->apply_impulse = apply_impulse;
 
   phys->collisionConfiguration = new btDefaultCollisionConfiguration();
   phys->dispatcher = new btCollisionDispatcher(phys->collisionConfiguration);

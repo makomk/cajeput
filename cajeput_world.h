@@ -168,8 +168,8 @@ struct cajeput_physics_hooks {
 		    struct world_obj *obj);
   void(*del_object)(struct simulator_ctx *sim, void *priv,
 		    struct world_obj *obj);
-  void(*set_force)(struct simulator_ctx *sim, void *priv,
-		   struct world_obj *obj, caj_vector3 force); /* HACK HACK HACK */
+  /* void(*set_force)(struct simulator_ctx *sim, void *priv,
+     struct world_obj *obj, caj_vector3 force); */ /* HACK HACK HACK */
   void(*set_target_velocity)(struct simulator_ctx *sim, void *priv,
 			     struct world_obj *obj, caj_vector3 velocity);
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
@@ -179,6 +179,9 @@ struct cajeput_physics_hooks {
 			struct world_obj *obj);
   void(*upd_object_full)(struct simulator_ctx *sim, void *priv,
 			 struct world_obj *obj);
+  void(*apply_impulse)(struct simulator_ctx *sim, void *priv,
+		       struct world_obj *obj, caj_vector3 impulse,
+		       int is_local);
 };
 
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 
@@ -212,6 +215,10 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 
   // don't ask. Really. Also, don't free or store returned string.
   char* world_prim_upd_inv_filename(struct primitive_obj* prim);
+
+  // stuff for the scripting engine
+void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
+			      caj_vector3 impulse, int is_local);
 
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags);

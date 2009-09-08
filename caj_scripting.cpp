@@ -287,8 +287,6 @@ static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
   char *text; caj_vector3 color; float alpha;
   uint8_t textcol[4];
   vm_func_get_args(st, func_id, &text, &color, &alpha);
-  printf("FIXME: llSetText(%s, <%f,%f,%f>, %f)\n",
-	 text, color.x, color.y, color.z, alpha);
   textcol[0] = CONVERT_COLOR(color.x);
   textcol[1] = CONVERT_COLOR(color.y);
   textcol[2] = CONVERT_COLOR(color.z);
@@ -301,6 +299,19 @@ static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
 static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   do_rpc(st, scr, func_id, llSetText_rpc);
+}
+
+static void llApplyImpulse_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_vector3 impulse; int is_local;
+  vm_func_get_args(st, func_id, &impulse, &is_local);
+  world_prim_apply_impulse(scr->simscr->sim, scr->prim, impulse, is_local);
+  rpc_func_return(st, scr, func_id);
+}
+
+
+static void llApplyImpulse_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  do_rpc(st, scr, func_id, llApplyImpulse_rpc);
 }
 
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
@@ -839,6 +850,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
+
+  vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
+		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 
   vm_world_add_func(simscr->vmw, "llDetectedName", VM_TYPE_STR, llDetectedName_cb,
 		    1, VM_TYPE_INT);

@@ -1663,7 +1663,7 @@ static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* 
     return;
   
   struct world_obj* obj = world_object_by_localid(lctx->u->sim, objd->LocalID);
-  if(obj == NULL)  {
+  if(obj == NULL || obj->type != OBJ_TYPE_PRIM)  {
     printf("WARNING: bogus ObjectDeGrab\n");
     return;
   }
@@ -1672,6 +1672,37 @@ static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* 
   // FIXME - do something with SurfaceInfo!
 
   user_untouch_prim(lctx->u->sim, lctx->u, prim);
+}
+
+static void handle_ObjectDuplicate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectDuplicate, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ObjectDuplicate, SharedData, sdat, msg);
+  if(ad == NULL || sdat == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  int count = SL_GETBLK(ObjectDuplicate, ObjectData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectDuplicate, ObjectData, objd) =
+      SL_GETBLKI(ObjectDuplicate, ObjectData, msg, i);
+
+    struct world_obj* obj = world_object_by_localid(lctx->u->sim, objd->ObjectLocalID);
+    if(obj == NULL || obj->type != OBJ_TYPE_PRIM)  {
+      printf("WARNING: bogus ObjectDuplicate\n");
+      return;
+    }
+    struct primitive_obj* prim = (primitive_obj*)obj;
+    
+    // FIXME - do permissions popup.
+    if(!user_can_copy_prim(lctx->u, prim)) continue;
+    
+    // FIXME - use the DuplicateFlags provided
+    caj_vector3 newpos; 
+    newpos.x = prim->ob.pos.x + sdat->Offset.x;
+    newpos.y = prim->ob.pos.y + sdat->Offset.y;
+    newpos.z = prim->ob.pos.z + sdat->Offset.z;
+    user_duplicate_prim(lctx->u, prim, newpos);
+  }  
 }
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
@@ -2735,6 +2766,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectGrab);
   ADD_HANDLER(ObjectGrabUpdate);
   ADD_HANDLER(ObjectDeGrab);
+  ADD_HANDLER(ObjectDuplicate);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

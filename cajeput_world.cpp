@@ -353,6 +353,7 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
 // NOTE: if you're adding new fields to prims and want them to be initialised
 // properly, you *must* edit cajeput_dump.cpp as well as here, since it doesn't
 // use world_begin_new_prim when revivifying loaded prims.
+// You may also need to update clone_prim below.
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   struct primitive_obj *prim = new primitive_obj();
   memset(prim, 0, sizeof(struct primitive_obj));
@@ -655,6 +656,39 @@ int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {
   return user_calc_prim_perms(ctx,(primitive_obj*)obj); // FIXME!
 }
 
+int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim) {
+  uint32_t perms = user_calc_prim_perms(ctx, prim);
+  // FIXME - should allow other people to copy prims too
+  return (uuid_compare(ctx->user_id, prim->owner) == 0 && (perms & PERM_COPY));
+}
+
+static primitive_obj * clone_prim(primitive_obj *prim) {
+  primitive_obj *newprim = new primitive_obj();
+  *newprim = *prim;
+  newprim->name = strdup(prim->name);
+  newprim->description = strdup(prim->description);
+  newprim->hover_text = strdup(prim->hover_text);
+  caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
+  uuid_generate(newprim->ob.id);
+  
+  // FIXME - clone inventory too
+  newprim->inv.num_items = newprim->inv.alloc_items = 0;
+  newprim->inv.items = NULL;
+  newprim->inv.filename = NULL;
+
+  return newprim;
+}
+
+void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
+			 caj_vector3 position) {
+  // FIXME - should allow other people to copy prims too  
+  if(uuid_compare(ctx->user_id, prim->owner) != 0) return;
+  
+  primitive_obj *newprim = clone_prim(prim);
+  newprim->ob.pos = position;
+  world_insert_obj(ctx->sim, &newprim->ob);
+}
+
 uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim) {
   uint32_t flags = 0; uint32_t perms = user_calc_prim_perms(ctx, prim);
   if(uuid_compare(ctx->user_id, prim->owner) == 0) {
@@ -730,3 +764,7 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
   }
 }
 
+void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
+			      caj_vector3 impulse, int is_local) {
+  sim->physh.apply_impulse(sim, sim->phys_priv, &prim->ob, impulse, is_local);
+}
