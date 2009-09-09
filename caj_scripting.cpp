@@ -314,6 +314,26 @@ static void llApplyImpulse_cb(script_state *st, void *sc_priv, int func_id) {
   do_rpc(st, scr, func_id, llApplyImpulse_rpc);
 }
 
+static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_vect_ret(st, func_id, &scr->prim->ob.pos);
+  rpc_func_return(st, scr, func_id);
+}
+
+static void llGetPos_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  do_rpc(st, scr, func_id, llGetPos_rpc);
+}
+static void llGetRot_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_rot_ret(st, func_id, &scr->prim->ob.rot);
+  rpc_func_return(st, scr, func_id);
+}
+
+static void llGetRot_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  do_rpc(st, scr, func_id, llGetRot_rpc);
+}
+
+
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
 // modified to provide restricted version information to untrusted scripts at
 // some point in the future.
@@ -850,6 +870,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
+  
+  vm_world_add_func(simscr->vmw, "llGetPos", VM_TYPE_VECT, llGetPos_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetRot", VM_TYPE_VECT, llGetRot_cb, 0);
 
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 

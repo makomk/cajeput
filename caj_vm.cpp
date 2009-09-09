@@ -118,7 +118,7 @@ static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) 
 
 static void heap_ref_decr(heap_header *p, script_state *st) {
   if( ((--(p->refcnt)) & 0xffffff) == 0) {
-    printf("DEBUG: freeing heap entry 0x%p\n",p);
+    // printf("DEBUG: freeing heap entry 0x%p\n",p);
     st->mem_use -= p->len + sizeof(heap_header);
     free(p);
   }
@@ -1131,7 +1131,6 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_MUL_VR:
 	{
 	  // horrid horrid HACK - FIXME!
-	  caj_vector3 result;
 	  caj_mult_vect3_quat((caj_vector3*)(stack_top+5),
 			      (caj_quat*)(stack_top+1),
 			      (caj_vector3*)(stack_top+5));
@@ -1153,7 +1152,15 @@ static void step_script(script_state* st, int num_steps) {
 	*(float*)(stack_top+8) -=  *(float*)(stack_top+4);
 	stack_top += 4;
 	break;
-	// case INSN_MUL_RR: // TODO
+      case INSN_MUL_RR:
+	{ 
+	  // again, a bit of a hack...
+	  caj_mult_quat_quat((caj_quat*)(stack_top+5),
+			      (caj_quat*)(stack_top+1),
+			      (caj_quat*)(stack_top+5));
+	  stack_top += 4;
+	}
+	break;
 	// case INSN_DIV_RR: // TODO
       case INSN_NEG_I:
 	stack_top[1] = -stack_top[1];

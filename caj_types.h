@@ -97,6 +97,16 @@ static inline float caj_vect3_dist(const struct caj_vector3 *v1, const struct ca
   return sqrtf(x*x + y*y + z*z);
 }
 
+static void caj_mult_quat_quat(struct caj_quat *out, const struct caj_quat* q1,
+			       const struct caj_quat *q2) {
+  caj_quat ret;
+  ret.w = - q1->x*q2->x - q1->y*q2->y - q1->z*q2->z + q1->w*q2->w;
+  ret.x =   q1->x*q2->w + q1->y*q2->z - q1->z*q2->y + q1->w*q2->x;
+  ret.y = - q1->x*q2->z + q1->y*q2->w + q1->z*q2->x + q1->w*q2->y;
+  ret.z =   q1->x*q2->y - q1->y*q2->x + q1->z*q2->w + q1->w*q2->z;
+  *out = ret;
+}
+
 static void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
 			        const struct caj_vector3 *vec) {
   // FIXME - blind copy and paste from OpenSim code
