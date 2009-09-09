@@ -67,7 +67,14 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
   for( ; statem != NULL; statem = statem->next) {
     if(statem->stype != STMT_DECL) continue;
     assert(statem->expr[0] != NULL && statem->expr[0]->node_type == NODE_IDENT);
-    char* name = statem->expr[0]->u.s; uint8_t vtype = statem->expr[0]->vtype;
+
+    if(statem->expr[0]->u.ident.item != NULL) {
+      printf("ERROR: silly programmer, item accesses are for expressions\n");
+      st.error = 1; return;
+    }
+
+    char* name = statem->expr[0]->u.ident.name; 
+    uint8_t vtype = statem->expr[0]->vtype;
     if(st.vars.count(name)) {
       printf("ERROR: duplicate definition of local var %s\n",name);
       st.error = 1; return;
@@ -84,6 +91,14 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 	break;
       case VM_TYPE_STR:
 	var.offset = vasm.const_str("");
+	break;
+      case VM_TYPE_VECT:
+	var.offset = vasm.const_int(0); 
+	vasm.const_int(0); vasm.const_int(0); 
+	break;
+      case VM_TYPE_ROT:
+	var.offset = vasm.const_int(0); 
+	vasm.const_int(0); vasm.const_int(0); vasm.const_int(0);
 	break;
       default:
 	printf("ERROR: unknown type of local var %s\n",name);
@@ -133,6 +148,13 @@ static expr_node* arg_implicit_cast(lsl_compile_state &st, expr_node *expr, uint
   }
 }
 
+static int dotted_item_to_idx(char *item) {
+  assert(!(item[0] == 0 || item[1] != 0 ||
+	   ((item[0] < 'x' || item[0] > 'z') && item[0] != 's')));
+  if(item[0] == 's') return 3;
+  else return  item[0] - 'x';
+}
+
 static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) {
   uint16_t insn; uint8_t ltype, rtype; list_node *lnode;
   update_loc(st, expr);
@@ -140,10 +162,37 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
   case NODE_CONST: break;
   case NODE_IDENT:
     // get_variable does all the nasty error handling for us!
-    expr->vtype = get_variable(st, expr->u.s).type;
+    expr->vtype = get_variable(st, expr->u.ident.name).type;
+    if(expr->u.ident.item != NULL && expr->vtype != VM_TYPE_VECT &&
+       expr->vtype != VM_TYPE_ROT) {
+      do_error(st, "ERROR: %s not a vector or rotation\n",
+	       expr->u.ident.name);
+      return;
+    }
+    if(expr->u.ident.item != NULL) {
+      if(expr->u.ident.item[0] == 0 || expr->u.ident.item[1] != 0 ||
+	 ((expr->u.ident.item[0] < 'x' || expr->u.ident.item[0] > 'z') && 
+	  expr->u.ident.item[0] != 's')) {
+	do_error(st, "ERROR: Bad dotted identifier: %s.%s\n",
+		 expr->u.ident.name, expr->u.ident.item);
+	return;
+      }
+      int index = dotted_item_to_idx(expr->u.ident.item);
+      if(index > 2 && expr->vtype == VM_TYPE_VECT) {
+	do_error(st, "ERROR: %s not a rotation\n",
+	       expr->u.ident.name);
+	return;
+      }
+      expr->vtype = VM_TYPE_FLOAT;
+    }
     break;
   case NODE_ASSIGN:
-    assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
+    if(expr->u.child[0]->node_type != NODE_IDENT) {
+      // this is checked in the grammar, so this must be an assignment to a
+      // named constant that has been converted by the parser
+      assert(expr->u.child[0]->node_type == NODE_CONST);
+      do_error(st, "ERROR: assignment to a constant\n"); return;
+    }
     propagate_types(vasm, st, expr->u.child[0]); // finds variable's type
     if(st.error != 0) return;
     propagate_types(vasm, st, expr->u.child[1]);
@@ -162,6 +211,12 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
     assert(expr->node_type == NODE_ASSIGN);
     propagate_types(vasm, st, expr);
     return;
+  case NODE_NEGATE:
+    propagate_types(vasm, st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    expr->vtype = expr->u.child[0]->vtype;
+    break;
   case NODE_VECTOR:
   case NODE_ROTATION:
     {
@@ -349,7 +404,12 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   }
 }
 
-static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
+// Remember, vectors are stored on the stack in normal x,y,z order, which means
+// they're pushed on in reverse: z, then y, then x.
+// To complicate matters, the local variable indexes we use in the compiler
+// are the reverse of what you might expect: higher values mean lower addresses
+static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int index = -1) {
+  assert(index < 0 || var.type == VM_TYPE_VECT || var.type == VM_TYPE_ROT);
   if(var.is_global) {
     switch(var.type) {
     case VM_TYPE_INT:
@@ -357,8 +417,20 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
       vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset));
       break;
     case VM_TYPE_VECT:
-      for(int i = 2; i >= 0; i--)
-	vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+i));
+      if(index < 0) {
+	for(int i = 2; i >= 0; i--)
+	  vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+i));
+      } else {
+	vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+index));
+      }
+      break;
+    case VM_TYPE_ROT:
+      if(index < 0) {
+	for(int i = 3; i >= 0; i--)
+	  vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+i));
+      } else {
+	vasm.insn(MAKE_INSN(ICLASS_RDG_I, var.offset+index));
+      }
       break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
@@ -375,6 +447,22 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_FLOAT:
       vasm.rd_local_int(var.offset);
       break;
+    case VM_TYPE_VECT:
+      if(index < 0) {
+	for(int i = 0; i < 3; i++)
+	  vasm.rd_local_int(var.offset+i);
+      } else {
+	vasm.rd_local_int(var.offset+(2-index));
+      }
+      break;
+    case VM_TYPE_ROT:
+      if(index < 0) {
+	for(int i = 0; i < 4; i++)
+	  vasm.rd_local_int(var.offset+i);
+      } else {
+	vasm.rd_local_int(var.offset+(3-index));
+      }
+      break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
       vasm.rd_local_ptr(var.offset);
@@ -387,12 +475,29 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
   }
 }
 
-static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
+static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int index = -1) {
+  assert(index < 0 || var.type == VM_TYPE_VECT || var.type == VM_TYPE_ROT);
   if(var.is_global) {
     switch(var.type) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset));
+      break;
+    case VM_TYPE_VECT:
+      if(index < 0) {
+	for(int i = 0; i < 3; i++)
+	  vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset+i));
+      } else {
+	vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset+index));
+      }
+      break;
+    case VM_TYPE_ROT:
+      if(index < 0) {
+	for(int i = 0; i < 4; i++)
+	  vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset+i));
+      } else {
+	vasm.insn(MAKE_INSN(ICLASS_WRG_I, var.offset+index));
+      }
       break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
@@ -408,6 +513,22 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var) {
     case VM_TYPE_INT:
     case VM_TYPE_FLOAT:
       vasm.wr_local_int(var.offset); 
+      break;
+    case VM_TYPE_VECT:
+      if(index < 0) {
+	for(int i = 2; i >= 0; i--)
+	  vasm.wr_local_int(var.offset+i);
+      } else {
+	vasm.wr_local_int(var.offset+(2-index));
+      }
+      break;
+    case VM_TYPE_ROT:
+      if(index < 0) {
+	for(int i = 3; i >= 0; i--)
+	  vasm.wr_local_int(var.offset+i);
+      } else {
+	vasm.wr_local_int(var.offset+(3-index));
+      }
       break;
     case VM_TYPE_STR:
     case VM_TYPE_LIST:
@@ -459,6 +580,10 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       for(int i = 2; i >= 0; i--)
 	vasm.const_real(expr->u.v[i]);
       break;
+    case VM_TYPE_ROT:
+      for(int i = 3; i >= 0; i--)
+	vasm.const_real(expr->u.v[i]);
+      break;
     default:
       do_error(st, "FIXME: unhandled const type %s\n", type_names[expr->vtype]);
       return;
@@ -466,26 +591,64 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     break;
   case NODE_IDENT:
     {
-      var_desc var = get_variable(st, expr->u.s);
+      var_desc var = get_variable(st, expr->u.ident.name);
       if(st.error != 0) return;
-      assert(var.type == expr->vtype);
-      read_var(vasm, st, var);
+      if(expr->u.ident.item == NULL) {
+	assert(var.type == expr->vtype);
+	read_var(vasm, st, var);
+      } else {
+	assert(expr->vtype == VM_TYPE_FLOAT && 
+	       (var.type == VM_TYPE_VECT || var.type == VM_TYPE_ROT));
+	int offset = dotted_item_to_idx(expr->u.ident.item);
+	assert(offset >= 0 && offset < (var.type == VM_TYPE_VECT ? 3 : 4));
+	read_var(vasm, st, var, offset);
+      }
     }
     break;
   case NODE_ASSIGN:
     {
       assert(expr->u.child[0]->node_type == NODE_IDENT); // checked in grammar
       uint8_t vtype = expr->u.child[1]->vtype; // FIXME - use child[0]?
-      var_desc var = get_variable(st, expr->u.child[0]->u.s);
+      var_desc var = get_variable(st, expr->u.child[0]->u.ident.name);
       if(st.error != 0) return;
-      assert(var.type == vtype);
+      if(expr->u.child[0]->u.ident.item == NULL) {
+	assert(var.type == vtype);
+      } else {
+	assert(vtype == VM_TYPE_FLOAT && 
+	       (var.type == VM_TYPE_VECT || var.type == VM_TYPE_ROT));
+      }
 
       assemble_expr(vasm, st, expr->u.child[1]);
       if(st.error != 0) return;
       update_loc(st, expr);
-      write_var(vasm, st, var);
+      if(expr->u.child[0]->u.ident.item == NULL) {
+	write_var(vasm, st, var);
+      } else {
+	int offset = dotted_item_to_idx(expr->u.child[0]->u.ident.item);
+	assert(offset >= 0 && offset < (var.type == VM_TYPE_VECT ? 3 : 4));
+	write_var(vasm, st, var, offset);
+      }
     }
     break;
+  case NODE_NEGATE:
+    assemble_expr(vasm, st, expr->u.child[0]);
+    if(st.error != 0) return;
+    update_loc(st, expr);
+    switch(expr->vtype) {
+    case VM_TYPE_INT:
+      vasm.insn(INSN_NEG_I); break;
+    case VM_TYPE_FLOAT:
+      vasm.insn(INSN_NEG_F); break;
+    case VM_TYPE_VECT:
+      vasm.insn(INSN_NEG_V); break;
+    case VM_TYPE_ROT:
+      vasm.insn(INSN_NEG_R); break;
+    default:
+      do_error(st, "ERROR: bad type for unary - operator: %s\n",
+		 type_names[expr->vtype]);
+      return;
+    }
+    break;  
   case NODE_ADD:
   case NODE_SUB:
   case NODE_MUL:
@@ -728,6 +891,14 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	case VM_TYPE_INT:
 	case VM_TYPE_FLOAT:
 	  vasm.wr_local_int(0); break;
+	case VM_TYPE_VECT:
+	  for(int i = 2; i >= 0; i--)
+	    vasm.wr_local_int(i);
+	  break;
+	case VM_TYPE_ROT: // FIXME - this doesn't look right!
+	  for(int i = 3; i >= 0; i--)
+	    vasm.wr_local_int(i);
+	  break;
 	case VM_TYPE_STR:
 	  vasm.wr_local_ptr(0); break;
 	default:

@@ -1,6 +1,13 @@
 // This is, effectively, a header file for the Cajeput LSL compiler
 // It defines what built-in functions the compiler allows.
 
+// bunch of core functions I need to implement. May be given opcodes at a later
+// date.
+vector llVecNorm(vector v) {}
+float llVecMag(vector v) {}
+float llVecDist(vector v1, vector v2) {}
+// rotation llAxisAngle2Rot(vector axis, float angle) {}
+
 llSay(integer channel, string message) { }
 llShout(integer channel, string message) { }
 llWhisper(integer channel, string message) { }
@@ -27,6 +34,8 @@ vector llDetectedVel( integer number ) { }
 // TODO: llDetectedTouch*
 
 // bunch of stuff I need to implement
+vector llGetPos() { }
+rotation llGetRot() { }
 key llGetKey() { }
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }

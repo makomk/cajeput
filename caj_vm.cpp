@@ -1005,7 +1005,32 @@ static void step_script(script_state* st, int num_steps) {
 	  heap_ref_decr(p, st); 
 	  break;
 	}
-      // case INSN_CAST_K2B:
+      case INSN_CAST_K2B:
+	{
+	  // FIXME - could do with a more efficient implementation
+	  uuid_t u; char buf[40];
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz() - 1;
+	  strncpy(buf, (char*)script_getptr(p), 40); buf[39] = 0;
+	  stack_top[1] = (uuid_parse(buf, u) == 0 && !uuid_is_null(u));
+	  heap_ref_decr(p, st); 
+	  break;
+	}
+      case INSN_CAST_V2B:
+	{
+	  int truth = *(float*)(stack_top+1) != 0.0f ||
+	    *(float*)(stack_top+2) != 0.0f || *(float*)(stack_top+3) != 0.0f;
+	  stack_top += 2; stack_top[1] = truth;
+	  break;
+	}
+      case INSN_CAST_R2B:
+	{
+	  int truth = *(float*)(stack_top+1) != 0.0f ||
+	    *(float*)(stack_top+2) != 0.0f || *(float*)(stack_top+3) != 0.0f ||
+	    *(float*)(stack_top+4) != 1.0f ;
+	  stack_top += 3; stack_top[1] = truth;
+	  break;
+	}
       // FIXME - implement the rest of the CAST_?2B insns
       case INSN_ABS:
 	stack_top[1] = abs(stack_top[1]); // use labs?
@@ -1060,6 +1085,101 @@ static void step_script(script_state* st, int num_steps) {
 	  if(p == NULL) goto abort_exec;
 	  break;
 	}
+	// FIXME - TODO - bunch of vector ops
+      case INSN_ADD_VV:
+	*(float*)(stack_top+4) +=  *(float*)(stack_top+1);
+	*(float*)(stack_top+5) +=  *(float*)(stack_top+2);
+	*(float*)(stack_top+6) +=  *(float*)(stack_top+3);
+	stack_top +=3;
+	break;
+      case INSN_SUB_VV:
+	*(float*)(stack_top+4) -=  *(float*)(stack_top+1);
+	*(float*)(stack_top+5) -=  *(float*)(stack_top+2);
+	*(float*)(stack_top+6) -=  *(float*)(stack_top+3);
+	stack_top +=3;
+	break;
+      case INSN_DOT_VV:
+	*(float*)(stack_top+6) = *(float*)(stack_top+4) * *(float*)(stack_top+1)
+	  + *(float*)(stack_top+5) * *(float*)(stack_top+2)
+	  + *(float*)(stack_top+6) * *(float*)(stack_top+3);
+	stack_top += 5;
+	break;
+      // case INSN_CROSS_VV: // TODO!
+      case INSN_MUL_VF:
+	// okay, this is easy since the vector is pushed first
+	*(float*)(stack_top+2) *= *(float*)(stack_top+1);
+	*(float*)(stack_top+3) *= *(float*)(stack_top+1);
+	*(float*)(stack_top+4) *= *(float*)(stack_top+1);
+	stack_top++;
+	break;
+      case INSN_MUL_FV:
+	{
+	  // harder - stuff is in the wrong order. FIXME - this is wrong!
+	  float f = *(float*)(stack_top+4);
+	  *(float*)(stack_top+4) = *(float*)(stack_top+3) * f;
+	  *(float*)(stack_top+3) = *(float*)(stack_top+2) * f;
+	  *(float*)(stack_top+2) = *(float*)(stack_top+1) * f;
+	  stack_top++;
+	  break;
+	}
+      case INSN_DIV_VF:
+	*(float*)(stack_top+2) /= *(float*)(stack_top+1);
+	*(float*)(stack_top+3) /= *(float*)(stack_top+1);
+	*(float*)(stack_top+4) /= *(float*)(stack_top+1);
+	stack_top++;
+	break;
+      case INSN_MUL_VR:
+	{
+	  // horrid horrid HACK - FIXME!
+	  caj_vector3 result;
+	  caj_mult_vect3_quat((caj_vector3*)(stack_top+5),
+			      (caj_quat*)(stack_top+1),
+			      (caj_vector3*)(stack_top+5));
+	  stack_top += 4;
+	  break;
+	}
+	// case INSN_DIV_VR: // TODO!!!
+      case INSN_ADD_RR:
+	*(float*)(stack_top+5) +=  *(float*)(stack_top+1);
+	*(float*)(stack_top+6) +=  *(float*)(stack_top+2);
+	*(float*)(stack_top+7) +=  *(float*)(stack_top+3);
+	*(float*)(stack_top+8) +=  *(float*)(stack_top+4);
+	stack_top += 4;
+	break;
+      case INSN_SUB_RR:
+	*(float*)(stack_top+5) -=  *(float*)(stack_top+1);
+	*(float*)(stack_top+6) -=  *(float*)(stack_top+2);
+	*(float*)(stack_top+7) -=  *(float*)(stack_top+3);
+	*(float*)(stack_top+8) -=  *(float*)(stack_top+4);
+	stack_top += 4;
+	break;
+	// case INSN_MUL_RR: // TODO
+	// case INSN_DIV_RR: // TODO
+      case INSN_NEG_I:
+	stack_top[1] = -stack_top[1];
+	break;
+      case INSN_NEG_F:
+	*(float*)(stack_top+1) = - *(float*)(stack_top+1);
+	break;
+      case INSN_NEG_V:
+	*(float*)(stack_top+1) = - *(float*)(stack_top+1);
+	*(float*)(stack_top+2) = - *(float*)(stack_top+2);
+	*(float*)(stack_top+3) = - *(float*)(stack_top+3);
+	break;
+      case INSN_NEG_R:
+	*(float*)(stack_top+1) = - *(float*)(stack_top+1);
+	*(float*)(stack_top+2) = - *(float*)(stack_top+2);
+	*(float*)(stack_top+3) = - *(float*)(stack_top+3);
+	*(float*)(stack_top+4) = - *(float*)(stack_top+4);
+	break;
+      case INSN_STRLEN:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-1;
+	  stack_top[1] = p->len; heap_ref_decr(p, st); 
+	  break;
+	}
+
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
@@ -1283,10 +1403,32 @@ void vm_run_script(script_state *st, int num_steps) {
   step_script(st, num_steps);
 }
 
+static void llVecNorm_cb(script_state *st, void *sc_priv, int func_id) {
+  caj_vector3 v; float mag;
+  vm_func_get_args(st, func_id, &v);
+  mag = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+  if(finite(mag) && mag > 0.0f) {
+    v.x /= mag; v.y /= mag; v.z /= mag;
+  }
+  vm_func_set_vect_ret(st, func_id, &v);
+  vm_func_return(st, func_id);
+}
+
+static void llVecMag_cb(script_state *st, void *sc_priv, int func_id) {
+  caj_vector3 v; float mag;
+  vm_func_get_args(st, func_id, &v);
+  mag = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+  vm_func_set_float_ret(st, func_id, mag);
+  vm_func_return(st, func_id);
+}
+
+// FIXME - TODO - llVecDist
 
 struct vm_world* vm_world_new(void) {
   vm_world *w = new vm_world;
   w->num_events = 0;
+  vm_world_add_func(w, "llVecNorm", VM_TYPE_VECT, llVecNorm_cb, 1, VM_TYPE_VECT); 
+  vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 
   return w;
 }
 

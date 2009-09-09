@@ -50,6 +50,7 @@ struct expr_node {
     expr_node* child[4];
     int i; float f; char* s; list_node *list; float v[4];
     struct { char* name; list_node* args; } call;
+    struct { char *name; char *item; } ident;
   } u;
 };
 

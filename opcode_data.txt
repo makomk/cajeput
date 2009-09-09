@@ -1,5 +1,6 @@
 // Defines the opcodes for the Cajeput VM
-// TODO - feed this into the compiler for code generation purposes
+// Currently, the compiler gets its knowledge of what binary operators exist
+// from here (though not unary operators or casts - FIXME!)
 
 0 NOOP: ->
 1 ABORT: -> (INVALID)   // should never appear in actual bytecode!
@@ -13,12 +14,12 @@
 9 DIV_FF: float / float -> float
 10 RET: -> (RET)
 11 MOD_II: int % int -> int
-12 AND_II: int & int -> int   // todo
-13 OR_II: int | int -> int   //  todo
-14 XOR_II: int ^ int -> int   // todo
-15 NOT_I: ~ int -> int   // todo
-16 SHL: int << int -> int   //  todo
-17 SHR: int >> int -> int   // todo
+12 AND_II: int & int -> int 
+13 OR_II: int | int -> int 
+14 XOR_II: int ^ int -> int
+15 NOT_I: ~ int -> int
+16 SHL: int << int -> int
+17 SHR: int >> int -> int
 18 AND_L: int && int -> int   // non-short circuiting, of course
 19 OR_L: int || int -> int
 20 NOT_L: ! int -> int
@@ -84,3 +85,27 @@
 72 CAST_V2S: vect -> str
 73 CAST_R2S: rot -> str
 // 74 CAST_L2S: list -> str
+
+// many of the following ops currently unimplemented
+75 ADD_VV: vect + vect -> vect
+76 SUB_VV: vect - vect -> vect
+77 DOT_VV: vect * vect -> float
+78 CROSS_VV: vect % vect -> vect
+
+79 MUL_VF: vect * float -> vect
+80 MUL_FV: float * vect -> vect
+81 DIV_VF: vect / float -> vect
+82 MUL_VR: vect * rot -> vect
+83 DIV_VR: vect / rot -> vect
+
+84 ADD_RR: rot + rot -> rot
+85 SUB_RR: rot - rot -> rot
+86 MUL_RR: rot * rot -> rot
+87 DIV_RR: rot / rot -> rot
+
+88 NEG_I: - int -> int
+89 NEG_F: - float -> float
+90 NEG_V: - vect -> vect
+91 NEG_R: - rot -> rot
+
+92 STRLEN: str -> int func:llStringLength

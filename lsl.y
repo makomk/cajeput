@@ -102,13 +102,14 @@ static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
 }
 
 
- static expr_node * enode_make_id(char *s, YYLTYPE *loc) {
+ static expr_node * enode_make_id(char *s, char *item, YYLTYPE *loc) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    const lsl_const *c = find_lsl_const(s);
    enode_set_loc(enode, loc);
    if(c == NULL) {
      enode->node_type = NODE_IDENT;
-     enode->u.s = s;
+     enode->u.ident.name = s;
+     enode->u.ident.item = item;
    } else { // FIXME - this could lead to assertion failures elsewhere!
      free(s);
      enode->node_type = NODE_CONST; enode->vtype = c->vtype;
@@ -119,6 +120,13 @@ static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
        enode->u.f = c->u.f; break;     
      case VM_TYPE_STR:
        enode->u.s = strdup(c->u.s); break;     
+     case VM_TYPE_ROT:
+       enode->u.v[3] = c->u.v[3];
+       // fall through
+     case VM_TYPE_VECT:
+       enode->u.v[0] = c->u.v[0]; enode->u.v[1] = c->u.v[1]; 
+       enode->u.v[2] = c->u.v[2];
+       break;
      default:
        yyerror("Unhandled type of named constant");
        enode->vtype = VM_TYPE_NONE; 
@@ -130,7 +138,9 @@ static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
  static expr_node * enode_make_id_type(char *s, uint8_t vtype, YYLTYPE *loc) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    enode->node_type = NODE_IDENT; enode->vtype = vtype;
-   enode->u.s = s; enode_set_loc(enode, loc);
+   enode->u.ident.name = s;
+   enode->u.ident.item = NULL; // FIXME
+   enode_set_loc(enode, loc);
    return enode;
 }
 
@@ -158,7 +168,10 @@ static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
  static expr_node *enode_clone_id(expr_node *expr) {
    struct expr_node *enode = malloc(sizeof(struct expr_node));
    assert(expr->node_type == NODE_IDENT);
-   enode->node_type = NODE_IDENT; enode->u.s = strdup(expr->u.s);
+   enode->node_type = NODE_IDENT; 
+   enode->u.ident.name = strdup(expr->u.ident.name);
+   enode->u.ident.item = (expr->u.ident.item == NULL ? NULL : 
+			  strdup(expr->u.ident.item));
    enode->vtype = expr->vtype; enode->loc = expr->loc;
    return enode;
  }
@@ -418,8 +431,8 @@ opt_expr : /* nothing */ { $$ = NULL } | expr ;
 ret_stmt : RETURN { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = NULL; }
          | RETURN expr { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = $2; }
          ;
-variable: IDENTIFIER { $$ = enode_make_id($1, &@1); }
-| IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1, &@1); } /* FIXME - handle .x right */
+variable: IDENTIFIER { $$ = enode_make_id($1, NULL, &@1); }
+| IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1, $3, &@1); }
    ; 
 call : IDENTIFIER '(' list ')' { $$ = enode_make_call($1,$3->first, &@1); free($3); }
 list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->first; }
@@ -433,7 +446,7 @@ list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->f
       } ;
 num_const : NUMBER { $$ = enode_make_int($1, &@1); }
        | REAL { $$ = enode_make_float($1, &@1); }
-       | IDENTIFIER  { $$ = enode_make_id($1, &@1); }
+       | IDENTIFIER  { $$ = enode_make_id($1, NULL, &@1); }
        | '-' num_const { $$ = enode_negate($2, &@1); } ;
 expr : NUMBER { $$ = enode_make_int($1, &@1); }
        | REAL { $$ = enode_make_float($1, &@1); }
@@ -508,7 +521,7 @@ static void print_expr(expr_node *enode) {
     }
     break;
   case NODE_IDENT:
-    printf("%s ", enode->u.s); break;
+    printf("%s ", enode->u.ident.name); break;
   case NODE_ADD:
     printf("(add "); print_expr(enode->u.child[0]); 
     print_expr(enode->u.child[1]); printf(") ");
