@@ -245,7 +245,12 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
 
     // FIXME - iffy
     if(is_flying) {
-      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
+      if((control_flags & (AGENT_CONTROL_UP_NEG)) && 
+	 ctx->sim->physh.avatar_is_landing(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob)) {
+	// OpenSim also recognises AGENT_CONTROL_NUDGE_UP_NEG for this, but we
+	// don't have that yet.
+	set_default_anim(ctx, land_anim);
+      } else if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
 	// FIXME - send proper animations for flying backwards & turns
 	set_default_anim(ctx, fly_anim);
       } else if(control_flags & AGENT_CONTROL_UP_POS) {

@@ -72,6 +72,8 @@ struct phys_obj {
   int objtype;
   int phystype;
   world_obj *obj; // main thread use only
+  int collide_down; // physics thread only; for avatars
+  int collide_down_ticks; // for avatars, mutex protected. + colliding, - not.
 #if 0
   btPairCachingGhostObject* ghost;
   btKinematicCharacterController* control;
@@ -298,6 +300,7 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     if(obj->type == OBJ_TYPE_AVATAR) {
       physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
       physobj->is_flying = 1; // probably the safe assumption. FIXME - do right.
+      physobj->collide_down = 0;
     } else {
        physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
     }
@@ -450,6 +453,21 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
   // FIXME - should make av buoyant
 }
 
+/* Rule here is: if we've been colliding in a vaguely downwards direction for a
+   few frames, we're potentially landing. The main sim code also requires that 
+   the down key is being pressed for an actual landing to happen. */
+static int avatar_is_landing(struct simulator_ctx *sim, void *priv,
+			     struct world_obj *av) {
+  struct phys_obj *physobj = (struct phys_obj *)av->phys;
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+  int ret;
+  assert(av->type == OBJ_TYPE_AVATAR);
+  g_static_mutex_lock(&phys->mutex);
+  ret = physobj != NULL && physobj->collide_down_ticks > 4;
+  g_static_mutex_unlock(&phys->mutex);
+  return ret;
+}
+
 // runs on physics thread
 static void do_phys_updates_locked(struct physics_ctx *phys) {
 
@@ -507,6 +525,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 							 physobj->shape,
 							 local_inertia);
       physobj->body = new btRigidBody(body_info);
+      physobj->body->setUserPointer(physobj);
       physobj->body->setDamping(0.1f, 0.2f); // FIXME - is this right?
       if(physobj->objtype == OBJ_TYPE_AVATAR) {
 	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
@@ -541,6 +560,81 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
   }
 
   phys->changed.clear();
+
+}
+
+#define COLLIDE_DOWN_ANGLE (M_PI*(5.0/6.0)) /* 30 degrees limit */
+
+void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
+  struct physics_ctx *phys = (struct physics_ctx*)world->getWorldUserInfo();
+
+  g_static_mutex_lock(&phys->mutex); // protects phys->physical
+  for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+      iter != phys->physical.end(); iter++) {
+    struct phys_obj *physobj = *iter;
+    physobj->collide_down = 0;
+  }
+  g_static_mutex_unlock(&phys->mutex);
+
+  int numManifolds = world->getDispatcher()->getNumManifolds();
+  for (int i=0; i<numManifolds; i++) {
+    btPersistentManifold* contactManifold = world->getDispatcher()->getManifoldByIndexInternal(i);
+    int numContacts = contactManifold->getNumContacts();
+    
+    btCollisionObject* obA = static_cast<btCollisionObject*>(contactManifold->getBody0());
+    btCollisionObject* obB = static_cast<btCollisionObject*>(contactManifold->getBody1());
+    phys_obj *physobjA = (phys_obj*)obA->getUserPointer();
+    phys_obj *physobjB = (phys_obj*)obB->getUserPointer();
+    
+     if(physobjA != NULL && physobjA->objtype == OBJ_TYPE_AVATAR &&
+	(physobjB == NULL || physobjB->objtype != OBJ_TYPE_AVATAR)) {
+       for (int j=0; j<numContacts; j++) {
+	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
+	 if (pt.getDistance() < 0.0f) {
+	   //const btVector3& ptA = pt.getPositionWorldOnA();
+	   //const btVector3& ptB = pt.getPositionWorldOnB();
+	   const btVector3& normalOnB = pt.m_normalWorldOnB;
+	   btScalar angle = normalOnB.angle(btVector3(0.0f,-1.0f,0.0f));
+	   
+	   /* printf("DEBUG: collision, avatar A, normal <%f,%f,%f> angle %f\n",
+	      normalOnB.getX(), normalOnB.getY(), normalOnB.getZ(), angle); */
+	   if(angle > COLLIDE_DOWN_ANGLE) {
+	     physobjA->collide_down = 1;
+	   }
+	 }
+       }
+     } else if(physobjB != NULL && physobjB->objtype == OBJ_TYPE_AVATAR) {
+       for (int j=0; j<numContacts; j++) {
+	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
+	 if (pt.getDistance() < 0.0f) {
+	   //const btVector3& ptA = pt.getPositionWorldOnA();
+	   //const btVector3& ptB = pt.getPositionWorldOnB();
+	   const btVector3& normalOnB = pt.m_normalWorldOnB;
+	   btScalar angle = normalOnB.angle(btVector3(0.0f,1.0f,0.0f));
+	   /* printf("DEBUG: collision, avatar B, normal <%f,%f,%f>, angle %f\n",
+	      normalOnB.getX(), normalOnB.getY(), normalOnB.getZ(), angle); */
+	   if(angle > COLLIDE_DOWN_ANGLE) {
+	     physobjB->collide_down = 1;
+	   }
+	 }
+       }
+     }
+   }
+
+  g_static_mutex_lock(&phys->mutex);
+  for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+      iter != phys->physical.end(); iter++) {
+    struct phys_obj *physobj = *iter;
+    if(physobj->objtype != OBJ_TYPE_AVATAR) continue;
+    if(physobj->collide_down) {
+      if(physobj->collide_down_ticks >= 0) physobj->collide_down_ticks++;
+      else physobj->collide_down_ticks = 1;
+    } else {
+      if(physobj->collide_down_ticks <= 0) physobj->collide_down_ticks--;
+      else physobj->collide_down_ticks = -1;
+    }
+  }
+  g_static_mutex_unlock(&phys->mutex);
 
 }
 
@@ -735,6 +829,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   // hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
   hooks->set_avatar_flying = set_avatar_flying;
+  hooks->avatar_is_landing = avatar_is_landing;
   hooks->destroy = destroy_physics;
   hooks->apply_impulse = apply_impulse;
 
@@ -752,6 +847,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 						     phys->solver,
 						     phys->collisionConfiguration);
 
+  phys->dynamicsWorld->setInternalTickCallback(tick_callback, phys);
   phys->dynamicsWorld->setGravity(btVector3(0,-9.8,0));
 
 #if 0

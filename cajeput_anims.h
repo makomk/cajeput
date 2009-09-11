@@ -8,5 +8,6 @@ extern uuid_t hover_anim;
 extern uuid_t fly_anim;
 extern uuid_t hover_down_anim;
 extern uuid_t hover_up_anim;
+extern uuid_t land_anim;
 
 #endif

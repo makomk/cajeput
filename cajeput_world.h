@@ -177,6 +177,8 @@ struct cajeput_physics_hooks {
 			     struct world_obj *obj, caj_vector3 velocity);
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj, int is_flying);
+  int(*avatar_is_landing)(struct simulator_ctx *sim, void *priv,
+			  struct world_obj *av);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
   void(*upd_object_pos)(struct simulator_ctx *sim, void *priv,
 			struct world_obj *obj);
