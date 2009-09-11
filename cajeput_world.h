@@ -114,8 +114,11 @@ struct primitive_obj {
   uint32_t flags; // PRIM_FLAG_*
   char *name, *description;
   caj_string tex_entry;
+  caj_string extra_params;
 
+  char *sit_name, *touch_name;
   char *hover_text; uint8_t text_color[4];
+  int32_t creation_date; // FIXME - should probably bigger (year 2037 bug!)
 
   struct {
     unsigned int num_items, alloc_items;
@@ -204,6 +207,7 @@ void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 			 const char *text, uint8_t color[4]);
 void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
 			     void *script_priv, int evmask);
+void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params);
 
 // FIXME - this should definitely be internal
 void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,

@@ -30,6 +30,9 @@ static void free_partial_deserial_xml(xml_serialisation_desc* serial,
       free_partial_deserial_xml((xml_serialisation_desc*)serial[i].extra,
 				outbuf+serial[i].offset, 1000000 /* FIXME - use INT_MAX */);
       break;
+    case XML_STYPE_BASE64:
+      caj_string_free((caj_string*)(outbuf+serial[i].offset));
+      break;
     default:
       break;
     }

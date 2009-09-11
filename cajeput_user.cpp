@@ -685,11 +685,23 @@ struct os_object_shape {
   int profile_begin, profile_end, profile_hollow;
   caj_vector3 scale;
   int state;
+  
+  // duplicate the data in  profile_curve
   char *profile_shape, *hollow_shape;
+
+  // sculpt, flexi and light are fully described by the extra_params
   uuid_t sculpt_texture; int sculpt_type;
   // ??? sculpt_data;
-  int flexi_softness, flexi_tension, flexi_drag, flexi_gravity, flexi_wind;
-  int flexi_force_x, flexi_force_y, flexi_force_z;
+  int sculpt_entry; // boolean
+
+  int flexi_softness;
+  float flexi_tension, flexi_drag, flexi_gravity, flexi_wind;
+  float flexi_force_x, flexi_force_y, flexi_force_z;
+  int flexi_entry; // boolean
+
+  float light_color_r, light_color_g, light_color_b, light_color_a;
+  float light_radius, light_cutoff, light_falloff, light_intensity;
+  int light_entry; // boolean
 };
 
 struct os_object_part {
@@ -714,6 +726,14 @@ struct os_object_part {
   char *text, *sit_name, *touch_name;
   int link_num, click_action;
   struct os_object_shape shape;
+  caj_vector3 scale; // yes, as well as shape.scale!
+  int update_flag; // not convinced this is interesting to us
+  caj_quat sit_target_rot; caj_vector3 sit_target_pos;
+  caj_quat sit_target_rot_ll; caj_vector3 sit_target_pos_ll;
+  int parent_id; // should be uint32_t; uninteresting.
+  int creation_date; // should be uint32_t or long, I think.
+  int category, sale_price, sale_type, ownership_cost;
+  uuid_t group_id, owner_id, last_owner_id;
 };
 
 
@@ -762,19 +782,33 @@ static xml_serialisation_desc deserialise_object_shape[] = {
   { "SculptTexture", XML_STYPE_UUID, offsetof(os_object_shape, sculpt_texture) },
   { "SculptType", XML_STYPE_INT, offsetof(os_object_shape, sculpt_type) },
   { "SculptData", XML_STYPE_SKIP, 0 }, // FIXME!!! (not sure of format yet)
+
   { "FlexiSoftness", XML_STYPE_INT, offsetof(os_object_shape, flexi_softness) },
-  { "FlexiTension", XML_STYPE_INT, offsetof(os_object_shape, flexi_tension) },
-  { "FlexiDrag", XML_STYPE_INT, offsetof(os_object_shape, flexi_drag) },
-  { "FlexiGravity", XML_STYPE_INT, offsetof(os_object_shape, flexi_gravity) },
-  { "FlexiWind", XML_STYPE_INT, offsetof(os_object_shape, flexi_wind) },
-  { "FlexiForceX", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_x) },
-  { "FlexiForceY", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_y) },
-  { "FlexiForceZ", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_z) },
+  { "FlexiTension", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_tension) },
+  { "FlexiDrag", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_drag) },
+  { "FlexiGravity", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_gravity) },
+  { "FlexiWind", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_wind) },
+  { "FlexiForceX", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_force_x) },
+  { "FlexiForceY", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_force_y) },
+  { "FlexiForceZ", XML_STYPE_FLOAT, offsetof(os_object_shape, flexi_force_z) },
+
+  { "LightColorR", XML_STYPE_FLOAT, offsetof(os_object_shape, light_color_r) },
+  { "LightColorG", XML_STYPE_FLOAT, offsetof(os_object_shape, light_color_g) },
+  { "LightColorB", XML_STYPE_FLOAT, offsetof(os_object_shape, light_color_b) },
+  { "LightColorA", XML_STYPE_FLOAT, offsetof(os_object_shape, light_color_a) },
+  { "LightRadius", XML_STYPE_FLOAT, offsetof(os_object_shape, light_radius) },
+  { "LightCutoff", XML_STYPE_FLOAT, offsetof(os_object_shape, light_cutoff) },
+  { "LightFalloff", XML_STYPE_FLOAT, offsetof(os_object_shape, light_falloff) },
+  { "LightIntensity", XML_STYPE_FLOAT, offsetof(os_object_shape, light_intensity) },
+
+  { "FlexiEntry", XML_STYPE_BOOL, offsetof(os_object_shape, flexi_entry) },
+  { "LightEntry", XML_STYPE_BOOL, offsetof(os_object_shape, light_entry) },
+  { "SculptEntry", XML_STYPE_BOOL, offsetof(os_object_shape, sculpt_entry) },
   
   { NULL }
 };
 
-/* ...<FlexiSoftness>0</FlexiSoftness><FlexiTension>0</FlexiTension><FlexiDrag>0</FlexiDrag><FlexiGravity>0</FlexiGravity><FlexiWind>0</FlexiWind><FlexiForceX>0</FlexiForceX><FlexiForceY>0</FlexiForceY><FlexiForceZ>0</FlexiForceZ><LightColorR>0</LightColorR><LightColorG>0</LightColorG><LightColorB>0</LightColorB><LightColorA>1</LightColorA><LightRadius>0</LightRadius><LightCutoff>0</LightCutoff><LightFalloff>0</LightFalloff><LightIntensity>1</LightIntensity><FlexiEntry>false</FlexiEntry><LightEntry>false</LightEntry><SculptEntry>false</SculptEntry></Shape><Scale><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Scale><UpdateFlag>0</UpdateFlag><SitTargetOrientation><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientation><SitTargetPosition><X>0</X><Y>0</Y><Z>0</Z></SitTargetPosition><SitTargetPositionLL><X>0</X><Y>0</Y><Z>0</Z></SitTargetPositionLL><SitTargetOrientationLL><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientationLL><ParentID>0</ParentID><CreationDate>1250356050</CreationDate><Category>0</Category><SalePrice>0</SalePrice><ObjectSaleType>0</ObjectSaleType><OwnershipCost>0</OwnershipCost><GroupID><Guid>00000000-0000-0000-0000-000000000000</Guid></GroupID><OwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></OwnerID><LastOwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></LastOwnerID><BaseMask>2147483647</BaseMask><OwnerMask>2147483647</OwnerMask><GroupMask>0</GroupMask><EveryoneMask>0</EveryoneMask><NextOwnerMask>2147483647</NextOwnerMask><Flags>None</Flags><CollisionSound><Guid>00000000-0000-0000-0000-000000000000</Guid></CollisionSound><CollisionSoundVolume>0</CollisionSoundVolume></SceneObjectPart></RootPart><OtherParts /></SceneObjectGroup> */
+/* ...<Scale><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Scale><UpdateFlag>0</UpdateFlag><SitTargetOrientation><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientation><SitTargetPosition><X>0</X><Y>0</Y><Z>0</Z></SitTargetPosition><SitTargetPositionLL><X>0</X><Y>0</Y><Z>0</Z></SitTargetPositionLL><SitTargetOrientationLL><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientationLL><ParentID>0</ParentID><CreationDate>1250356050</CreationDate><Category>0</Category><SalePrice>0</SalePrice><ObjectSaleType>0</ObjectSaleType><OwnershipCost>0</OwnershipCost><GroupID><Guid>00000000-0000-0000-0000-000000000000</Guid></GroupID><OwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></OwnerID><LastOwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></LastOwnerID><BaseMask>2147483647</BaseMask><OwnerMask>2147483647</OwnerMask><GroupMask>0</GroupMask><EveryoneMask>0</EveryoneMask><NextOwnerMask>2147483647</NextOwnerMask><Flags>None</Flags><CollisionSound><Guid>00000000-0000-0000-0000-000000000000</Guid></CollisionSound><CollisionSoundVolume>0</CollisionSoundVolume></SceneObjectPart></RootPart><OtherParts /></SceneObjectGroup> */
 static xml_serialisation_desc deserialise_object_part[] = {
   { "AllowedDrop", XML_STYPE_BOOL, offsetof(os_object_part, allow_drop) },
   { "CreatorID", XML_STYPE_UUID, offsetof(os_object_part, creator_id) },
@@ -804,6 +838,23 @@ static xml_serialisation_desc deserialise_object_part[] = {
   { "LinkNum", XML_STYPE_INT, offsetof(os_object_part, link_num) },
   { "ClickAction", XML_STYPE_INT, offsetof(os_object_part, click_action) },
   { "Shape", XML_STYPE_STRUCT, offsetof(os_object_part, shape), deserialise_object_shape },
+  { "Scale", XML_STYPE_STRUCT, offsetof(os_object_part, scale), deserialise_vect3 },
+  { "UpdateFlag", XML_STYPE_INT, offsetof(os_object_part, update_flag) },
+  { "SitTargetOrientation", XML_STYPE_STRUCT, offsetof(os_object_part, sit_target_rot), deserialise_quat },
+  { "SitTargetPosition", XML_STYPE_STRUCT, offsetof(os_object_part, sit_target_pos), deserialise_vect3 },
+  { "SitTargetPositionLL", XML_STYPE_STRUCT, offsetof(os_object_part, sit_target_pos_ll), deserialise_vect3 },
+  { "SitTargetOrientationLL", XML_STYPE_STRUCT, offsetof(os_object_part, sit_target_rot_ll), deserialise_quat },
+  { "ParentID", XML_STYPE_INT, offsetof(os_object_part, parent_id) },
+  { "CreationDate", XML_STYPE_INT, offsetof(os_object_part, creation_date) },
+  { "Category", XML_STYPE_INT, offsetof(os_object_part, category) },
+  { "SalePrice", XML_STYPE_INT, offsetof(os_object_part, sale_price) },
+  { "ObjectSaleType", XML_STYPE_INT, offsetof(os_object_part, sale_type) },
+  { "OwnershipCost", XML_STYPE_INT, offsetof(os_object_part, ownership_cost) },
+  { "GroupID", XML_STYPE_UUID, offsetof(os_object_part, group_id) },
+  { "OwnerID", XML_STYPE_UUID, offsetof(os_object_part, owner_id) },
+  { "LastOwnerID", XML_STYPE_UUID, offsetof(os_object_part, last_owner_id) },
+
+  // TODO - unpack the permission flags.
   
   { NULL }
 };
@@ -838,7 +889,8 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
   free(prim->description); prim->description = strdup(objpart.description);
   // FIXME - parse and set text colour
   free(prim->hover_text); prim->hover_text = strdup(objpart.text);
-  // will want to set sit & touch names once we support them
+  free(prim->sit_name); prim->sit_name = strdup(objpart.sit_name);
+  free(prim->touch_name); prim->touch_name = strdup(objpart.touch_name);
   
   prim->material = objpart.material;
   prim->ob.pos = objpart.group_pos; // for child prims, this would be wrong
@@ -850,7 +902,7 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
   prim->profile_curve = objpart.shape.profile_curve;
   caj_string_free(&prim->tex_entry);
   caj_string_steal(&prim->tex_entry, &objpart.shape.tex_entry);
-  // FIXME - restore extra params, when I add support for them
+  prim_set_extra_params(prim, &objpart.shape.extra_params);
   prim->path_begin = objpart.shape.path_begin;
   prim->path_curve = objpart.shape.path_curve;
   prim->path_end = objpart.shape.path_end;
@@ -873,6 +925,10 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
   // FIXME - do something with objpart.shape.state?
   // handle ProfileShape and HollowShape? They duplicate ProfileCurve
   
+  prim->creation_date = objpart.creation_date;
+  // prim->category = objpart.category;
+  prim->sale_type = objpart.sale_type;
+  prim->sale_price = objpart.sale_price;
   // FIXME - TODO
 
   xmlFree(objpart.name); xmlFree(objpart.description); xmlFree(objpart.text); 

@@ -626,6 +626,7 @@ static void inventory_descendents_cb(struct inventory_contents* inv, void* priv)
 	  idata->CreationDate = inv->items[i].creation_date;
 	  idata->CRC = caj_calc_inventory_crc(&inv->items[i]);
 	}
+	invdesc.flags |= MSG_RELIABLE;
 	sl_send_udp(lctx, &invdesc); // FIXME - throttle this!
       }
     }
@@ -648,6 +649,70 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
   
   user_fetch_inventory_folder(lctx->u->sim, lctx->u, inv->FolderID,
 			      inventory_descendents_cb, req);
+}
+
+static void inventory_item_cb(struct inventory_item* inv, void* priv) {
+  user_ctx **pctx = (user_ctx**)priv;
+  if(*pctx != NULL) {
+    omuser_ctx* lctx = (omuser_ctx*)(*pctx)->user_priv;
+    user_del_self_pointer(pctx);
+
+    if(inv != NULL) {
+      SL_DECLMSG(FetchInventoryReply, invresp);
+      SL_DECLBLK(FetchInventoryReply, AgentData, ad, &invresp);
+      uuid_copy(ad->AgentID, lctx->u->user_id);
+      
+      SL_DECLBLK(FetchInventoryReply, InventoryData, idata, &invresp);
+      uuid_copy(idata->ItemID, inv->item_id);
+      uuid_copy(idata->FolderID, inv->folder_id);
+      uuid_copy(idata->CreatorID, inv->creator_as_uuid);
+      uuid_copy(idata->OwnerID, inv->owner_id);
+      uuid_copy(idata->GroupID, inv->group_id);
+      idata->BaseMask = inv->perms.base;
+      idata->OwnerMask = inv->perms.current;
+      idata->GroupMask = inv->perms.group;
+      idata->EveryoneMask = inv->perms.everyone;
+      idata->NextOwnerMask = inv->perms.next;
+      idata->GroupOwned = inv->group_owned;
+      uuid_copy(idata->AssetID, inv->asset_id);
+      idata->Type = inv->asset_type;
+      idata->InvType = inv->inv_type;
+      idata->Flags = inv->flags;
+      idata->SaleType = inv->sale_type;
+      idata->SalePrice = inv->sale_price;
+      caj_string_set(&idata->Name, inv->name);
+      caj_string_set(&idata->Description, inv->description);
+      idata->CreationDate = inv->creation_date;
+      idata->CRC = caj_calc_inventory_crc(inv);
+      invresp.flags |= MSG_RELIABLE;
+      sl_send_udp(lctx, &invresp); // FIXME - throttle this!
+    }
+  }
+  delete pctx;
+}
+
+static void handle_FetchInventory_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(FetchInventory, AgentData, ad, msg);
+  ;
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
+    return;
+  
+  int count = SL_GETBLK(FetchInventory, InventoryData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+     SL_DECLBLK_ONLY(FetchInventory, InventoryData, inv) =
+      SL_GETBLKI(FetchInventory, InventoryData, msg, i);
+
+    printf("DEBUG: Got FetchInventory, sending to inventory server!\n");
+  
+    // FIXME - what do we do with InventoryData.OwnerID?
+  
+    user_ctx **pctx = new user_ctx*();
+    *pctx = lctx->u;  user_add_self_pointer(pctx);
+    
+    user_fetch_inventory_item(lctx->u->sim, lctx->u, inv->ItemID,
+			      inventory_item_cb, pctx);
+  }
 }
 
 // for debugging purposes ontly
@@ -1430,8 +1495,8 @@ static void send_object_properties(struct omuser_ctx* lctx, uint32_t localid) {
 
   caj_string_set(&propdat->Name, prim->name);
   caj_string_set(&propdat->Description, prim->description);
-  caj_string_set(&propdat->TouchName, "");
-  caj_string_set(&propdat->SitName, "");
+  caj_string_set(&propdat->TouchName, prim->touch_name);
+  caj_string_set(&propdat->SitName, prim->sit_name);
   propdat->TextureID.len = 0; // FIXME - ?
   objprop.flags |= MSG_RELIABLE; // ???
   sl_send_udp(lctx, &objprop);
@@ -2402,7 +2467,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   memcpy(objd->TextColor, prim->text_color, 4);
   objd->MediaURL.len = 0;
   objd->PSBlock.len = 0;
-  objd->ExtraParams.len = 0;
+  caj_string_copy(&objd->ExtraParams, &prim->extra_params);
 
   uuid_copy(objd->OwnerID, prim->owner);
   memset(objd->Sound,0,16);
@@ -2783,6 +2848,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectDeGrab);
   ADD_HANDLER(ObjectDuplicate);
   ADD_HANDLER(RezObject);
+  ADD_HANDLER(FetchInventory);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

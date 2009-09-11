@@ -354,6 +354,7 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
 // properly, you *must* edit cajeput_dump.cpp as well as here, since it doesn't
 // use world_begin_new_prim when revivifying loaded prims.
 // You may also need to update clone_prim below.
+// Plus, you might want to update prim_from_os_xml (though it's not essential).
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   struct primitive_obj *prim = new primitive_obj();
   memset(prim, 0, sizeof(struct primitive_obj));
@@ -375,9 +376,20 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->inv.items = NULL; prim->inv.serial = 0;
   prim->inv.filename = NULL;
 
+  // tad hacky; the first byte is actually a count, not a terminating null
+  caj_string_set_bin(&prim->extra_params, (const unsigned char*)"", 1); 
+
   prim->hover_text = strdup(""); 
   memset(prim->text_color, 0, sizeof(prim->text_color)); // technically redundant
+  prim->sit_name = strdup(""); prim->touch_name = strdup("");
+  prim->creation_date = time(NULL);
   return prim;
+}
+
+// currently just a dumb wrapper, but I expect to smarten it up later
+void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params) {
+  caj_string_free(&prim->extra_params);
+  caj_string_copy(&prim->extra_params, params);
 }
 
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
@@ -400,7 +412,8 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
     delete inv;
   }
   free(prim->name); free(prim->description); free(prim->inv.filename);
-  caj_string_free(&prim->tex_entry); free(prim->hover_text);
+  caj_string_free(&prim->tex_entry); caj_string_free(&prim->extra_params);
+  free(prim->hover_text); free(prim->sit_name); free(prim->touch_name);
   free(prim->inv.items); delete prim;
 }
 
