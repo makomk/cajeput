@@ -1,6 +1,8 @@
 #include "opensim_xml_glue.h"
 #include "string.h"
 #include "uuid/uuid.h"
+#include "caj_types.h"
+#include "glib.h"
 
 static int check_node(xmlNodePtr node, const char* name) {
   if(node == NULL) {
@@ -19,10 +21,14 @@ static int check_node(xmlNodePtr node, const char* name) {
 static void free_partial_deserial_xml(xml_serialisation_desc* serial,
 				      void* out, int cnt) {
   unsigned char* outbuf = (unsigned char*)out;
-  for(int i = 0; i < cnt; i++) {
+  for(int i = 0; i < cnt && serial[i].name != NULL; i++) {
     switch(serial[i].type) {
     case XML_STYPE_STRING:
       xmlFree(*(char**)(outbuf+serial[i].offset));
+      break;
+    case XML_STYPE_STRUCT:
+      free_partial_deserial_xml((xml_serialisation_desc*)serial[i].extra,
+				outbuf+serial[i].offset, 1000000 /* FIXME - use INT_MAX */);
       break;
     default:
       break;
@@ -46,8 +52,11 @@ int osglue_deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
     case XML_STYPE_SKIP:
       break; // do nothing.
     case XML_STYPE_STRING:
-      *(char**)(outbuf+serial[i].offset) = 
-	(char*)xmlNodeListGetString(doc, node->children, 1);
+      {
+	char* str = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if(str == NULL) { str = (char*)xmlMalloc(1); str[0] = 0; }
+	*(char**)(outbuf+serial[i].offset) = str;
+      }
       break;
     case XML_STYPE_UUID:
       {
@@ -72,7 +81,64 @@ int osglue_deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
     case XML_STYPE_INT:
       {
 	char *s = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if(s == NULL) {
+	  printf("ERROR: bad integer XML node %s", serial[i].name);
+	  free_partial_deserial_xml(serial, out, i);
+	  return 0;
+	}
 	*(int*)(outbuf+serial[i].offset) = atoi(s);
+	xmlFree(s);
+      }
+      break;
+    case XML_STYPE_BOOL:
+      {
+	char *s = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if(strcmp(s,"true") == 0) {
+	  *(int*)(outbuf+serial[i].offset) = 1;
+	} else if(strcmp(s,"false") == 0) {
+	  *(int*)(outbuf+serial[i].offset) = 0;
+	} else {
+	  printf("ERROR: bad boolean value in deserialise_xml\n");
+	  free_partial_deserial_xml(serial, out, i);
+	  xmlFree(s);
+	  return 0;
+	}
+	xmlFree(s);
+      }
+      break;
+    case XML_STYPE_FLOAT:
+      {
+	char *s = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if(s == NULL) {
+	  printf("ERROR: bad float XML node %s\n", serial[i].name);
+	  free_partial_deserial_xml(serial, out, i);
+	  return 0;
+	}
+	*(float*)(outbuf+serial[i].offset) = atof(s);
+	xmlFree(s);
+      }
+      break;
+    case XML_STYPE_STRUCT:
+      if(!osglue_deserialise_xml(doc, node->children, 
+				 (xml_serialisation_desc*)serial[i].extra,
+				 outbuf+serial[i].offset)) {
+	printf("ERROR: couldn't deserialise child struct %s\n",
+	       serial[i].name);
+	free_partial_deserial_xml(serial, out, i);
+	return 0;
+      }
+      break;
+    case XML_STYPE_BASE64:
+      {
+	caj_string *str = (caj_string*)(outbuf+serial[i].offset);
+	char* s = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if(s == NULL) {
+	  str->data = (unsigned char*)malloc(0); str->len = 0;
+	} else {
+	  gsize sz;	  
+	  g_base64_decode_inplace(s, &sz); // FIXME - error handling?
+	  caj_string_set_bin(str, (unsigned char*)s, sz);
+	}
 	xmlFree(s);
       }
       break;
@@ -120,6 +186,16 @@ int osglue_serialise_xml(xmlTextWriterPtr writer,
 					    "%i",*(int*)(inbuf+serial[i].offset)) < 0) 
 	   return 0;
       }
+      break;
+    case XML_STYPE_BOOL:
+       if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
+					  "%s",(*(int*)(inbuf+serial[i].offset)?"true":"false")) < 0) 
+	return 0;
+      break;
+    case XML_STYPE_FLOAT:
+      if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
+					    "%f",*(float*)(inbuf+serial[i].offset)) < 0) 
+	   return 0;
       break;
     case XML_STYPE_SKIP:
     default:

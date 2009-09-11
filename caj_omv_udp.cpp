@@ -609,11 +609,11 @@ static void inventory_descendents_cb(struct inventory_contents* inv, void* priv)
 	  uuid_copy(idata->CreatorID, inv->items[i].creator_as_uuid);
 	  uuid_copy(idata->OwnerID, inv->items[i].owner_id);
 	  uuid_copy(idata->GroupID, inv->items[i].group_id);
-	  idata->BaseMask = inv->items[i].base_perms;
-	  idata->OwnerMask = inv->items[i].current_perms;
-	  idata->GroupMask = inv->items[i].group_perms;
-	  idata->EveryoneMask = inv->items[i].everyone_perms;
-	  idata->NextOwnerMask = inv->items[i].next_perms;
+	  idata->BaseMask = inv->items[i].perms.base;
+	  idata->OwnerMask = inv->items[i].perms.current;
+	  idata->GroupMask = inv->items[i].perms.group;
+	  idata->EveryoneMask = inv->items[i].perms.everyone;
+	  idata->NextOwnerMask = inv->items[i].perms.next;
 	  idata->GroupOwned = inv->items[i].group_owned;
 	  uuid_copy(idata->AssetID, inv->items[i].asset_id);
 	  idata->Type = inv->items[i].asset_type;
@@ -1373,11 +1373,11 @@ static void handle_RequestObjectPropertiesFamily_msg(struct omuser_ctx* lctx, st
   uuid_copy(propdat->ObjectID, obj->id);
   uuid_copy(propdat->OwnerID, prim->owner);
   uuid_clear(propdat->GroupID); // FIXME - send group ID once we have it!
-  propdat->BaseMask = prim->base_perms;
-  propdat->OwnerMask = prim->owner_perms;
-  propdat->GroupMask = prim->group_perms;
-  propdat->EveryoneMask = prim->everyone_perms;
-  propdat->NextOwnerMask = prim->next_perms;
+  propdat->BaseMask = prim->perms.base;
+  propdat->OwnerMask = prim->perms.current;
+  propdat->GroupMask = prim->perms.group;
+  propdat->EveryoneMask = prim->perms.everyone;
+  propdat->NextOwnerMask = prim->perms.next;
   propdat->OwnershipCost = 0; // ?? is this still used?
   propdat->SaleType = prim->sale_type;
   propdat->SalePrice = prim->sale_price;
@@ -1408,11 +1408,11 @@ static void send_object_properties(struct omuser_ctx* lctx, uint32_t localid) {
   uuid_copy(propdat->CreatorID, prim->creator);
   uuid_clear(propdat->GroupID); // FIXME - send group ID once we have it!
   propdat->CreationDate = 0; // FIXME!!!
-  propdat->BaseMask = prim->base_perms;
-  propdat->OwnerMask = prim->owner_perms;
-  propdat->GroupMask = prim->group_perms;
-  propdat->EveryoneMask = prim->everyone_perms;
-  propdat->NextOwnerMask = prim->next_perms;
+  propdat->BaseMask = prim->perms.base;
+  propdat->OwnerMask = prim->perms.current;
+  propdat->GroupMask = prim->perms.group;
+  propdat->EveryoneMask = prim->perms.everyone;
+  propdat->NextOwnerMask = prim->perms.next;
   propdat->OwnershipCost = 0; // ?? is this still used?
   propdat->SaleType = prim->sale_type;
   propdat->SalePrice = prim->sale_price;
@@ -1553,11 +1553,11 @@ static void handle_RequestTaskInventory_msg(struct omuser_ctx* lctx, struct sl_m
 	task_inv_uuid(task_inv, "parent_id", prim->ob.id);
 
 	task_inv.append("\tpermissions 0\n\t{\n"); // yes, a space. Really.
-	task_inv_hex(task_inv, "base_mask", prim->base_perms);
-	task_inv_hex(task_inv, "owner_mask", prim->owner_perms);
-	task_inv_hex(task_inv, "group_mask", prim->group_perms);
-	task_inv_hex(task_inv, "everyone_mask", prim->everyone_perms);
-	task_inv_hex(task_inv, "next_owner_mask", prim->next_perms);
+	task_inv_hex(task_inv, "base_mask", prim->perms.base);
+	task_inv_hex(task_inv, "owner_mask", prim->perms.current);
+	task_inv_hex(task_inv, "group_mask", prim->perms.group);
+	task_inv_hex(task_inv, "everyone_mask", prim->perms.everyone);
+	task_inv_hex(task_inv, "next_owner_mask", prim->perms.next);
 	
 	task_inv_uuid(task_inv, "creator_id", item->creator_as_uuid);
 	task_inv_uuid(task_inv, "owner_id", item->owner_id);
@@ -1704,6 +1704,21 @@ static void handle_ObjectDuplicate_msg(struct omuser_ctx* lctx, struct sl_messag
     user_duplicate_prim(lctx->u, prim, newpos);
   }  
 }
+
+
+static void handle_RezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RezObject, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RezObject, RezData, rezd, msg);
+  SL_DECLBLK_GET1(RezObject, InventoryData, invd, msg);
+  if(ad == NULL || rezd == NULL || invd == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  user_rez_object(lctx->u, rezd->FromTaskID, invd->ItemID, rezd->RayEnd);
+
+  sl_dump_packet(msg);
+}
+  
+
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
 			   void *priv) {
@@ -2767,6 +2782,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectGrabUpdate);
   ADD_HANDLER(ObjectDeGrab);
   ADD_HANDLER(ObjectDuplicate);
+  ADD_HANDLER(RezObject);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

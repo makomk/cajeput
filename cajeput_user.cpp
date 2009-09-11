@@ -334,6 +334,26 @@ void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
   }
 }
 
+void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user, 
+			       uuid_t item_id,
+			       void(*cb)(struct inventory_item* item, 
+					 void* priv),
+			       void *cb_priv) {
+#if 0 // FIXME - handle library right!
+  std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+       sim->inv_lib.find(folder_id);
+  if(iter == sim->inv_lib.end()) {
+    sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
+				      folder_id,cb,cb_priv);
+  } else {
+    cb(iter->second, cb_priv);
+  }
+#endif
+  sim->gridh.fetch_inventory_item(sim,user,user->grid_priv,
+				  item_id,cb,cb_priv);
+}
+
+
 static teleport_desc* begin_teleport(struct user_ctx* ctx) {
   if(ctx->tp_out != NULL) {
     printf("!!! ERROR: can't teleport while teleporting!\n");
@@ -645,4 +665,304 @@ void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id,
       user_remove_int(user);
     else user = &(*user)->next;
   }
+}
+
+struct rez_object_desc {
+  user_ctx* ctx;
+  caj_vector3 pos;
+  permission_flags perms;
+};
+
+#include "opensim_xml_glue.h"
+
+struct os_object_shape {
+  int profile_curve;
+  caj_string tex_entry, extra_params;
+  int path_begin, path_curve, path_end;
+  int path_radius_offset, path_revolutions, path_scale_x, path_scale_y;
+  int path_shear_x, path_shear_y, path_skew, path_taper_x, path_taper_y;
+  int path_twist, path_twist_begin, pcode;
+  int profile_begin, profile_end, profile_hollow;
+  caj_vector3 scale;
+  int state;
+  char *profile_shape, *hollow_shape;
+  uuid_t sculpt_texture; int sculpt_type;
+  // ??? sculpt_data;
+  int flexi_softness, flexi_tension, flexi_drag, flexi_gravity, flexi_wind;
+  int flexi_force_x, flexi_force_y, flexi_force_z;
+};
+
+struct os_object_part {
+  int allow_drop; // bool
+  uuid_t creator_id, folder_id;
+  int inv_serial;
+  // FIXME - handle TaskInventory!
+  int object_flags; // actually should be uint32_t
+  uuid_t id;
+  int local_id; // actually should be uint32_t
+  char *name;
+  int material;
+  int pass_touches; // boolean;
+  // uint64_t region_handle;
+  int script_pin;
+  caj_vector3 group_pos, offset_pos;
+  caj_quat rot_offset;
+  caj_vector3 velocity, rot_velocity, angular_vel;
+  caj_vector3 accel;
+  char *description;
+  // ?? colour
+  char *text, *sit_name, *touch_name;
+  int link_num, click_action;
+  struct os_object_shape shape;
+};
+
+
+
+static xml_serialisation_desc deserialise_vect3[] = {
+  { "X", XML_STYPE_FLOAT, offsetof(caj_vector3, x) },
+  { "Y", XML_STYPE_FLOAT, offsetof(caj_vector3, y) },
+  { "Z", XML_STYPE_FLOAT, offsetof(caj_vector3, z) },
+  { NULL }
+};
+
+static xml_serialisation_desc deserialise_quat[] = {
+  { "X", XML_STYPE_FLOAT, offsetof(caj_quat, x) },
+  { "Y", XML_STYPE_FLOAT, offsetof(caj_quat, y) },
+  { "Z", XML_STYPE_FLOAT, offsetof(caj_quat, z) },
+  { "W", XML_STYPE_FLOAT, offsetof(caj_quat, w) },
+  { NULL }
+};
+
+static xml_serialisation_desc deserialise_object_shape[] = {
+  { "ProfileCurve", XML_STYPE_INT, offsetof(os_object_shape, profile_curve) },
+  { "TextureEntry", XML_STYPE_BASE64, offsetof(os_object_shape, tex_entry) },
+  { "ExtraParams", XML_STYPE_BASE64, offsetof(os_object_shape, extra_params) },
+  { "PathBegin", XML_STYPE_INT, offsetof(os_object_shape, path_begin) },
+  { "PathCurve", XML_STYPE_INT, offsetof(os_object_shape, path_curve) },
+  { "PathEnd", XML_STYPE_INT, offsetof(os_object_shape, path_end) },
+  { "PathRadiusOffset", XML_STYPE_INT, offsetof(os_object_shape, path_radius_offset) },
+  { "PathRevolutions", XML_STYPE_INT, offsetof(os_object_shape, path_revolutions) },
+  { "PathScaleX", XML_STYPE_INT, offsetof(os_object_shape, path_scale_x) },
+  { "PathScaleY", XML_STYPE_INT, offsetof(os_object_shape, path_scale_y) },
+  { "PathShearX", XML_STYPE_INT, offsetof(os_object_shape, path_shear_x) },
+  { "PathShearY", XML_STYPE_INT, offsetof(os_object_shape, path_shear_y) },
+  { "PathSkew", XML_STYPE_INT, offsetof(os_object_shape, path_skew) },
+  { "PathTaperX", XML_STYPE_INT, offsetof(os_object_shape, path_taper_x) },
+  { "PathTaperY", XML_STYPE_INT, offsetof(os_object_shape, path_taper_y) },
+  { "PathTwist", XML_STYPE_INT, offsetof(os_object_shape, path_twist) },
+  { "PathTwistBegin", XML_STYPE_INT, offsetof(os_object_shape, path_twist_begin) },
+  { "PCode", XML_STYPE_INT, offsetof(os_object_shape, pcode) },
+  { "ProfileBegin", XML_STYPE_INT, offsetof(os_object_shape, profile_begin) },
+  { "ProfileEnd", XML_STYPE_INT, offsetof(os_object_shape, profile_end) },
+  { "ProfileHollow", XML_STYPE_INT, offsetof(os_object_shape, profile_hollow) },
+  { "Scale", XML_STYPE_STRUCT, offsetof(os_object_shape, scale), deserialise_vect3 },
+  { "State", XML_STYPE_INT, offsetof(os_object_shape, state) },
+  { "ProfileShape", XML_STYPE_STRING, offsetof(os_object_shape, profile_shape) },
+  { "HollowShape", XML_STYPE_STRING, offsetof(os_object_shape, hollow_shape) },
+  { "SculptTexture", XML_STYPE_UUID, offsetof(os_object_shape, sculpt_texture) },
+  { "SculptType", XML_STYPE_INT, offsetof(os_object_shape, sculpt_type) },
+  { "SculptData", XML_STYPE_SKIP, 0 }, // FIXME!!! (not sure of format yet)
+  { "FlexiSoftness", XML_STYPE_INT, offsetof(os_object_shape, flexi_softness) },
+  { "FlexiTension", XML_STYPE_INT, offsetof(os_object_shape, flexi_tension) },
+  { "FlexiDrag", XML_STYPE_INT, offsetof(os_object_shape, flexi_drag) },
+  { "FlexiGravity", XML_STYPE_INT, offsetof(os_object_shape, flexi_gravity) },
+  { "FlexiWind", XML_STYPE_INT, offsetof(os_object_shape, flexi_wind) },
+  { "FlexiForceX", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_x) },
+  { "FlexiForceY", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_y) },
+  { "FlexiForceZ", XML_STYPE_INT, offsetof(os_object_shape, flexi_force_z) },
+  
+  { NULL }
+};
+
+/* ...<FlexiSoftness>0</FlexiSoftness><FlexiTension>0</FlexiTension><FlexiDrag>0</FlexiDrag><FlexiGravity>0</FlexiGravity><FlexiWind>0</FlexiWind><FlexiForceX>0</FlexiForceX><FlexiForceY>0</FlexiForceY><FlexiForceZ>0</FlexiForceZ><LightColorR>0</LightColorR><LightColorG>0</LightColorG><LightColorB>0</LightColorB><LightColorA>1</LightColorA><LightRadius>0</LightRadius><LightCutoff>0</LightCutoff><LightFalloff>0</LightFalloff><LightIntensity>1</LightIntensity><FlexiEntry>false</FlexiEntry><LightEntry>false</LightEntry><SculptEntry>false</SculptEntry></Shape><Scale><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Scale><UpdateFlag>0</UpdateFlag><SitTargetOrientation><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientation><SitTargetPosition><X>0</X><Y>0</Y><Z>0</Z></SitTargetPosition><SitTargetPositionLL><X>0</X><Y>0</Y><Z>0</Z></SitTargetPositionLL><SitTargetOrientationLL><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientationLL><ParentID>0</ParentID><CreationDate>1250356050</CreationDate><Category>0</Category><SalePrice>0</SalePrice><ObjectSaleType>0</ObjectSaleType><OwnershipCost>0</OwnershipCost><GroupID><Guid>00000000-0000-0000-0000-000000000000</Guid></GroupID><OwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></OwnerID><LastOwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></LastOwnerID><BaseMask>2147483647</BaseMask><OwnerMask>2147483647</OwnerMask><GroupMask>0</GroupMask><EveryoneMask>0</EveryoneMask><NextOwnerMask>2147483647</NextOwnerMask><Flags>None</Flags><CollisionSound><Guid>00000000-0000-0000-0000-000000000000</Guid></CollisionSound><CollisionSoundVolume>0</CollisionSoundVolume></SceneObjectPart></RootPart><OtherParts /></SceneObjectGroup> */
+static xml_serialisation_desc deserialise_object_part[] = {
+  { "AllowedDrop", XML_STYPE_BOOL, offsetof(os_object_part, allow_drop) },
+  { "CreatorID", XML_STYPE_UUID, offsetof(os_object_part, creator_id) },
+  { "FolderID", XML_STYPE_UUID, offsetof(os_object_part, folder_id) },
+  { "InventorySerial", XML_STYPE_INT, offsetof(os_object_part, inv_serial) },
+  { "TaskInventory", XML_STYPE_SKIP, 0 }, // FIXME
+  { "ObjectFlags", XML_STYPE_INT,  offsetof(os_object_part, object_flags) },
+  { "UUID",  XML_STYPE_UUID, offsetof(os_object_part, id) },
+  { "LocalId", XML_STYPE_INT, offsetof(os_object_part, local_id) },
+  { "Name", XML_STYPE_STRING, offsetof(os_object_part, name) },
+  { "Material", XML_STYPE_INT, offsetof(os_object_part, material) },
+  { "PassTouches", XML_STYPE_BOOL, offsetof(os_object_part, pass_touches) },
+  { "RegionHandle", XML_STYPE_SKIP, 0 }, // FIXME
+  { "ScriptAccessPin", XML_STYPE_INT,  offsetof(os_object_part, script_pin) },
+  { "GroupPosition", XML_STYPE_STRUCT, offsetof(os_object_part, group_pos), deserialise_vect3 },
+  { "OffsetPosition", XML_STYPE_STRUCT, offsetof(os_object_part, offset_pos), deserialise_vect3 },
+  { "RotationOffset", XML_STYPE_STRUCT, offsetof(os_object_part, rot_offset), deserialise_quat },
+  { "Velocity", XML_STYPE_STRUCT, offsetof(os_object_part, velocity), deserialise_vect3 },
+  { "RotationalVelocity", XML_STYPE_STRUCT, offsetof(os_object_part, rot_velocity), deserialise_vect3 },
+  { "AngularVelocity", XML_STYPE_STRUCT, offsetof(os_object_part, angular_vel), deserialise_vect3 },
+  { "Acceleration", XML_STYPE_STRUCT, offsetof(os_object_part, accel), deserialise_vect3 },
+  { "Description", XML_STYPE_STRING, offsetof(os_object_part, description) },
+  { "Color", XML_STYPE_SKIP, 0 }, // FIXME - format? Presumably for hover text.
+  { "Text", XML_STYPE_STRING, offsetof(os_object_part, text) },
+  { "SitName", XML_STYPE_STRING, offsetof(os_object_part, sit_name) },
+  { "TouchName", XML_STYPE_STRING, offsetof(os_object_part, touch_name) },
+  { "LinkNum", XML_STYPE_INT, offsetof(os_object_part, link_num) },
+  { "ClickAction", XML_STYPE_INT, offsetof(os_object_part, click_action) },
+  { "Shape", XML_STYPE_STRUCT, offsetof(os_object_part, shape), deserialise_object_shape },
+  
+  { NULL }
+};
+
+// FIXME - this is starting to suffer from code duplication.
+static int check_node(xmlNodePtr node, const char* name) {
+  if(node == NULL) {
+    printf("ERROR: missing %s node\n", name); 
+    return 0;
+  } else if(strcmp((char*)node->name, name) != 0) {
+    printf("ERROR: unexpected node: wanted %s, got %s\n",
+	   name, (char*)node->name);
+    return 0;
+  }
+  return 1;
+}
+
+static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
+  os_object_part objpart;
+  if(!check_node(node, "SceneObjectPart")) return NULL;
+  if(!osglue_deserialise_xml(doc, node->children, deserialise_object_part,
+			     &objpart)) return NULL;
+
+  primitive_obj *prim = world_begin_new_prim(NULL); // FIXME - pass sim.
+  uuid_copy(prim->creator, objpart.creator_id);
+  prim->inv.serial = objpart.inv_serial;
+  // FIXME - copy inventory.
+  prim->flags = objpart.object_flags;
+  // uuid_copy(prim->ob.id, objpart.id) - do we ever want to do this? Really?
+
+  free(prim->name); prim->name = strdup(objpart.name);
+  free(prim->description); prim->description = strdup(objpart.description);
+  // FIXME - parse and set text colour
+  free(prim->hover_text); prim->hover_text = strdup(objpart.text);
+  // will want to set sit & touch names once we support them
+  
+  prim->material = objpart.material;
+  prim->ob.pos = objpart.group_pos; // for child prims, this would be wrong
+  prim->ob.rot = objpart.rot_offset; // is this right?
+  prim->ob.velocity = objpart.velocity;
+  // TODO - restore angular velocity and acceleration
+  // should also restore click action once we support it!
+
+  prim->profile_curve = objpart.shape.profile_curve;
+  caj_string_free(&prim->tex_entry);
+  caj_string_steal(&prim->tex_entry, &objpart.shape.tex_entry);
+  // FIXME - restore extra params, when I add support for them
+  prim->path_begin = objpart.shape.path_begin;
+  prim->path_curve = objpart.shape.path_curve;
+  prim->path_end = objpart.shape.path_end;
+  prim->path_radius_offset = objpart.shape.path_radius_offset;
+  prim->path_revolutions = objpart.shape.path_revolutions;
+  prim->path_scale_x = objpart.shape.path_scale_x;
+  prim->path_scale_y = objpart.shape.path_scale_y;
+  prim->path_shear_x = objpart.shape.path_shear_x;
+  prim->path_shear_y = objpart.shape.path_shear_y;
+  prim->path_skew = objpart.shape.path_skew;
+  prim->path_taper_x = objpart.shape.path_taper_x;
+  prim->path_taper_y = objpart.shape.path_taper_y;
+  prim->path_twist = objpart.shape.path_twist;
+  prim->path_twist_begin = objpart.shape.path_twist_begin;
+  // FIXME - check PCode is the expected one!
+  prim->profile_begin = objpart.shape.profile_begin;
+  prim->profile_end = objpart.shape.profile_end;
+  prim->profile_hollow = objpart.shape.profile_hollow;
+  prim->ob.scale = objpart.shape.scale;
+  // FIXME - do something with objpart.shape.state?
+  // handle ProfileShape and HollowShape? They duplicate ProfileCurve
+  
+  // FIXME - TODO
+
+  xmlFree(objpart.name); xmlFree(objpart.description); xmlFree(objpart.text); 
+  xmlFree(objpart.sit_name); xmlFree(objpart.touch_name); 
+  xmlFree(objpart.shape.profile_shape); xmlFree(objpart.shape.hollow_shape);
+  caj_string_free(&objpart.shape.tex_entry);
+  caj_string_free(&objpart.shape.extra_params);  
+  return prim;
+}
+
+// FIXME - this ought to skip whitespace!
+static primitive_obj *prim_from_os_xml(const caj_string *data) {
+  xmlDocPtr doc;
+  xmlNodePtr node;
+  primitive_obj * prim;
+  doc = xmlReadMemory((const char*)data->data, data->len, "prim.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: prim XML parse failed\n"); return NULL;
+  }
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "SceneObjectGroup") != 0) {
+    printf("ERROR: unexpected root node %s\n",(char*)node->name);
+    goto free_fail;
+  }
+  node = node->children; 
+  
+  if(!check_node(node, "RootPart")) goto free_fail;
+  prim = prim_from_os_xml_part(doc, node->children);
+
+  // FIXME - we need to handle child prims here too!
+
+  xmlFreeDoc(doc); return prim;
+  
+ free_fail:
+  xmlFreeDoc(doc); return NULL;
+}
+
+static void rez_obj_asset_callback(simulator_ctx *sim, void* priv, simple_asset *asset) {
+  // TODO - FIXME.
+  rez_object_desc *desc = (rez_object_desc*)priv;
+  if(desc->ctx == NULL) {
+    delete desc;
+  } else if(asset == NULL) {
+    user_send_message(desc->ctx, "ERROR: missing asset trying to rez object");
+    user_del_self_pointer(&desc->ctx); delete desc;
+  } else {
+    char buf[asset->data.len+1];
+    memcpy(buf, asset->data.data, asset->data.len);
+    buf[asset->data.len] = 0;
+    printf("DEBUG: Got object asset data: ~%s~\n", buf);
+    primitive_obj *prim = prim_from_os_xml(&asset->data);
+    if(prim != NULL) {
+      prim->ob.pos = desc->pos;
+      uuid_copy(prim->owner, desc->ctx->user_id);
+      prim->perms = desc->perms; // FIXME - incorporate info from asset?
+      world_insert_obj(desc->ctx->sim, &prim->ob);
+    }
+    user_del_self_pointer(&desc->ctx); delete desc;
+  }
+}
+
+static void rez_obj_inv_callback(struct inventory_item* item, void* priv) {
+  rez_object_desc *desc = (rez_object_desc*)priv;
+  if(desc->ctx == NULL) {
+    delete desc;
+  } else if(item == NULL) {
+    user_del_self_pointer(&desc->ctx); delete desc;
+  } else if(item->asset_type != ASSET_OBJECT) {
+    user_send_message(desc->ctx, "ERROR: RezObject on an inventory item that's not an object");
+    user_del_self_pointer(&desc->ctx); delete desc;
+  } else if((item->perms.current & PERM_COPY) == 0) {
+    // FIXME - what if the user isn't the inventory owner?
+    user_send_message(desc->ctx, "FIXME - we don't support rezing no-copy inventory");
+    user_del_self_pointer(&desc->ctx); delete desc;
+  } else {
+    // FIXME - what if the user isn't the inventory owner? Perms would be wrong
+    desc->perms = item->perms;
+    sim_get_asset(desc->ctx->sim, item->asset_id, rez_obj_asset_callback, desc);
+  }
+}
+
+void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector3 pos) {
+  if(uuid_is_null(from_prim)) {
+    rez_object_desc *desc = new rez_object_desc();
+    desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
+    desc->pos = pos; // FIXME - do proper raycast
+    user_fetch_inventory_item(ctx->sim, ctx, item_id,
+			      rez_obj_inv_callback, desc);
+  } else {
+    // FIXME - ????
+  }
+
 }

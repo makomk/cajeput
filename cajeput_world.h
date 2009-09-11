@@ -109,7 +109,7 @@ struct primitive_obj {
   int8_t path_skew;
   uint16_t profile_begin, profile_end, profile_hollow; // again, why 16 bits?
   uuid_t creator, owner;
-  uint32_t base_perms, owner_perms, group_perms, everyone_perms, next_perms;
+  permission_flags perms;
   int32_t sale_price;
   uint32_t flags; // PRIM_FLAG_*
   char *name, *description;

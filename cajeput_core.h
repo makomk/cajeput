@@ -187,6 +187,10 @@ struct simple_asset { // for makeshift scripting stuff
   caj_string data;
 };
 
+typedef struct permission_flags {
+  uint32_t next, current, base, everyone, group;
+} permission_flags;
+
 struct inventory_item {
   char *name;
   uuid_t item_id, folder_id, owner_id;
@@ -195,8 +199,7 @@ struct inventory_item {
   uuid_t creator_as_uuid;
   char *description;
 
-  uint32_t next_perms, current_perms, base_perms;
-  uint32_t everyone_perms, group_perms;
+  permission_flags perms;
 
   int8_t inv_type, asset_type;
   uint8_t sale_type;

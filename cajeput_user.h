@@ -177,6 +177,8 @@ int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 
 // calculate the permissions part of the ObjectUpdate UpdateFlags
 uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim);
+
+  void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector3 pos);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much

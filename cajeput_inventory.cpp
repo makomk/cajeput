@@ -111,7 +111,7 @@ struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv,
 }
 
 uint32_t caj_calc_inventory_crc(struct inventory_item* item) {
-  return 0; // FIXME FIXME FIXME
+  return 0; // FIXME
   // The gory details of how this should work are already implemented in 
   // libopenmv, but we seem to be getting away with it for now.
 }

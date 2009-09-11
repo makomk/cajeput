@@ -367,8 +367,8 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->path_scale_x = 100; prim->path_scale_y = 100;  
   prim->name = strdup("Object");
   prim->description = strdup("");
-  prim->next_perms = prim->owner_perms = prim->base_perms = 0x7fffffff;
-  prim->group_perms = prim->everyone_perms = 0;
+  prim->perms.next = prim->perms.current = prim->perms.base = 0x7fffffff;
+  prim->perms.group = prim->perms.everyone = 0;
   prim->flags = 0;
 
   prim->inv.num_items = prim->inv.alloc_items = 0;
@@ -580,8 +580,8 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   inv->creator_id = (char*)malloc(40); uuid_unparse(ctx->user_id, inv->creator_id);
 
   // FIXME - use client-provided perms
-  inv->base_perms = inv->current_perms = inv->next_perms = 0x7fffffff;
-  inv->group_perms = inv->everyone_perms = 0;
+  inv->perms.base = inv->perms.current = inv->perms.next = 0x7fffffff;
+  inv->perms.group = inv->perms.everyone = 0;
 
   inv->asset_type = ASSET_LSL_TEXT; 
   inv->inv_type = 10; // FIXME
@@ -644,11 +644,11 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 
 
 uint32_t user_calc_prim_perms(struct user_ctx* ctx, struct primitive_obj *prim) {
-  uint32_t perms = prim->everyone_perms;
+  uint32_t perms = prim->perms.everyone;
   if(uuid_compare(ctx->user_id, prim->owner) == 0) {
-    perms |= prim->owner_perms;
+    perms |= prim->perms.current;
   }
-  return perms & prim->base_perms; // ???
+  return perms & prim->perms.base; // ???
 }
 
 int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {

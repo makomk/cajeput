@@ -170,7 +170,7 @@ static caj_llsd* parse_llsd_xml(xmlDocPtr doc, xmlNode * a_node, int depth) {
       gsize sz;
       llsd->type_id = LLSD_BINARY;
       // HACK - we're overwriting data that's only loosely ours.
-      g_base64_decode_inplace(str, &sz);
+      g_base64_decode_inplace(str, &sz); // FIXME - error handling?
       llsd->t.bin.len = sz;
       llsd->t.bin.data = malloc(sz);
       memcpy(llsd->t.bin.data, str, sz);

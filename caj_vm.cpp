@@ -1114,7 +1114,7 @@ static void step_script(script_state* st, int num_steps) {
 	break;
       case INSN_MUL_FV:
 	{
-	  // harder - stuff is in the wrong order. FIXME - this is wrong!
+	  // harder - stuff is in the wrong order.
 	  float f = *(float*)(stack_top+4);
 	  *(float*)(stack_top+4) = *(float*)(stack_top+3) * f;
 	  *(float*)(stack_top+3) = *(float*)(stack_top+2) * f;

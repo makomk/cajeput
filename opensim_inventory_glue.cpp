@@ -181,7 +181,7 @@ struct os_inv_item {
   int everyone_perms, group_perms; // ditto!
   int asset_type;
   uuid_t asset_id, group_id;
-  // int group_owned; // TODO
+  int group_owned;
   int sale_price; // FIXME - should be int32_t
   int sale_type;
   int flags; // FIXME - should be uint32_t
@@ -205,7 +205,7 @@ static xml_serialisation_desc deserialise_inv_item[] = {
   { "AssetType", XML_STYPE_INT,offsetof(os_inv_item, asset_type) },
   { "AssetID", XML_STYPE_UUID,offsetof(os_inv_item, asset_id) },
   { "GroupID", XML_STYPE_UUID,offsetof(os_inv_item, group_id) },
-  { "GroupOwned", XML_STYPE_SKIP, 0 }, // FIXME
+  { "GroupOwned", XML_STYPE_BOOL,offsetof(os_inv_item, group_owned)  },
   { "SalePrice", XML_STYPE_INT,offsetof(os_inv_item, sale_price) },  
   { "SaleType", XML_STYPE_INT,offsetof(os_inv_item, sale_type) },  
   { "Flags", XML_STYPE_INT,offsetof(os_inv_item, flags) },  
@@ -213,6 +213,43 @@ static xml_serialisation_desc deserialise_inv_item[] = {
   { NULL, }
 };
 
+static void fill_inv_item_from_opensim(inventory_item *citem,
+				       os_inv_item &item) {
+
+    uuid_copy(citem->item_id, item.item_id);
+    uuid_copy(citem->owner_id, item.owner_id);
+    citem->inv_type = item.inv_type;
+    uuid_copy(citem->folder_id, item.folder_id);
+    uuid_copy(citem->creator_as_uuid, item.creator_as_uuid);
+    citem->perms.next = item.next_perms;
+    citem->perms.current = item.current_perms;
+    citem->perms.base = item.base_perms;
+    citem->perms.everyone = item.everyone_perms;
+    citem->perms.group = item.group_perms;
+    citem->asset_type = item.asset_type;
+    uuid_copy(citem->asset_id, item.asset_id);
+    uuid_copy(citem->group_id, item.group_id);
+    citem->group_owned = 0; // FIXME;
+    citem->sale_price = item.sale_price;
+    citem->sale_type = item.sale_type;
+    citem->flags = item.flags;
+    citem->creation_date = item.creation_date;
+    
+    xmlFree(item.name); xmlFree(item.description);
+    xmlFree(item.creator_id);
+}
+
+static void conv_inv_item_from_opensim(inventory_item *citem,
+				       os_inv_item &item) {
+  citem->name = strdup(item.name);
+  citem->description = strdup(item.description);
+  citem->creator_id = strdup(item.creator_id);
+  fill_inv_item_from_opensim(citem, item);
+}
+
+static void free_inv_item_from_opensim(inventory_item *citem) {
+  free(citem->name); free(citem->description); free(citem->creator_id);
+}
 
 static void parse_inv_items(xmlDocPtr doc, xmlNodePtr node,
 			      struct inventory_contents* inv) {
@@ -231,28 +268,7 @@ static void parse_inv_items(xmlDocPtr doc, xmlNodePtr node,
     inventory_item *citem = caj_add_inventory_item(inv, item.name, 
 						   item.description,
 						   item.creator_id);
- 
-    uuid_copy(citem->item_id, item.item_id);
-    uuid_copy(citem->owner_id, item.owner_id);
-    citem->inv_type = item.inv_type;
-    uuid_copy(citem->folder_id, item.folder_id);
-    uuid_copy(citem->creator_as_uuid, item.creator_as_uuid);
-    citem->next_perms = item.next_perms;
-    citem->current_perms = item.current_perms;
-    citem->base_perms = item.base_perms;
-    citem->everyone_perms = item.everyone_perms;
-    citem->group_perms = item.group_perms;
-    citem->asset_type = item.asset_type;
-    uuid_copy(citem->asset_id, item.asset_id);
-    uuid_copy(citem->group_id, item.group_id);
-    citem->group_owned = 0; // FIXME;
-    citem->sale_price = item.sale_price;
-    citem->sale_type = item.sale_type;
-    citem->flags = item.flags;
-    citem->creation_date = item.creation_date;
-    
-    xmlFree(item.name); xmlFree(item.description);
-    xmlFree(item.creator_id);
+    fill_inv_item_from_opensim(citem, item);
   }
 }
 
@@ -413,11 +429,12 @@ struct inv_item_req {
 static void got_inventory_item_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   //USER_PRIV_DEF(user_data);
   //GRID_PRIV_DEF(sim);
-  inv_items_req *req = (inv_items_req*)user_data;
+  inv_item_req *req = (inv_item_req*)user_data;
   user_grid_glue* user_glue = req->user_glue;
   xmlDocPtr doc;
   xmlNodePtr node;
   struct inventory_item invit;
+  os_inv_item item;
   user_grid_glue_deref(user_glue);
   if(msg->status_code != 200) {
     printf("Inventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -435,22 +452,24 @@ static void got_inventory_item_resp(SoupSession *session, SoupMessage *msg, gpoi
     goto fail;    
   }
   node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "???") != 0) {
+  if(strcmp((char*)node->name, "InventoryItemBase") != 0) {
     printf("ERROR: unexpected root node %s\n",(char*)node->name);
     goto free_fail;
   }
 
-  node = node->children;
-  if(!check_node(node,"Folders")) goto free_fail;
+  if(!osglue_deserialise_xml(doc, node->children, deserialise_inv_item,
+			     &item)) {
+    printf("ERROR: couldn't deserialise XML inventory item\n");
+    goto free_fail;
+  }
 
-  // FIXME - actually finish implementing this
-
-#if 0
-  req->cb(invit, req->cb_priv);
+  conv_inv_item_from_opensim(&invit, item);
+  
+  req->cb(&invit, req->cb_priv);
+  free_inv_item_from_opensim(&invit);
   xmlFreeDoc(doc);
   delete req;
   return;
-#endif
 
  free_fail:
   xmlFreeDoc(doc);
@@ -467,7 +486,7 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
 			    void(*cb)(struct inventory_item* item, 
 				      void* priv),
 			    void *cb_priv) {
-  uuid_t u; char tmp[40]; char uri[256];
+  uuid_t u, user_id; char tmp[40]; char uri[256];
   GRID_PRIV_DEF(sim);
   USER_PRIV_DEF(user_priv);
   xmlTextWriterPtr writer;
@@ -485,7 +504,7 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
   
   if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0) 
     goto free_fail;
-  if(xmlTextWriterStartElement(writer, BAD_CAST "RestSessionObjectOfGuid") < 0) 
+  if(xmlTextWriterStartElement(writer, BAD_CAST "RestSessionObjectOfInventoryItemBase") < 0) 
     goto free_fail;
   user_get_session_id(user, u);
   uuid_unparse(u, tmp);
@@ -493,18 +512,19 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
 				       "%s",tmp) < 0) goto free_fail;
 
 
-  user_get_uuid(user, u);
-  uuid_unparse(u, tmp);
+  user_get_uuid(user, user_id);
+  uuid_unparse(user_id, tmp);
   if(xmlTextWriterWriteFormatElement(writer,BAD_CAST "AvatarID",
 				       "%s",tmp) < 0) goto free_fail;
 
   // okay, this is just painful... we have to serialise an entire complex
   // object in this cruddy .Net XML serialisation format... and the only bit
   // they actually use or need is a single UUID. Bletch  *vomit*.
-  if(xmlTextWriterStartElement(writer,BAD_CAST "InventoryItemBase") < 0) 
+  if(xmlTextWriterStartElement(writer,BAD_CAST "Body") < 0) 
     goto free_fail;
   memset(&invitem, 0, sizeof(invitem));
   invitem.name = ""; invitem.description = ""; invitem.creator_id = "";
+  uuid_copy(invitem.owner_id, user_id);
   uuid_copy(invitem.item_id, item_id);
 
   osglue_serialise_xml(writer, deserialise_inv_item, &invitem);
@@ -526,7 +546,7 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
   printf("DEBUG: sending inventory request to %s\n", uri);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
-  soup_message_set_request (msg, "application/xml",
+  soup_message_set_request (msg, "text/xml",
 			    SOUP_MEMORY_COPY, (char*)buf->content, 
 			    strlen ((char*)buf->content));
   req = new inv_item_req();

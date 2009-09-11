@@ -287,7 +287,6 @@ void sim_asset_finished_load(struct simulator_ctx *sim,
     delete (*iter);
   }
   desc->cbs.clear();
-  // FIXME - TODO
 }
 
 void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
@@ -306,8 +305,6 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
     desc->asset.data.data = NULL;
     sim->assets[asset_id] = desc;
     
-    // FIXME - need to actually do the fetch!!
-    //printf("FIXME: we don't actually know how to fetch assets yet!\n");
     printf("DEBUG: sending asset request via grid\n");
     sim->gridh.get_asset(sim, &desc->asset);
   }
@@ -668,12 +665,11 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   if(llsd == NULL) goto fail;
   if(!LLSD_IS(llsd, LLSD_MAP)) goto free_fail;
 
-  // FIXME - need to implement this
   printf("Got UpdateScriptTask:\n");
   llsd_pretty_print(llsd, 1);
   item_id = llsd_map_lookup(llsd, "item_id");
   task_id = llsd_map_lookup(llsd, "task_id");
-  script_running = llsd_map_lookup(llsd, "is_script_running");
+  script_running = llsd_map_lookup(llsd, "is_script_running"); // FIXME - use!
   if(!(LLSD_IS(item_id, LLSD_UUID) && LLSD_IS(task_id, LLSD_UUID) && 
        LLSD_IS(script_running, LLSD_INT))) goto free_fail;
   
@@ -729,7 +725,7 @@ static void simstatus_rest_handler (SoupServer *server,
 				SoupClientContext *client,
 				gpointer user_data) {
   /* struct simulator_ctx* sim = (struct simulator_ctx*) user_data; */
-  // For OpenSim grid protocol - FIXME check actual status
+  // For OpenSim grid protocol - FIXME check actual status?
   soup_message_set_status(msg,200);
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
 			    "OK",2);
@@ -989,9 +985,9 @@ static void load_inv_items(struct simulator_ctx *sim, const char* filename) {
        uuid_parse(LIBRARY_OWNER, item->owner_id);
        item->asset_type = atoi(asset_type);
        item->inv_type = atoi(inv_type);
-       item->base_perms = item->current_perms  = 0x7fffffff;
-       item->next_perms = item->everyone_perms = 0x7fffffff;
-       item->group_perms = 0;
+       item->perms.base = item->perms.current = 0x7fffffff;
+       item->perms.next = item->perms.everyone = 0x7fffffff;
+       item->perms.group = 0;
        item->sale_type = 0; item->group_owned = 0;
        uuid_clear(item->group_id);
        item->flags = 0; item->sale_price = 0;
@@ -1068,8 +1064,8 @@ int main(void) {
   sim->config = g_key_file_new();
   sim->hold_off_shutdown = 0;
   sim->state_flags = 0;
-  // FIXME - make sure to add G_KEY_FILE_KEEP_COMMENTS/TRANSLATIONS 
-  // if I ever want to modify the config
+  // Note - I should make sure to add G_KEY_FILE_KEEP_COMMENTS/TRANSLATIONS
+  // if I ever want to modify the config and save it back.
   if(!g_key_file_load_from_file(sim->config,  "server.ini", 
 				G_KEY_FILE_NONE, NULL)) {
     printf("Config file load failed\n"); 
