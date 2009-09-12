@@ -206,6 +206,11 @@ void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob);
 
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim);
 
+// Should only be used for prims that haven't been added to the world.
+// Otherwise, use world_delete_prim which frees the prim too. Also, doesn't 
+// free child prims or remove the prim from its parent.
+void world_free_prim(struct primitive_obj *prim);
+
 struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);

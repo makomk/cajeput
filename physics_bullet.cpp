@@ -109,6 +109,11 @@ struct phys_obj {
 #define GROUND_COLLIDES_WITH (COL_AVATAR|COL_PHYS_PRIM)
 #define BORDER_COLLIDES_WITH COL_AVATAR
 
+// Note: for llVolumeDetect, I suspect that
+//  mBody->setCollisionFlags(mBody->getCollisionFlags() |
+//                           btCollisionObject::CF_NO_CONTACT_RESPONSE));
+// is going to be required
+
 // we're going to have fun with this
 // box:
 //   PROFILE_SHAPE_SQUARE, PATH_CURVE_STRAIGHT

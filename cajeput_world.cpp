@@ -417,6 +417,25 @@ void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params)
   caj_string_copy(&prim->extra_params, params);
 }
 
+void world_free_prim(struct primitive_obj *prim) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    free(inv->name); free(inv->description); free(inv->creator_id);
+
+    if(inv->asset_hack != NULL) {
+      free(inv->asset_hack->name); free(inv->asset_hack->description);
+      caj_string_free(&inv->asset_hack->data);
+      delete inv->asset_hack;
+    }
+    delete inv;
+  }
+  free(prim->name); free(prim->description); free(prim->inv.filename);
+  caj_string_free(&prim->tex_entry); caj_string_free(&prim->extra_params);
+  free(prim->hover_text); free(prim->sit_name); free(prim->touch_name);
+  free(prim->inv.items); free(prim->children); delete prim;
+}
+
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   world_remove_obj(sim, &prim->ob);
 
@@ -425,7 +444,6 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
     for(int i = prim->num_children - 1; i >= 0; i--) {
       world_delete_prim(sim, prim->children[i]);
     }
-    free(prim->children);
   }
 
   if(prim->ob.parent != NULL) {
@@ -447,19 +465,9 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
       sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
       inv->priv = NULL;
     }
-    free(inv->name); free(inv->description); free(inv->creator_id);
-
-    if(inv->asset_hack != NULL) {
-      free(inv->asset_hack->name); free(inv->asset_hack->description);
-      caj_string_free(&inv->asset_hack->data);
-      delete inv->asset_hack;
-    }
-    delete inv;
   }
-  free(prim->name); free(prim->description); free(prim->inv.filename);
-  caj_string_free(&prim->tex_entry); caj_string_free(&prim->extra_params);
-  free(prim->hover_text); free(prim->sit_name); free(prim->touch_name);
-  free(prim->inv.items); delete prim;
+  
+  world_free_prim(prim);
 }
 
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
@@ -773,6 +781,13 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
       // FIXME - scale child prims
     }
     obj->scale = upd->scale;
+  }
+
+  if(obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      for(int i = 0; i < prim->num_children; i++) {
+	world_update_global_pos_int(sim, &prim->children[i]->ob);
+      }
   }
 
   // FIXME - do we really need a full update in the scale case?

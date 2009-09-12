@@ -877,7 +877,7 @@ static int check_node(xmlNodePtr node, const char* name) {
   return 1;
 }
 
-static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
+static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node, int is_child) {
   os_object_part objpart;
   if(!check_node(node, "SceneObjectPart")) return NULL;
   if(!osglue_deserialise_xml(doc, node->children, deserialise_object_part,
@@ -898,7 +898,9 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
   free(prim->touch_name); prim->touch_name = strdup(objpart.touch_name);
   
   prim->material = objpart.material;
-  prim->ob.local_pos = objpart.group_pos; // FIXME - for child prims, this would be wrong
+  if(is_child) 
+    prim->ob.local_pos = objpart.offset_pos;
+  else prim->ob.local_pos = objpart.group_pos;
   prim->ob.rot = objpart.rot_offset; // is this right?
   prim->ob.velocity = objpart.velocity;
   // TODO - restore angular velocity and acceleration
@@ -961,12 +963,37 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
   node = node->children; 
   
   if(!check_node(node, "RootPart")) goto free_fail;
-  prim = prim_from_os_xml_part(doc, node->children);
+  prim = prim_from_os_xml_part(doc, node->children, FALSE);
+
+  node = node->next;
+  if(!check_node(node, "OtherParts")) goto free_fail;
+  prim->num_children = 0;
+  for(xmlNodePtr part_node = node->children; part_node != NULL; part_node = part_node->next) {
+    if(!check_node(part_node, "Part")) {
+      prim->num_children = 0; goto free_prim_fail;
+    }
+    prim->num_children++;
+  }
+  prim->children = (primitive_obj**)malloc(sizeof(primitive_obj*)*
+					   (prim->num_children));
+    
+  prim->num_children = 0;
+  for(xmlNodePtr part_node = node->children; part_node != NULL; part_node = part_node->next) {
+    if(!check_node(part_node, "Part")) goto free_prim_fail;
+    primitive_obj *child = prim_from_os_xml_part(doc, part_node->children, TRUE);
+    if(child == NULL) goto free_prim_fail;
+    child->ob.parent = &prim->ob;
+    prim->children[prim->num_children++] = child;
+  }
 
   // FIXME - we need to handle child prims here too!
 
   xmlFreeDoc(doc); return prim;
   
+ free_prim_fail: 
+  for(int i = 0; i < prim->num_children; i++) 
+    world_free_prim(prim->children[i]);
+  world_free_prim(prim);
  free_fail:
   xmlFreeDoc(doc); return NULL;
 }

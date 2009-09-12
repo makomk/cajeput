@@ -788,10 +788,10 @@ static gboolean shutdown_timer(gpointer data) {
   for(std::map<uint32_t, world_obj*>::iterator iter = sim->localid_map.begin();
       iter != sim->localid_map.end(); /* nowt */) {
     if(iter->second->type == OBJ_TYPE_PRIM) {
-      std::map<uint32_t, world_obj*>::iterator iter2 = iter; iter2++;
+      // std::map<uint32_t, world_obj*>::iterator iter2 = iter; iter2++;
       primitive_obj *prim = (primitive_obj*)iter->second;
       world_delete_prim(sim, prim);
-      iter = iter2;
+      iter = sim->localid_map.begin();
     } else iter++;
   }
 
