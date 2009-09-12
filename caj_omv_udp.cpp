@@ -26,6 +26,7 @@
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
+#include "cajeput_prim.h"
 #include "caj_omv.h"
 #include "terrain_compress.h"
 #include <stdlib.h>
@@ -332,7 +333,7 @@ static void handle_ChatFromViewer_msg(struct omuser_ctx* lctx, struct sl_message
   if(cdata->Type == CHAT_TYPE_WHISPER || cdata->Type == CHAT_TYPE_NORMAL ||
      cdata->Type == CHAT_TYPE_SHOUT) { 
     chat.channel = cdata->Channel;
-    chat.pos = lctx->u->av->ob.pos;
+    chat.pos = lctx->u->av->ob.world_pos;
     chat.name = lctx->u->name;
     uuid_copy(chat.source,lctx->u->user_id);
     uuid_clear(chat.owner); // FIXME - ???
@@ -931,7 +932,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     SL_DECLBLK(AgentMovementComplete, SimData, simdat, &amc);
     uuid_copy(ad2->AgentID, ctx->user_id);
     uuid_copy(ad2->SessionID, ctx->session_id);
-    dat->Position = ctx->av->ob.pos;
+    dat->Position = ctx->av->ob.local_pos; // FIXME - local pos or global?
     dat->LookAt = dat->Position;
     dat->RegionHandle = ctx->sim->region_handle;
     dat->Timestamp = time(NULL);
@@ -1078,7 +1079,7 @@ static void handle_ObjectAdd_msg(struct omuser_ctx* lctx, struct sl_message* msg
   uuid_copy(prim->creator, prim->owner);
   // FIXME - set group of object
 
-  prim->ob.pos = objd->RayEnd; // FIXME - do proper raycast
+  prim->ob.local_pos = objd->RayEnd; // FIXME - do proper raycast
 
   prim->material = objd->Material;
   // FIXME - handle AddFlags
@@ -1143,8 +1144,8 @@ static primitive_obj* get_prim_for_update(struct omuser_ctx* lctx, uint32_t loca
 #define MULTI_UPDATE_POS 1
 #define MULTI_UPDATE_ROT 2
 #define MULTI_UPDATE_SCALE 4
-#define MULTI_UPDATE_LINKSET 8 // not sure what this does
-#define MULTI_UPDATE_16 16 // really not sure what this does!
+#define MULTI_UPDATE_LINKSET 8 
+#define MULTI_UPDATE_16 16 
 
 static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(MultipleObjectUpdate, AgentData, ad, msg);
@@ -1164,15 +1165,21 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
       printf("ERROR: MultipleObjectUpdate with unrecognised flags %i\n",
 	     (int)objd->Type);
       continue;
-    } else if(objd->Type & MULTI_UPDATE_16) {
-      // FIXME FIXME FIXME - not sure how to handle this!!!
-      printf("FIXME: MultipleObjectUpdate with flag 0x10!\n");
-    }
+    } 
 
     unsigned char *dat = objd->Data.data;
     int len = objd->Data.len;
     struct caj_multi_upd upd;
     upd.flags = 0;
+
+    if(objd->Type & MULTI_UPDATE_LINKSET) 
+      upd.flags |= CAJ_MULTI_UPD_LINKSET;
+    
+    if(objd->Type & MULTI_UPDATE_16) {
+      printf("FIXME: unhandled flag 16 in MultipleObjectUpdate\n");
+    }
+
+    // FIXME - linkset resizing totally broken!
 
     // FIXME - handle LINSKET flag!
 
@@ -1373,6 +1380,34 @@ static void handle_ObjectDescription_msg(struct omuser_ctx* lctx, struct sl_mess
   }
 }
 
+static void handle_ObjectLink_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectLink, AgentData, ad, msg);
+  int count = SL_GETBLK(ObjectLink, ObjectData, msg).count;
+  if(ad == NULL || VALIDATE_SESSION(ad) || count < 1) return;
+
+  struct primitive_obj *main;
+  {
+    SL_DECLBLK_ONLY(ObjectLink, ObjectData, objd) =
+      SL_GETBLKI(ObjectLink, ObjectData, msg, 0);
+
+    main = get_prim_for_update(lctx, objd->ObjectLocalID);
+    if(main == NULL) {
+      user_send_message(lctx->u, "Tried to link invalid prim"); return;
+    }
+  }
+
+  for(int i = 1; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectLink, ObjectData, objd) =
+      SL_GETBLKI(ObjectLink, ObjectData, msg, i);
+
+    struct primitive_obj *child = get_prim_for_update(lctx, objd->ObjectLocalID);
+    if(child == NULL) {
+      user_send_message(lctx->u, "Tried to link invalid child prim"); continue;
+    }
+
+    world_prim_link(lctx->u->sim, main, child);
+  }
+}
 
 // TODO: ObjectCategory message
 
@@ -1383,7 +1418,7 @@ static void handle_ObjectDescription_msg(struct omuser_ctx* lctx, struct sl_mess
 #define DEREZ_DELETE 6
 #define DEREZ_RETURN 9
 
-// FIXME - is this actually *USED*? What should we do here
+// FIXME - horribly incomplete
 static void  handle_DeRezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(DeRezObject, AgentData, ad, msg);
   SL_DECLBLK_GET1(DeRezObject, AgentBlock, ablk, msg);
@@ -1766,9 +1801,9 @@ static void handle_ObjectDuplicate_msg(struct omuser_ctx* lctx, struct sl_messag
     
     // FIXME - use the DuplicateFlags provided
     caj_vector3 newpos; 
-    newpos.x = prim->ob.pos.x + sdat->Offset.x;
-    newpos.y = prim->ob.pos.y + sdat->Offset.y;
-    newpos.z = prim->ob.pos.z + sdat->Offset.z;
+    newpos.x = prim->ob.world_pos.x + sdat->Offset.x;
+    newpos.y = prim->ob.world_pos.y + sdat->Offset.y;
+    newpos.z = prim->ob.world_pos.z + sdat->Offset.z;
     user_duplicate_prim(lctx->u, prim, newpos);
   }  
 }
@@ -1785,8 +1820,6 @@ static void handle_RezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg
 
   sl_dump_packet(msg);
 }
-  
-
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
 			   void *priv) {
@@ -2273,7 +2306,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
 
   // FIXME - endianness issues
   memcpy(obj_data,&av->footfall,16);
-  memcpy(obj_data+16, &av->ob.pos, 12); 
+  memcpy(obj_data+16, &av->ob.local_pos, 12); 
   memcpy(obj_data+16+12, &av->ob.velocity, 12); // velocity
   memset(obj_data+16+24, 0, 12); // accel
   memcpy(obj_data+16+36, &av->ob.rot, 12); 
@@ -2298,8 +2331,8 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
 
   // FIXME - copied from OpenSim
   objd->UpdateFlags = 61 + (9 << 8) + (130 << 16) + (16 << 24);
-  objd->PathCurve = 16;
-  objd->ProfileCurve = 1;
+  objd->PathCurve = PATH_CURVE_STRAIGHT;
+  objd->ProfileCurve = PROFILE_SHAPE_SQUARE;
   objd->PathScaleX = 100;
   objd->PathScaleY = 100;
   // END FIXME
@@ -2339,7 +2372,7 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   
   // FIXME - correct endianness
   memcpy(dat+6,&av->footfall,16);
-  memcpy(dat+0x16, &av->ob.pos, 12); 
+  memcpy(dat+0x16, &av->ob.local_pos, 12); 
 
   // Velocity
   sl_float_to_int16(dat+0x22, av->ob.velocity.x, 128.0f);
@@ -2432,14 +2465,14 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->Scale = prim->ob.scale;
 
   // FIXME - endianness issues
-  memcpy(obj_data, &prim->ob.pos, 12); 
+  memcpy(obj_data, &prim->ob.local_pos, 12); 
   memset(obj_data+12, 0, 12); // velocity - FIXME send this
   memset(obj_data+24, 0, 12); // accel
   memcpy(obj_data+36, &prim->ob.rot, 12); 
   memset(obj_data+48, 0, 12);
   caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
-  objd->ParentID = 0; // FIXME - todo
+  objd->ParentID = (prim->ob.parent == NULL ? 0 : prim->ob.parent->local_id);
   objd->UpdateFlags = PRIM_FLAG_ANY_OWNER | prim->flags | user_calc_prim_flags(lctx->u, prim);
   
   objd->PathCurve = prim->path_curve;
@@ -2499,7 +2532,7 @@ static void obj_send_terse_upd(omuser_ctx* lctx, world_obj* obj) {
   
   
   // FIXME - correct endianness
-  memcpy(dat+0x6, &obj->pos, 12); 
+  memcpy(dat+0x6, &obj->local_pos, 12); 
 
   // Velocity
 #if 0 // FIXME !!!
@@ -2850,6 +2883,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectDuplicate);
   ADD_HANDLER(RezObject);
   ADD_HANDLER(FetchInventory);
+  ADD_HANDLER(ObjectLink);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

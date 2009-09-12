@@ -44,12 +44,13 @@ struct obj_chat_listeners;
 
 struct world_obj {
   int type;
-  caj_vector3 pos;
+  caj_vector3 local_pos, world_pos;
   caj_vector3 scale; // FIXME - set correctly for avatars
   caj_vector3 velocity;
   caj_quat rot;
   uuid_t id;
   uint32_t local_id;
+  struct world_obj *parent;
   void *phys;
   struct obj_chat_listener *chat;
 };
@@ -112,9 +113,13 @@ struct primitive_obj {
   permission_flags perms;
   int32_t sale_price;
   uint32_t flags; // PRIM_FLAG_*
+  uint32_t caj_flags; // not used yet
   char *name, *description;
   caj_string tex_entry;
   caj_string extra_params;
+
+  int num_children;
+  struct primitive_obj **children;
 
   char *sit_name, *touch_name;
   char *hover_text; uint8_t text_color[4];
@@ -231,6 +236,9 @@ void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* p
 
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags);
+
+void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
+		     struct primitive_obj* child);
 
 #ifdef __cplusplus
 }

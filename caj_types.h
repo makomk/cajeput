@@ -144,4 +144,20 @@ static void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* 
   *out = ret;
 }
 
+#ifdef __cplusplus
+
+static inline caj_vector3 operator+(const caj_vector3 &v1, const caj_vector3 &v2) {
+  caj_vector3 out; 
+  out.x = v1.x + v2.x; out.y = v1.y + v2.y; out.z = v1.z + v2.z;
+  return out;
+}
+
+static inline caj_vector3 operator-(const caj_vector3 &v1, const caj_vector3 &v2) {
+  caj_vector3 out; 
+  out.x = v1.x - v2.x; out.y = v1.y - v2.y; out.z = v1.z - v2.z;
+  return out;
+}
+
+#endif // __cplusplus
+
 #endif

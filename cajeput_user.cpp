@@ -560,9 +560,9 @@ int user_complete_movement(user_ctx *ctx) {
   if(ctx->av == NULL) {
     ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
     ctx->av->ob.type = OBJ_TYPE_AVATAR;
-    ctx->av->ob.pos.x = 128.0f; // FIXME - correct position!
-    ctx->av->ob.pos.y = 128.0f;
-    ctx->av->ob.pos.z = 60.0f;
+    ctx->av->ob.local_pos.x = 128.0f; // FIXME - correct position!
+    ctx->av->ob.local_pos.y = 128.0f;
+    ctx->av->ob.local_pos.z = 60.0f;
     ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
     ctx->av->ob.rot.w = 1.0f;
     ctx->av->ob.velocity.x = ctx->av->ob.velocity.y = ctx->av->ob.velocity.z = 0.0f;
@@ -588,8 +588,9 @@ void user_remove_int(user_ctx **user) {
   if(ctx->av != NULL) {
     world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
+      // FIXME - should set look_at correctly
       sim->gridh.user_logoff(sim, ctx->user_id,
-			     &ctx->av->ob.pos, &ctx->av->ob.pos);
+			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
     free(ctx->av); ctx->av = NULL;
   }
@@ -646,7 +647,7 @@ void user_session_close(user_ctx* ctx, int slowly) {
     world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       sim->gridh.user_logoff(sim, ctx->user_id,
-			     &ctx->av->ob.pos, &ctx->av->ob.pos);
+			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
     free(ctx->av); ctx->av = NULL;
   }
@@ -897,7 +898,7 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node) {
   free(prim->touch_name); prim->touch_name = strdup(objpart.touch_name);
   
   prim->material = objpart.material;
-  prim->ob.pos = objpart.group_pos; // for child prims, this would be wrong
+  prim->ob.local_pos = objpart.group_pos; // FIXME - for child prims, this would be wrong
   prim->ob.rot = objpart.rot_offset; // is this right?
   prim->ob.velocity = objpart.velocity;
   // TODO - restore angular velocity and acceleration
@@ -985,7 +986,7 @@ static void rez_obj_asset_callback(simulator_ctx *sim, void* priv, simple_asset 
     printf("DEBUG: Got object asset data: ~%s~\n", buf);
     primitive_obj *prim = prim_from_os_xml(&asset->data);
     if(prim != NULL) {
-      prim->ob.pos = desc->pos;
+      prim->ob.local_pos = desc->pos;
       uuid_copy(prim->owner, desc->ctx->user_id);
       prim->perms = desc->perms; // FIXME - incorporate info from asset?
       world_insert_obj(desc->ctx->sim, &prim->ob);

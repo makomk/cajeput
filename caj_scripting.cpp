@@ -315,7 +315,7 @@ static void llApplyImpulse_cb(script_state *st, void *sc_priv, int func_id) {
 }
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
-  vm_func_set_vect_ret(st, func_id, &scr->prim->ob.pos);
+  vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
   rpc_func_return(st, scr, func_id);
 }
 
@@ -783,7 +783,7 @@ static void do_touch(simulator_ctx *sim, void *priv, void *script,
     det->event_id = is_start ? EVENT_TOUCH_START : EVENT_TOUCH;
 
     det->name = strdup(user_get_name(user));
-    det->pos = av->pos; det->rot = av->rot; det->vel = av->velocity;
+    det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
     user_get_uuid(user, det->key);
     send_detected_event(simscr, scr, det);
   }
@@ -797,7 +797,7 @@ static void do_untouch(simulator_ctx *sim, void *priv, void *script,
     det->event_id = EVENT_TOUCH_END;
 
     det->name = strdup(user_get_name(user));
-    det->pos = av->pos; det->rot = av->rot; det->vel = av->velocity;
+    det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
     user_get_uuid(user, det->key);
     send_detected_event(simscr, scr, det);
   }

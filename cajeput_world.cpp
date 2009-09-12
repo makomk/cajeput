@@ -136,9 +136,9 @@ void world_octree_destroy(struct world_octree* tree) {
 }
 
 void world_octree_insert(struct world_octree* tree, struct world_obj* obj) {
-  struct world_ot_leaf* leaf = world_octree_find(tree, (int)obj->pos.x,
-						 (int)obj->pos.y,
-						 (int)obj->pos.z, true);
+  struct world_ot_leaf* leaf = world_octree_find(tree, (int)obj->world_pos.x,
+						 (int)obj->world_pos.y,
+						 (int)obj->world_pos.z, true);
   leaf->objects.insert(obj);
 }
 
@@ -197,9 +197,9 @@ void octree_del_chat(struct world_ot_leaf* leaf, int32_t channel,
 void world_octree_move(struct world_octree* tree, struct world_obj* obj,
 		       const caj_vector3 &new_pos) {
   // FIXME - need to improve efficiency;
-  struct world_ot_leaf* old_leaf = world_octree_find(tree, (int)obj->pos.x,
-						     (int)obj->pos.y,
-						(int)obj->pos.z, false);
+  struct world_ot_leaf* old_leaf = world_octree_find(tree, (int)obj->world_pos.x,
+						     (int)obj->world_pos.y,
+						     (int)obj->world_pos.z, false);
   
   struct world_ot_leaf* new_leaf = world_octree_find(tree, (int)new_pos.x,
 						     (int)new_pos.y,
@@ -218,9 +218,9 @@ void world_octree_move(struct world_octree* tree, struct world_obj* obj,
 
 // FIXME - this and the move function need to clean up unused nodes
 void world_octree_delete(struct world_octree* tree, struct world_obj* obj) {
-  struct world_ot_leaf* leaf = world_octree_find(tree, (int)obj->pos.x,
-						 (int)obj->pos.y,
-						 (int)obj->pos.z, false);
+  struct world_ot_leaf* leaf = world_octree_find(tree, (int)obj->world_pos.x,
+						 (int)obj->world_pos.y,
+						 (int)obj->world_pos.z, false);
   leaf->objects.erase(obj);
   if(obj->chat != NULL) {
     for(std::set<int32_t>::iterator iter = obj->chat->channels.begin(); 
@@ -250,7 +250,7 @@ static void real_octree_send_chat(struct simulator_ctx *sim, struct world_octree
 	// int count = 0; // ??? what was this meant for?
 	for(octree_chat_map_iter iter = span.first; iter != span.second;iter++) {
 	  obj_chat_listener* listen = iter->second;
-	  if(caj_vect3_dist(&listen->obj->pos, &chat->pos) < range)
+	  if(caj_vect3_dist(&listen->obj->world_pos, &chat->pos) < range)
 	    listen->callback(sim, listen->obj, chat, listen->user_data);
 	}
       }
@@ -276,13 +276,27 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat) {
 
 // ---- END of octree code ---
 
+// FIXME - will need modifying to handle attachments
+static void object_compute_global_pos(struct world_obj *ob, caj_vector3 *pos_out) {
+  if(ob->parent == NULL) {
+    *pos_out = ob->local_pos;
+  } else if(ob->parent->type == OBJ_TYPE_PRIM) {
+    caj_vector3 offset;
+    caj_mult_vect3_quat(&offset, &ob->parent->rot, &ob->local_pos);
+    *pos_out = ob->parent->world_pos + offset;
+  } else {
+    // FIXME?
+    *pos_out = ob->parent->world_pos;
+  }
+}
+
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 			  int32_t chan, char *msg, int chat_type) {
   struct chat_message chat;
   chat.channel = chan;
   chat.msg = msg;
   chat.chat_type = chat_type;
-  chat.pos = prim->ob.pos;
+  chat.pos = prim->ob.world_pos;
   chat.name = prim->name;
   uuid_copy(chat.source,prim->ob.id);
   uuid_copy(chat.owner,prim->owner);
@@ -308,9 +322,9 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 			   int32_t channel) {
   assert(ob->chat != NULL);
   struct world_ot_leaf* leaf = world_octree_find(sim->world_tree, 
-						 (int)ob->pos.x,
-						 (int)ob->pos.y,
-						 (int)ob->pos.z, false);
+						 (int)ob->world_pos.x,
+						 (int)ob->world_pos.y,
+						 (int)ob->world_pos.z, false);
   assert(leaf != NULL);
   ob->chat->channels.insert(channel);
   octree_add_chat(leaf, channel, ob->chat);
@@ -319,10 +333,18 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   sim->uuid_map.insert(std::pair<obj_uuid_t,world_obj*>(obj_uuid_t(ob->id),ob));
   ob->local_id = (uint32_t)random();
+  object_compute_global_pos(ob, &ob->world_pos);
   //FIXME - generate local ID properly.
   sim->localid_map.insert(std::pair<uint32_t,world_obj*>(ob->local_id,ob));
   world_octree_insert(sim->world_tree, ob);
   sim->physh.add_object(sim,sim->phys_priv,ob);
+
+  if(ob->type == OBJ_TYPE_PRIM) {
+    primitive_obj *prim = (primitive_obj*)ob;
+    for(int i = 0; i < prim->num_children; i++) {
+      world_insert_obj(sim, &prim->children[i]->ob);
+    }
+  }
 
   mark_new_obj_for_updates(sim, ob);
 }
@@ -353,7 +375,7 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
 // NOTE: if you're adding new fields to prims and want them to be initialised
 // properly, you *must* edit cajeput_dump.cpp as well as here, since it doesn't
 // use world_begin_new_prim when revivifying loaded prims.
-// You may also need to update clone_prim below.
+// You probably also need to update clone_prim below.
 // Plus, you might want to update prim_from_os_xml (though it's not essential).
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   struct primitive_obj *prim = new primitive_obj();
@@ -370,7 +392,10 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->description = strdup("");
   prim->perms.next = prim->perms.current = prim->perms.base = 0x7fffffff;
   prim->perms.group = prim->perms.everyone = 0;
-  prim->flags = 0;
+  prim->flags = 0; prim->caj_flags = 0;
+  
+  prim->ob.parent = NULL; prim->children = NULL;
+  prim->num_children = 0;
 
   prim->inv.num_items = prim->inv.alloc_items = 0;
   prim->inv.items = NULL; prim->inv.serial = 0;
@@ -395,6 +420,26 @@ void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params)
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   world_remove_obj(sim, &prim->ob);
 
+  if(prim->children != NULL) {
+    // tad inefficient, this - actually O(num_children^2)
+    for(int i = prim->num_children - 1; i >= 0; i--) {
+      world_delete_prim(sim, prim->children[i]);
+    }
+    free(prim->children);
+  }
+
+  if(prim->ob.parent != NULL) {
+    assert(prim->ob.parent->type == OBJ_TYPE_PRIM); // FIXME
+    primitive_obj *parent = (primitive_obj*) prim->ob.parent;
+    for(int i = 0; i < parent->num_children; i++) {
+      if(parent->children[i] == prim) {
+	parent->num_children--;
+	for( ; i < parent->num_children; i++)
+	  parent->children[i] = parent->children[i+1];
+      }
+    }
+  }
+
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
 
@@ -415,6 +460,33 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   caj_string_free(&prim->tex_entry); caj_string_free(&prim->extra_params);
   free(prim->hover_text); free(prim->sit_name); free(prim->touch_name);
   free(prim->inv.items); delete prim;
+}
+
+void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
+		     struct primitive_obj* child) {
+  if(main->ob.parent != NULL || child->ob.parent != NULL || child->num_children != 0) {
+    printf("FIXME - can't handle this prim linking case");
+    return;
+  }
+  if(main->num_children > 255) {
+    printf("ERROR: tried linking prim with too many children\n");
+    return;
+  }
+
+  main->children = (primitive_obj**)realloc(main->children, 
+			   sizeof(primitive_obj*)*(main->num_children+1));
+  main->children[main->num_children++] = child;
+  child->ob.parent = &main->ob;
+
+  // we probably only need to update the child object
+  world_mark_object_updated(sim, &main->ob, UPDATE_LEVEL_FULL);
+  world_mark_object_updated(sim, &child->ob, UPDATE_LEVEL_FULL);
+  
+  // FIXME - this isn't quite right. Need to handle rotation
+  child->ob.local_pos.x -= main->ob.local_pos.x;
+  child->ob.local_pos.y -= main->ob.local_pos.y;
+  child->ob.local_pos.z -= main->ob.local_pos.z;
+  
 }
 
 char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
@@ -624,29 +696,82 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   }
 }
 
+#if 0 // FIXME - remove this
 static void world_insert_demo_objects(struct simulator_ctx *sim) {
   struct primitive_obj *prim = world_begin_new_prim(sim);
-  prim->ob.pos.x = 128.0f; prim->ob.pos.y = 128.0f; prim->ob.pos.z = 25.0f;
+  prim->ob.local_pos.x = 128.0f; 
+  prim->ob.local_pos.y = 128.0f; 
+  prim->ob.local_pos.z = 25.0f;
   world_insert_obj(sim, &prim->ob);
 }
+#endif
 
-void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
-			const caj_vector3 &new_pos) {
+static void world_move_root_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
+			     const caj_vector3 &new_pos) {
+  assert(ob->parent == NULL);
   world_octree_move(sim->world_tree, ob, new_pos);
-  ob->pos = new_pos;
+  ob->local_pos = new_pos; ob->world_pos = new_pos;
+}
+
+static void world_update_global_pos_int(struct simulator_ctx *sim, struct world_obj *ob) {
+  caj_vector3 new_pos;
+  object_compute_global_pos(ob, &new_pos);
+  world_octree_move(sim->world_tree, ob, new_pos);
+  ob->world_pos = new_pos;
+}
+
+static void world_move_obj_local_int(struct simulator_ctx *sim, struct world_obj *ob,
+				     const caj_vector3 &new_pos) {
+  ob->local_pos = new_pos;
+  world_update_global_pos_int(sim, ob);
 }
 
 // FIXME - validate position, rotation, scale!
-// FIXME - handle the LINKSET flag correctly.
+// FIXME - handle the LINKSET flags correctly.
 void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			    const struct caj_multi_upd *upd) {
   if(upd->flags & CAJ_MULTI_UPD_POS) {
-    world_move_obj_int(sim, obj, upd->pos);
+    if(!(upd->flags & CAJ_MULTI_UPD_LINKSET) && obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      caj_vector3 delt =  obj->local_pos - upd->pos;
+      caj_quat invrot; 
+      invrot.x = -obj->rot.x; invrot.y = -obj->rot.y;
+      invrot.z = -obj->rot.z; invrot.w = obj->rot.w;
+      caj_mult_vect3_quat(&delt, &invrot, &delt);
+      for(int i = 0; i < prim->num_children; i++) {
+	// Shouldn't be setting this directly. FIXME
+	prim->children[i]->ob.local_pos = prim->children[i]->ob.local_pos + delt;
+	world_mark_object_updated(sim, &prim->children[i]->ob, UPDATE_LEVEL_POSROT);
+      }
+    }
+    world_move_obj_local_int(sim, obj, upd->pos);
   }
   if(upd->flags & CAJ_MULTI_UPD_ROT) {
+    if(!(upd->flags & CAJ_MULTI_UPD_LINKSET) && obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      caj_quat invrot; 
+      invrot.x = -obj->rot.x; invrot.y = -obj->rot.y;
+      invrot.z = -obj->rot.z; invrot.w = obj->rot.w;
+      for(int i = 0; i < prim->num_children; i++) {
+	// Shouldn't be setting this directly. FIXME
+	caj_mult_vect3_quat(&prim->children[i]->ob.local_pos, &invrot,
+			    &prim->children[i]->ob.local_pos);
+	caj_mult_vect3_quat(&prim->children[i]->ob.local_pos, &upd->rot,
+			    &prim->children[i]->ob.local_pos);
+	caj_mult_quat_quat(&prim->children[i]->ob.rot, 
+			   &prim->children[i]->ob.rot, &invrot);
+	caj_mult_quat_quat(&prim->children[i]->ob.rot, 
+			   &prim->children[i]->ob.rot, &upd->rot);
+	world_mark_object_updated(sim, &prim->children[i]->ob, UPDATE_LEVEL_POSROT);
+      }
+       // FIXME - move child prims
+    }
     obj->rot = upd->rot;
   }
   if(upd->flags & CAJ_MULTI_UPD_SCALE) {
+    if((upd->flags & CAJ_MULTI_UPD_LINKSET) && obj->type == OBJ_TYPE_PRIM) {
+      // FIXME - scale child prims
+    }
     obj->scale = upd->scale;
   }
 
@@ -686,7 +811,11 @@ static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
   caj_string_copy(&newprim->extra_params, &prim->extra_params);
   uuid_generate(newprim->ob.id);
-  
+
+  // FIXME - clone children!
+  prim->ob.parent = NULL; prim->children = NULL;
+  prim->num_children = 0;
+
   // FIXME - clone inventory too
   newprim->inv.num_items = newprim->inv.alloc_items = 0;
   newprim->inv.items = NULL;
@@ -703,7 +832,7 @@ void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
   // the duplication loses certain properties, as in Second Life
   // (e.g hover text)
   primitive_obj *newprim = clone_prim(prim, 0);
-  newprim->ob.pos = position;
+  newprim->ob.local_pos = position;
   world_insert_obj(ctx->sim, &newprim->ob);
 }
 
@@ -786,7 +915,7 @@ void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_le
 
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 			      const caj_vector3 *new_pos) {
-  world_move_obj_int(sim, ob, *new_pos);
+  world_move_root_obj_int(sim, ob, *new_pos);
   mark_object_updated_nophys(sim, ob, UPDATE_LEVEL_POSROT);
 }
 

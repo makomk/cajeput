@@ -405,6 +405,7 @@ void world_int_init_obj_updates(user_ctx *ctx); // ick - HACK.
 #define CAJ_MULTI_UPD_POS 1
 #define CAJ_MULTI_UPD_ROT 2
 #define CAJ_MULTI_UPD_SCALE 4
+#define CAJ_MULTI_UPD_LINKSET 8
 
 struct caj_multi_upd {
   int flags;

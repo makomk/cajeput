@@ -275,7 +275,8 @@ static int compute_phys_type(struct world_obj *obj) {
     return PHYS_TYPE_PHYSICAL;
   } else if(obj->type == OBJ_TYPE_PRIM) {
     primitive_obj *prim = (primitive_obj*)obj;
-    if(prim->flags & PRIM_FLAG_PHANTOM) {
+    if(prim->flags & PRIM_FLAG_PHANTOM || prim->ob.parent != NULL) {
+      // FIXME - can't handle child prims, so disable physics on them for now
       return PHYS_TYPE_PHANTOM;
     } else if(prim->flags & PRIM_FLAG_PHYSICAL) {
       return PHYS_TYPE_PHYSICAL;
@@ -298,7 +299,7 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     physobj->phystype = phys_type;
     physobj->shape = shape_from_obj(obj);
     physobj->body = NULL; physobj->newshape = NULL;
-    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);
+    physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y);
     physobj->footfall_tmp = btVector4(0,0,0,1.0f);
     if(obj->type == OBJ_TYPE_AVATAR) {
       physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
@@ -332,7 +333,7 @@ static void upd_object_pos(struct simulator_ctx *sim, void *priv,
   if(obj->phys != NULL) {
     struct phys_obj *physobj = (struct phys_obj *)obj->phys;
     g_static_mutex_lock(&phys->mutex);
-    physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y); 
+    physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y); 
     physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
     printf("DEBUG: object rotation <%f,%f,%f,%f>\n",obj->rot.x,obj->rot.y,obj->rot.z,obj->rot.w);
     physobj->pos_update = 1;
@@ -378,7 +379,7 @@ static void upd_object_full(struct simulator_ctx *sim, void *priv,
       delete physobj->newshape;
       physobj->newshape = shape_from_obj(obj);
 
-      physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);  // don't always want this, but...
+      physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y);  // don't always want this, but...
       physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
       physobj->pos_update = 0; physobj->phystype = phys_type;
       phys->changed.insert(physobj);
@@ -761,10 +762,12 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
       if(physobj->objtype == OBJ_TYPE_AVATAR)
 	avatar_set_footfall(phys->sim, physobj->obj,
 			    &physobj->footfall);
+
+      assert(physobj->obj->parent == NULL);
     
-      if(fabs(newpos.x - physobj->obj->pos.x) >= 0.01 ||
-	 fabs(newpos.y - physobj->obj->pos.y) >= 0.01 ||
-	 fabs(newpos.z - physobj->obj->pos.z) >= 0.01 ||
+      if(fabs(newpos.x - physobj->obj->local_pos.x) >= 0.01 ||
+	 fabs(newpos.y - physobj->obj->local_pos.y) >= 0.01 ||
+	 fabs(newpos.z - physobj->obj->local_pos.z) >= 0.01 ||
 	 fabs(newrot.x - physobj->obj->rot.x) >= 0.01 ||
 	 fabs(newrot.y - physobj->obj->rot.y) >= 0.01 ||
 	 fabs(newrot.z - physobj->obj->rot.z) >= 0.01 ||
