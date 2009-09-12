@@ -115,7 +115,6 @@ struct vm_heap_entry {
   unsigned char* data;
 };
 
-#define VM_MAGIC 0xf0b17ecd
 
 #include <stdlib.h>
 #include <cassert>

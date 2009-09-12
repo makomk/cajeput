@@ -213,8 +213,14 @@ class asm_verify {
   }
 };
 
+#define VM_MAGIC 0xcab17ecdUL
+#define VM_SECT_BYTECODE 0xca17b17eUL
+#define VM_SECT_HEAP 0xca17da7aUL
+#define VM_SECT_GLOBALS 0xca17610bUL
+#define VM_SECT_FUNCS 0xca17ca11UL
+#define VM_MAGIC_END 0xcabcde0dUL
+#define VM_VALID_SECT_ID(id) ( ((id) & 0xffff0000UL) == 0xca170000UL)
 
-// FIXME - move this somewhere saner
 class vm_serialiser {
  private:
   std::vector<vm_heap_entry> heap;
@@ -223,6 +229,7 @@ class vm_serialiser {
   uint16_t* bytecode; uint32_t bytecode_len;
   int32_t *gvals; uint16_t gvals_len;
   uint32_t *gptrs; uint16_t gptrs_len;
+  int sect_start;
 
   void make_space(int len) {
     if(data_len+len > data_alloc) {
@@ -258,7 +265,8 @@ class vm_serialiser {
   }
 
  public:
-  vm_serialiser() : data(NULL), bytecode(NULL), gvals(NULL), gptrs(NULL) {
+ vm_serialiser() : data(NULL), bytecode(NULL), gvals(NULL), gptrs(NULL),
+    sect_start(0) {
      
   }
 
@@ -287,15 +295,32 @@ class vm_serialiser {
     funcs.push_back(func);
   }
 
+  void begin_sect(uint32_t magic) {
+    assert(sect_start == 0);
+    write_u32(magic); sect_start = data_len;
+    write_u32(0); // section length;
+  }
+
+  void end_sect() {
+    assert(sect_start != 0);
+    uint32_t len = data_len - (sect_start+4);
+    data[sect_start] = (len >> 24) & 0xff;
+    data[sect_start+1] = (len >> 16) & 0xff;
+    data[sect_start+2] = (len >> 8) & 0xff;
+    data[sect_start+3] = (len) & 0xff;
+    sect_start = 0;
+  }
+
   unsigned char* serialise(size_t *len) {
     free(data); data = NULL;
     assert(gvals != NULL); assert(gptrs != NULL); assert(bytecode != NULL);
 
     data_len = 0; data_alloc = 256;
     data = (unsigned char*)malloc(data_alloc);
-    write_u32(0xf0b17ecd);
+    write_u32(VM_MAGIC);
 
     // write heap
+    begin_sect(VM_SECT_HEAP);
     write_u32(heap.size());
     for( std::vector<vm_heap_entry>::iterator heap_iter = heap.begin();
 	 heap_iter != heap.end(); heap_iter++) {
@@ -307,8 +332,10 @@ class vm_serialiser {
 	write_data(heap_iter->data, heap_iter->len);
       }
     }
+    end_sect();
     
     // write globals
+    begin_sect(VM_SECT_GLOBALS);
     write_u16(gvals_len);
     for(unsigned int i = 0; i < gvals_len; i++) {
       write_u32((uint32_t)gvals[i]);
@@ -317,7 +344,9 @@ class vm_serialiser {
     for(unsigned int i = 0; i < gptrs_len; i++) {
       write_u32(gptrs[i]);
     }
+    end_sect();
 
+    begin_sect(VM_SECT_FUNCS);
     write_u16(funcs.size());
     for(unsigned int i = 0; i < funcs.size(); i++) {
       write_u8(funcs[i]->ret_type);
@@ -330,12 +359,16 @@ class vm_serialiser {
       write_data((unsigned char*)funcs[i]->name, slen);
       write_u32(funcs[i]->insn_ptr);
     }
+    end_sect();
 
     // write bytecode
-    write_u32(bytecode_len);
+    begin_sect(VM_SECT_BYTECODE);
     for(unsigned int i = 0; i < bytecode_len; i++) {
       write_u16(bytecode[i]);
     }
+    end_sect();
+
+    write_u32(VM_MAGIC_END);
     
     *len = data_len;
     return data;
