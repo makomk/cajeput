@@ -717,6 +717,13 @@ uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim) 
   return flags;
 }
 
+void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *obj,
+			 const caj_vector4 *footfall) {
+  assert(obj->type == OBJ_TYPE_AVATAR);
+  avatar_obj *av = (avatar_obj*)obj;
+  av->footfall = *footfall;
+}
+
 // --- START of part of hacky object update code. FIXME - remove this ---
 
 // FIXME - move this in with rest of the object update code 

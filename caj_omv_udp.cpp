@@ -245,13 +245,11 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
 
     // FIXME - iffy
     if(is_flying) {
-      if((control_flags & (AGENT_CONTROL_UP_NEG)) && 
-	 ctx->sim->physh.avatar_is_landing(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob)) {
-	// OpenSim also recognises AGENT_CONTROL_NUDGE_UP_NEG for this, but we
-	// don't have that yet.
-	set_default_anim(ctx, land_anim);
-      } else if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
-	// FIXME - send proper animations for flying backwards & turns
+      // we don't have any auto-land code here. Since we send the right
+      // foot plane, the viewer takes care of it for us. I eventually managed
+      // to figure out why the OpenSim code works, though, and it's screwy.
+
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
 	set_default_anim(ctx, fly_anim);
       } else if(control_flags & AGENT_CONTROL_UP_POS) {
 	set_default_anim(ctx, hover_up_anim);
@@ -261,8 +259,8 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
 	set_default_anim(ctx, hover_anim);
       }
     } else {
-      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
-	// FIXME - should walking backwards be different?
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG|
+			  AGENT_CONTROL_LEFT_POS|AGENT_CONTROL_LEFT_NEG)) {
 	set_default_anim(ctx, walk_anim);
       } else {
 	set_default_anim(ctx, stand_anim);
@@ -2259,7 +2257,7 @@ static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* 
 static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
   avatar_obj* av = av_user->av;
-  char name[0x100]; unsigned char obj_data[60];
+  char name[0x100]; unsigned char obj_data[76];
   SL_DECLMSG(ObjectUpdate,upd);
   SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
   rd->RegionHandle = ctx->sim->region_handle;
@@ -2274,12 +2272,13 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->Scale.x = 1.0f; objd->Scale.y = 1.0f; objd->Scale.z = 1.0f;
 
   // FIXME - endianness issues
-  memcpy(obj_data, &av->ob.pos, 12); 
-  memcpy(obj_data+12, &av->ob.velocity, 12); // velocity
-  memset(obj_data+24, 0, 12); // accel
-  memcpy(obj_data+36, &av->ob.rot, 12); 
-  memset(obj_data+48, 0, 12);
-  caj_string_set_bin(&objd->ObjectData, obj_data, 60);
+  memcpy(obj_data,&av->footfall,16);
+  memcpy(obj_data+16, &av->ob.pos, 12); 
+  memcpy(obj_data+16+12, &av->ob.velocity, 12); // velocity
+  memset(obj_data+16+24, 0, 12); // accel
+  memcpy(obj_data+16+36, &av->ob.rot, 12); 
+  memset(obj_data+16+48, 0, 12);
+  caj_string_set_bin(&objd->ObjectData, obj_data, 76);
 
   objd->ParentID = 0;
   objd->UpdateFlags = 0; // TODO
@@ -2338,11 +2337,8 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   dat[4] = 0; // state - ???
   dat[5] = 1; // object is an avatar
   
-  // FIXME - copied from OpenSim
-  memset(dat+6,0,16);
-  dat[0x14] = 128; dat[0x15] = 63;
-  
   // FIXME - correct endianness
+  memcpy(dat+6,&av->footfall,16);
   memcpy(dat+0x16, &av->ob.pos, 12); 
 
   // Velocity

@@ -192,6 +192,9 @@ struct cajeput_physics_hooks {
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 
 			 void **priv, struct cajeput_physics_hooks *hooks);
 
+  void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
+			   const caj_vector4 *footfall);
+
 // FIXME - should these be internal?
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob);

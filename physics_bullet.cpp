@@ -65,6 +65,8 @@ struct phys_obj {
   btVector3 target_velocity;
   btVector3 pos, velocity;
   btVector3 impulse;
+  btVector4 footfall_tmp; // physics thread only
+  caj_vector4 footfall;
   btQuaternion rot;
   int is_flying; // for avatars only
   int is_deleted;
@@ -297,10 +299,11 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     physobj->shape = shape_from_obj(obj);
     physobj->body = NULL; physobj->newshape = NULL;
     physobj->pos = btVector3(obj->pos.x,obj->pos.z,obj->pos.y);
+    physobj->footfall_tmp = btVector4(0,0,0,1.0f);
     if(obj->type == OBJ_TYPE_AVATAR) {
       physobj->rot = btQuaternion(0.0,0.0,0.0,1.0);
       physobj->is_flying = 1; // probably the safe assumption. FIXME - do right.
-      physobj->collide_down = 0;
+      physobj->collide_down = 0; physobj->collide_down_ticks = 0; 
     } else {
        physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
     }
@@ -565,6 +568,9 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 
 #define COLLIDE_DOWN_ANGLE (M_PI*(5.0/6.0)) /* 30 degrees limit */
 
+// technically, the footfall stuff isn't quite right - we want the 
+// surface normal of the prim, not the collision normal. Works, though.
+// FIXME - bunch of code duplication here that should be cleaned up
 void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
   struct physics_ctx *phys = (struct physics_ctx*)world->getWorldUserInfo();
 
@@ -573,6 +579,8 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
       iter != phys->physical.end(); iter++) {
     struct phys_obj *physobj = *iter;
     physobj->collide_down = 0;
+    // yes, this is right, even though footfall's not a quaternion!
+    physobj->footfall_tmp = btVector4(0,0,0,1.0f);
   }
   g_static_mutex_unlock(&phys->mutex);
 
@@ -592,14 +600,18 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
 	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
 	 if (pt.getDistance() < 0.0f) {
 	   //const btVector3& ptA = pt.getPositionWorldOnA();
-	   //const btVector3& ptB = pt.getPositionWorldOnB();
-	   const btVector3& normalOnB = pt.m_normalWorldOnB;
-	   btScalar angle = normalOnB.angle(btVector3(0.0f,-1.0f,0.0f));
+	   const btVector3& ptB = pt.getPositionWorldOnB();
+	   const btVector3& normal = -pt.m_normalWorldOnB;
+	   btScalar angle = normal.angle(btVector3(0.0f,1.0f,0.0f));
 	   
 	   /* printf("DEBUG: collision, avatar A, normal <%f,%f,%f> angle %f\n",
 	      normalOnB.getX(), normalOnB.getY(), normalOnB.getZ(), angle); */
 	   if(angle > COLLIDE_DOWN_ANGLE) {
 	     physobjA->collide_down = 1;
+	     if(obB->getCollisionShape() != phys->ground_shape)
+	       physobjA->footfall_tmp = btVector4(-normal.getX(), -normal.getY(),
+						  -normal.getZ(),
+						  -normal.dot(ptB));
 	   }
 	 }
        }
@@ -607,14 +619,18 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
        for (int j=0; j<numContacts; j++) {
 	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
 	 if (pt.getDistance() < 0.0f) {
-	   //const btVector3& ptA = pt.getPositionWorldOnA();
+	   const btVector3& ptA = pt.getPositionWorldOnA();
 	   //const btVector3& ptB = pt.getPositionWorldOnB();
-	   const btVector3& normalOnB = pt.m_normalWorldOnB;
-	   btScalar angle = normalOnB.angle(btVector3(0.0f,1.0f,0.0f));
+	   const btVector3& normal = pt.m_normalWorldOnB;
+	   btScalar angle = normal.angle(btVector3(0.0f,1.0f,0.0f));
 	   /* printf("DEBUG: collision, avatar B, normal <%f,%f,%f>, angle %f\n",
 	      normalOnB.getX(), normalOnB.getY(), normalOnB.getZ(), angle); */
 	   if(angle > COLLIDE_DOWN_ANGLE) {
 	     physobjB->collide_down = 1;
+	     if(obB->getCollisionShape() != phys->ground_shape)
+	       physobjB->footfall_tmp = btVector4(-normal.getX(), -normal.getY(),
+						  -normal.getZ(),
+						  -normal.dot(ptA));
 	   }
 	 }
        }
@@ -658,6 +674,12 @@ static gpointer physics_thread(gpointer data) {
       physobj->pos = trans.getOrigin();
       physobj->rot = trans.getRotation().inverse();
       physobj->velocity = physobj->body->getLinearVelocity();
+      if(physobj->objtype == OBJ_TYPE_AVATAR) {
+	physobj->footfall.x = physobj->footfall_tmp.getX();
+	physobj->footfall.y = physobj->footfall_tmp.getZ();
+	physobj->footfall.z = physobj->footfall_tmp.getY();
+	physobj->footfall.w = physobj->footfall_tmp.getW();
+      }
     }
 
     g_static_mutex_unlock(&phys->mutex);
@@ -735,6 +757,10 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
       physobj->obj->velocity.x = physobj->velocity.getX();
       physobj->obj->velocity.y = physobj->velocity.getZ();
       physobj->obj->velocity.z = physobj->velocity.getY();
+
+      if(physobj->objtype == OBJ_TYPE_AVATAR)
+	avatar_set_footfall(phys->sim, physobj->obj,
+			    &physobj->footfall);
     
       if(fabs(newpos.x - physobj->obj->pos.x) >= 0.01 ||
 	 fabs(newpos.y - physobj->obj->pos.y) >= 0.01 ||

@@ -566,6 +566,10 @@ int user_complete_movement(user_ctx *ctx) {
     ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
     ctx->av->ob.rot.w = 1.0f;
     ctx->av->ob.velocity.x = ctx->av->ob.velocity.y = ctx->av->ob.velocity.z = 0.0f;
+    // yes, this is right, even though footfall's not a quaternion
+    ctx->av->footfall.x = ctx->av->footfall.y = 0.0f;
+    ctx->av->footfall.z = 0.0f; ctx->av->footfall.w = 1.0f;
+    
     uuid_copy(ctx->av->ob.id, ctx->user_id);
     world_insert_obj(ctx->sim, &ctx->av->ob);
     world_obj_listen_chat(ctx->sim,&ctx->av->ob,user_av_chat_callback,ctx);

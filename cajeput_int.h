@@ -133,8 +133,10 @@ struct image_request {
 #define CAJ_ANIM_TYPE_DEFAULT 1 // default anim
 // #define CAJ_ANIM_TYPE_MOVEMENT 2 // walking
 
+// note - allocated with calloc, can't use C++ stuff
 struct avatar_obj {
   struct world_obj ob;
+  caj_vector4 footfall;
 };
 
 struct animation_desc {
