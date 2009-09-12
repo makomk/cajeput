@@ -681,7 +681,10 @@ static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   newprim->name = strdup(prim->name);
   newprim->description = strdup(prim->description);
   newprim->hover_text = strdup(faithful ? prim->hover_text : "");
+  newprim->sit_name = strdup(faithful ? prim->sit_name : ""); // FIXME - copied?
+  newprim->touch_name = strdup(faithful ? prim->touch_name : ""); // FIXME - copied?
   caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
+  caj_string_copy(&newprim->extra_params, &prim->extra_params);
   uuid_generate(newprim->ob.id);
   
   // FIXME - clone inventory too
