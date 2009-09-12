@@ -22,6 +22,7 @@
 
 #include "sl_messages.h"
 #include "sl_udp_proto.h"
+#include "caj_helpers.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -267,9 +268,8 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	  *(int*)(blk+bt->vals[k].offset) = *(data++); len--;
 	  break;
 	case SL_MSG_F32:
-	  // FIXME - proper byte swapping!
 	  if(len < 4) { printf("Unexpected end of packet\n"); return 1;}
-	  memcpy(blk+bt->vals[k].offset, data, 4); 
+	  *(float*)(blk+bt->vals[k].offset) = caj_bin_to_float_le(data);
 	  len -= 4; data += 4;
 	  break;
 	/* case SL_MSG_F64: */
@@ -283,16 +283,15 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
 	    break;
 	  }
 	case SL_MSG_LLQUATERNION:
-	  // FIXME - proper byte swapping; correctly fill in 4th value
 	  if(len < 12) { printf("Unexpected end of packet\n"); return 1;}
-	  memcpy(blk+bt->vals[k].offset, data, 12); 
-	  caj_expand_quat((struct caj_quat*)(blk+bt->vals[k].offset));
+	  caj_bin3_to_quat_le((struct caj_quat*)(blk+bt->vals[k].offset),
+			      data);
 	  len -= 12; data += 12;
 	  break;
 	case SL_MSG_LLVECTOR3:
-	  // FIXME - proper byte swapping!
 	  if(len < 12) { printf("Unexpected end of packet\n"); return 1;}
-	  memcpy(blk+bt->vals[k].offset, data, 12); 
+	  caj_bin_to_vect3_le((struct caj_vector3*)(blk+bt->vals[k].offset),
+			      data);
 	  len -= 12; data += 12;
 	  break;
 	/* case SL_MSG_LLVECTOR4 */
@@ -388,9 +387,9 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  rawmsg[len++] =  (*(int*)(blk+bt->vals[k].offset) ? 1 : 0);
 	  break;
 	case SL_MSG_F32:
-	  // FIXME - proper byte swapping!
 	  if(len+4 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
-	  memcpy(rawmsg+len, blk+bt->vals[k].offset, 4); len += 4;
+	  caj_float_to_bin_le(rawmsg+len, *(float*)blk+bt->vals[k].offset);
+	  len += 4;
 	  break;
 	case SL_MSG_F64: // TODO
 	  printf("Error: unhandled type F64 packing message %s\n", 
@@ -403,9 +402,9 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  len += tmp;
 	  break;
 	case SL_MSG_LLVECTOR3:
-	  // FIXME - proper byte swapping!
 	  if(len+12 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
-	  memcpy(rawmsg+len, blk+bt->vals[k].offset, 12); len += 12;
+	  caj_vect3_to_bin_le(rawmsg+len, (caj_vector3*)(blk+bt->vals[k].offset));
+	  len += 12;
 	  break;
 	case SL_MSG_LLQUATERNION: // TODO
 	  printf("Error: unhandled type LLQUATERNION packing message %s\n", 

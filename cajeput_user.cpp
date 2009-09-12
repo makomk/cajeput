@@ -25,6 +25,7 @@
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
+#include "caj_helpers.h"
 #include <cassert>
 
 void user_reset_timeout(struct user_ctx* ctx) {
@@ -169,13 +170,6 @@ void user_set_throttles(struct user_ctx *ctx, float rates[]) {
   }
 }
 
-static float sl_unpack_float(unsigned char *buf) {
-  float f;
-  // FIXME - need to swap byte order if necessary.
-  memcpy(&f,buf,sizeof(float));
-  return f;
-}
-
 void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len) {
   float throttles[SL_NUM_THROTTLES];
@@ -187,7 +181,7 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 
   printf("DEBUG: got new throttles:\n");
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    throttles[i] =  sl_unpack_float(data + 4*i);
+    throttles[i] =  caj_bin_to_float_le(data + 4*i);
     printf("  throttle %s: %f\n", sl_throttle_names[i], throttles[i]);
     user_set_throttles(ctx, throttles);
   }
@@ -195,8 +189,6 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 
 void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len) {
-  float throttles[SL_NUM_THROTTLES];
-
   if(len < SL_NUM_THROTTLES*4) {
     printf("Error: AgentThrottle with not enough data\n");
     return;
@@ -205,11 +197,8 @@ void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
   }
 
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
-    throttles[i] = ctx->throttles[i].rate * 8.0f;
+    caj_float_to_bin_le(data + i*4, ctx->throttles[i].rate * 8.0f);
   }
-
-  // FIXME - endianness
-  memcpy(data, throttles, len);
 }
 
 void user_reset_throttles(struct user_ctx *ctx) {

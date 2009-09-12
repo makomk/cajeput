@@ -30,6 +30,7 @@
 #include <math.h>
 #include <stdint.h>
 #include "caj_types.h"
+#include "caj_helpers.h"
 #include "terrain_compress.h"
 
 #define END_OF_PATCHES 97
@@ -126,15 +127,14 @@ static void pack_bit_array(struct bit_packer *pack, unsigned char *data, int tot
 
 static void pack_bits(struct bit_packer *pack, uint32_t data, int totalCount) {
   unsigned char arr[4];
-  arr[0] = data & 0xff; arr[1] = (data >> 8) & 0xff;
-  arr[2] = (data >> 16) & 0xff; arr[3] = (data >> 24) & 0xff;
+  caj_uint32_to_bin_le(arr, data);
   pack_bit_array(pack, arr, totalCount);
 }
 
 static void pack_float(struct bit_packer *pack, float data) {
-  // FIXME - assumes float 32-bit and same endianness as int, etc.
-  union { float f; uint32_t i; } u;
-  u.f = data; pack_bits(pack, u.i, 32);
+  unsigned char arr[4];
+  caj_float_to_bin_le(arr, data);
+  pack_bit_array(pack, arr, 32);
 }
 
 static void prescan_patch(float *heightmap, int patchX, int patchY, struct patch_header *header)

@@ -2,7 +2,7 @@
 #include "string.h"
 #include "uuid/uuid.h"
 #include "caj_types.h"
-#include "glib.h"
+#include <glib.h>
 
 static int check_node(xmlNodePtr node, const char* name) {
   if(node == NULL) {

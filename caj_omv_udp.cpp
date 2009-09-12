@@ -27,6 +27,7 @@
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
 #include "cajeput_prim.h"
+#include "caj_helpers.h"
 #include "caj_omv.h"
 #include "terrain_compress.h"
 #include <stdlib.h>
@@ -1044,9 +1045,9 @@ static unsigned char* build_dummy_texture_entry(uuid_t texture, int *len) {
   data[16] = 0;
   memset(data+17,0,4); // colour
   data[21] = 0;
-  memcpy(data+22,&repeat_uv,4); // repeat U. FIXME - endianness
+  caj_float_to_bin_le(data+22,repeat_uv); // repeat U.
   data[26] = 0;
-  memcpy(data+27,&repeat_uv,4); // repeat V. FIXME - endianness
+  caj_float_to_bin_le(data+27,repeat_uv); // repeat V.
   data[31] = 0;
   memset(data+32,0,2); // offset U
   data[34] = 0;
@@ -1183,15 +1184,13 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
 
     // FIXME - handle LINSKET flag!
 
-    // FIXME - this is horribly endian-dependent code
-
     if(objd->Type & MULTI_UPDATE_POS) {
       if(len < 12) {
 	printf("ERROR: MultipleObjectUpdate too short for pos\n"); 
 	continue;
       }
       upd.flags |= CAJ_MULTI_UPD_POS;
-      memcpy(&upd.pos, dat, 12);
+      caj_bin_to_vect3_le(&upd.pos, dat);
       dat += 12; len -= 12;
     }
     if(objd->Type & MULTI_UPDATE_ROT) {
@@ -1200,8 +1199,7 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
 	continue;
       }
       upd.flags |= CAJ_MULTI_UPD_ROT;
-      memcpy(&upd.rot, dat, 12);
-      caj_expand_quat(&upd.rot);
+      caj_bin3_to_quat_le(&upd.rot, dat);
       dat += 12; len -= 12;
     }
     if(objd->Type & MULTI_UPDATE_SCALE) {
@@ -1210,7 +1208,7 @@ static void handle_MultipleObjectUpdate_msg(struct omuser_ctx* lctx, struct sl_m
 	continue;
       }
       upd.flags |= CAJ_MULTI_UPD_SCALE;
-      memcpy(&upd.scale, dat, 12);
+      caj_bin_to_vect3_le(&upd.scale, dat);
       dat += 12; len -= 12;
     }
 
@@ -2304,13 +2302,12 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->Material = MATERIAL_FLESH; // discrimination against robots?
   objd->Scale.x = 1.0f; objd->Scale.y = 1.0f; objd->Scale.z = 1.0f;
 
-  // FIXME - endianness issues
-  memcpy(obj_data,&av->footfall,16);
-  memcpy(obj_data+16, &av->ob.local_pos, 12); 
-  memcpy(obj_data+16+12, &av->ob.velocity, 12); // velocity
+  caj_vect4_to_bin_le(obj_data, &av->footfall);
+  caj_vect3_to_bin_le(obj_data+16, &av->ob.local_pos);
+  caj_vect3_to_bin_le(obj_data+16+12, &av->ob.velocity);
   memset(obj_data+16+24, 0, 12); // accel
-  memcpy(obj_data+16+36, &av->ob.rot, 12); 
-  memset(obj_data+16+48, 0, 12);
+  caj_quat_to_bin3_le(obj_data+16+36, &av->ob.rot);
+  memset(obj_data+16+48, 0, 12); // not sure? rotational velocity?
   caj_string_set_bin(&objd->ObjectData, obj_data, 76);
 
   objd->ParentID = 0;
@@ -2370,9 +2367,8 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   dat[4] = 0; // state - ???
   dat[5] = 1; // object is an avatar
   
-  // FIXME - correct endianness
-  memcpy(dat+6,&av->footfall,16);
-  memcpy(dat+0x16, &av->ob.local_pos, 12); 
+  caj_vect4_to_bin_le(dat+6,&av->footfall);
+  caj_vect3_to_bin_le(dat+0x16, &av->ob.local_pos);
 
   // Velocity
   sl_float_to_int16(dat+0x22, av->ob.velocity.x, 128.0f);
@@ -2464,11 +2460,11 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   objd->ClickAction = 0; // FIXME.
   objd->Scale = prim->ob.scale;
 
-  // FIXME - endianness issues
+  caj_vect3_to_bin_le(obj_data, &prim->ob.local_pos);
   memcpy(obj_data, &prim->ob.local_pos, 12); 
   memset(obj_data+12, 0, 12); // velocity - FIXME send this
   memset(obj_data+24, 0, 12); // accel
-  memcpy(obj_data+36, &prim->ob.rot, 12); 
+  caj_quat_to_bin3_le(obj_data+36, &prim->ob.rot);
   memset(obj_data+48, 0, 12);
   caj_string_set_bin(&objd->ObjectData, obj_data, 60);
 
@@ -2530,9 +2526,7 @@ static void obj_send_terse_upd(omuser_ctx* lctx, world_obj* obj) {
   dat[4] = 0; // state - ???
   dat[5] = 0; // object is not an avatar
   
-  
-  // FIXME - correct endianness
-  memcpy(dat+0x6, &obj->local_pos, 12); 
+  caj_vect3_to_bin_le(dat+0x6, &obj->local_pos);
 
   // Velocity
 #if 0 // FIXME !!!
