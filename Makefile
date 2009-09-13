@@ -1,7 +1,7 @@
 GLIB_INCLUDES := $(shell pkg-config glib-2.0 --cflags) $(shell pkg-config libxml-2.0 --cflags) $(shell pkg-config libsoup-2.4 --cflags) $(shell pkg-config json-glib-1.0 --cflags)
 GLIB_LIBS := $(shell pkg-config glib-2.0 --libs) $(shell pkg-config libxml-2.0 --libs) $(shell pkg-config libsoup-2.4 --libs) $(shell pkg-config json-glib-1.0 --libs)
 
-WARNING_OPTS=-Wall -Werror=format-security -Werror=init-self -Werror=parentheses -Werror=sequence-point -Werror=uninitialized
+WARNING_OPTS=-Wall -Werror=format-security -Werror=init-self -Werror=parentheses -Werror=sequence-point
 CXXFLAGS=$(WARNING_OPTS) -O -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG
 CFLAGS=$(WARNING_OPTS) -O -ggdb $(GLIB_INCLUDES)
 
