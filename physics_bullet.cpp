@@ -30,6 +30,8 @@
 #include <set>
 #include <vector>
 
+#define GRAVITY 9.8
+
 struct phys_obj;
 
 struct physics_ctx {
@@ -69,6 +71,7 @@ struct phys_obj {
   caj_vector4 footfall;
   btQuaternion rot;
   int is_flying; // for avatars only
+  int flying_changed;
   int is_deleted;
   int pos_update;
   int objtype;
@@ -317,7 +320,8 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     physobj->velocity = btVector3(0,0,0); // FIXME - load from prim?
     physobj->impulse = btVector3(0,0,0);
     
-    physobj->is_deleted = 0; physobj->pos_update = 0;
+    physobj->is_deleted = 0; physobj->pos_update = 0; 
+    physobj->flying_changed = 0;
     physobj->obj = obj;
     physobj->objtype = obj->type; // can't safely access obj in thread
 
@@ -448,33 +452,17 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
   struct phys_obj *physobj = (struct phys_obj *)obj->phys;
   struct physics_ctx *phys = (struct physics_ctx*)priv;
 
-  g_static_mutex_lock(&phys->mutex); // do we really need this?
+
   if(physobj->is_flying != is_flying) {
+    printf("DEBUG: is_flying changed to %i\n", is_flying);
+    g_static_mutex_lock(&phys->mutex); // is_flying only changed from main thread
     physobj->is_flying = is_flying;
-#if 0 // FIXME - need to re-add this!
-    physobj->body->applyCentralImpulse(btVector3(0.0f,-40.0f,0.0f)); // HACK
-    physobj->body->setActivationState(ACTIVE_TAG); // so we fall properly
-#endif
+    physobj->flying_changed = 1;
+    phys->changed.insert(physobj);
+    g_static_mutex_unlock(&phys->mutex);    
   }
-  g_static_mutex_unlock(&phys->mutex);
-
-  // FIXME - should make av buoyant
 }
 
-/* Rule here is: if we've been colliding in a vaguely downwards direction for a
-   few frames, we're potentially landing. The main sim code also requires that 
-   the down key is being pressed for an actual landing to happen. */
-static int avatar_is_landing(struct simulator_ctx *sim, void *priv,
-			     struct world_obj *av) {
-  struct phys_obj *physobj = (struct phys_obj *)av->phys;
-  struct physics_ctx *phys = (struct physics_ctx*)priv;
-  int ret;
-  assert(av->type == OBJ_TYPE_AVATAR);
-  g_static_mutex_lock(&phys->mutex);
-  ret = physobj != NULL && physobj->collide_down_ticks > 4;
-  g_static_mutex_unlock(&phys->mutex);
-  return ret;
-}
 
 // runs on physics thread
 static void do_phys_updates_locked(struct physics_ctx *phys) {
@@ -537,8 +525,15 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       // numbers picked at random. FIXME? SL actually has 0 linear damping.
       physobj->body->setDamping(0.1f, 0.2f); 
       if(physobj->objtype == OBJ_TYPE_AVATAR) {
+	printf("DEBUG: adding avatar\n");
 	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
+
+	if(physobj->is_flying)
+	  physobj->body->setGravity(btVector3(0,0,0));
+	else
+	  physobj->body->setGravity(btVector3(0,-GRAVITY,0));
+	physobj->flying_changed = 0;
       } else if(physobj->phystype == PHYS_TYPE_PHYSICAL) {
 	printf("DEBUG: adding physical prim, mass %f\n", (double)mass);
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_PHYS_PRIM, PHYS_PRIM_COLLIDES_WITH);
@@ -558,6 +553,20 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       physobj->body->setWorldTransform(transform); // needed for physical objects
       physobj->body->activate(TRUE); // very much necessary
       physobj->pos_update = 0;
+    }
+
+    if(physobj->flying_changed) {
+      assert(physobj->objtype == OBJ_TYPE_AVATAR);
+      if(physobj->is_flying) {
+	printf("DEBUG: setting avatar buoyant\n");
+	physobj->body->setGravity(btVector3(0,0,0));
+      } else {
+	printf("DEBUG: setting avatar non-buoyant\n");
+	physobj->body->setGravity(btVector3(0,-GRAVITY,0));
+	physobj->body->activate();
+      }
+      physobj->flying_changed = 0;
+      
     }
 
     if(physobj->impulse.getX() != 0.0 || physobj->impulse.getY() != 0.0 ||
@@ -866,7 +875,6 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   // hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
   hooks->set_avatar_flying = set_avatar_flying;
-  hooks->avatar_is_landing = avatar_is_landing;
   hooks->destroy = destroy_physics;
   hooks->apply_impulse = apply_impulse;
 
@@ -884,7 +892,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 						     phys->collisionConfiguration);
 
   phys->dynamicsWorld->setInternalTickCallback(tick_callback, phys);
-  phys->dynamicsWorld->setGravity(btVector3(0,-9.8,0));
+  phys->dynamicsWorld->setGravity(btVector3(0,-GRAVITY,0));
 
   float *heightfield = sim_get_heightfield(sim);
   // WARNING: note that this does *NOT* make its own copy of the heightfield
@@ -892,6 +900,8 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   phys->ground_shape = new btHeightfieldTerrainShape(256, 256, heightfield,
 						     0, 0.0f, 100.0f, 1,
 						     PHY_FLOAT, 0);
+  // scaling is a HACK to avoid a "falling off the edge of the world" bug
+  phys->ground_shape->setLocalScaling(btVector3(1.004,1,1.004)); 
   btTransform ground_transform;
   ground_transform.setIdentity();
   ground_transform.setOrigin(btVector3(128,50,128));
