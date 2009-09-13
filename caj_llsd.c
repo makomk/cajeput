@@ -359,7 +359,6 @@ char* llsd_serialise_xml(caj_llsd *llsd) {
   out = strdup((char*)buf->content);
 
  fail:
-  // FIXME - free stuff
   xmlFreeTextWriter(writer);
   xmlBufferFree(buf);
   return out;
@@ -390,7 +389,6 @@ caj_llsd* llsd_new_string(const char *str) {
   return llsd;
 }
 
-// FIXME - should I bother exporting this?
 caj_llsd* llsd_new_string_take(char *str) {
   caj_llsd* llsd = malloc(sizeof(caj_llsd));
   llsd->type_id = LLSD_STRING;

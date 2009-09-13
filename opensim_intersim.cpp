@@ -829,7 +829,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 			    SOUP_MEMORY_TAKE,  jbuf, 
 			    len);
   sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 do_teleport_put_agent_resp, tp_priv);
   
 }
@@ -940,6 +940,6 @@ void osglue_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
 			    SOUP_MEMORY_TAKE,  jbuf, 
 			    len);
   sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 do_teleport_send_agent_resp, tp_priv);
 }

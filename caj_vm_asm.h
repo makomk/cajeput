@@ -93,6 +93,8 @@ private:
 
 private:
   void do_fixup(const jump_fixup &fixup) {
+    // bytecode verification checks are done at an earlier stage (via the 
+    // locations code) so we don't have to do them here.
     if(loc_map[fixup.dest_loc] == 0) {
       err = "Jump without matching label"; return;
     }
@@ -193,7 +195,6 @@ public:
   }
 
   void do_label(loc_atom loc) {
-    // FIXME - need to handle jumps properly in verification
     if(err != NULL) return;
     if(func_start == 0) { err = "do_label outside of func"; return; }
     if(loc.val < 0 || loc.val >= loc_map.size()) { 
@@ -207,7 +208,6 @@ public:
       if(loc_verify[loc.val] != NULL) {
 	verify = loc_verify[loc.val]->dup();
       } else {
-	
 	err = "Unverifiable label placement"; return;
       }
     } else if(loc_verify[loc.val] == NULL)  {
@@ -218,7 +218,6 @@ public:
   }
 
   void do_jump(loc_atom loc) {
-    // FIXME - need to handle jumps properly in verification
     if(err != NULL) return;
     if(func_start == 0) { err = "do_jump outside of func"; return; } 
     if(verify == NULL) { err = "Unverifiable code ordering"; return; }

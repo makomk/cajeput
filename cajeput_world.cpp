@@ -523,7 +523,7 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   int prim_evmask = 0;
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
-    if(/* inv->inv_type == ???  && - FIXME */ inv->asset_type == ASSET_LSL_TEXT 
+    if(inv->inv_type == INV_TYPE_LSL && inv->asset_type == ASSET_LSL_TEXT 
        && inv->priv != NULL) {
       prim_evmask |= sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
     }
@@ -679,11 +679,11 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   inv->perms.group = inv->perms.everyone = 0;
 
   inv->asset_type = ASSET_LSL_TEXT; 
-  inv->inv_type = 10; // FIXME
+  inv->inv_type = INV_TYPE_LSL;
   inv->sale_type = 0; // FIXME
   inv->group_owned = 0;
   inv->sale_price = 0;
-  inv->creation_date = 0; // FIXME FIXME
+  inv->creation_date = time(NULL);
   inv->flags = flags;
 
   // FIXME - bit iffy here
@@ -797,7 +797,7 @@ uint32_t user_calc_prim_perms(struct user_ctx* ctx, struct primitive_obj *prim) 
 
 int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {
   if(obj->type != OBJ_TYPE_PRIM) return false;
-  return user_calc_prim_perms(ctx,(primitive_obj*)obj); // FIXME!
+  return (user_calc_prim_perms(ctx,(primitive_obj*)obj) & PERM_MODIFY) != 0;
 }
 
 int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim) {
@@ -812,8 +812,8 @@ static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   newprim->name = strdup(prim->name);
   newprim->description = strdup(prim->description);
   newprim->hover_text = strdup(faithful ? prim->hover_text : "");
-  newprim->sit_name = strdup(faithful ? prim->sit_name : ""); // FIXME - copied?
-  newprim->touch_name = strdup(faithful ? prim->touch_name : ""); // FIXME - copied?
+  newprim->sit_name = strdup(faithful ? prim->sit_name : "");
+  newprim->touch_name = strdup(faithful ? prim->touch_name : "");
   caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
   caj_string_copy(&newprim->extra_params, &prim->extra_params);
   uuid_generate(newprim->ob.id);

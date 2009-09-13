@@ -157,8 +157,8 @@ static void do_grid_login(struct simulator_ctx* sim) {
     exit(1);
   }
 
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+
+  sim_queue_soup_message(sim, msg,
 			 got_grid_login_response, sim);
   
   // TODO
@@ -347,8 +347,7 @@ void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
   vs_state->sim = sim;
 
   sim_shutdown_hold(sim);
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(val_msg),
+  sim_queue_soup_message(sim, val_msg,
 			 got_validate_session_resp, vs_state);
   				   
 }
@@ -584,8 +583,7 @@ static void user_logoff(struct simulator_ctx* sim,
     return;
   }
 
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 got_user_logoff_resp, sim);
   sim_shutdown_hold(sim);
 }
@@ -638,7 +636,7 @@ void user_entered(simulator_ctx *sim, user_ctx *user,
     soup_message_set_request (msg, "text/plain",
 			      SOUP_MEMORY_STATIC, "", 0);
     sim_shutdown_hold(sim);
-    sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+    sim_queue_soup_message(sim, msg,
 			   user_entered_callback_resp, sim);
     free(user_glue->enter_callback_uri);
     user_glue->enter_callback_uri = NULL;  
@@ -757,7 +755,7 @@ static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture)
   asset_req_desc *req = new asset_req_desc;
   req->texture = texture; req->sim = sim;
   sim_shutdown_hold(sim); // FIXME - probably don't want to do this
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 get_texture_resp, req);
 
 }
@@ -870,9 +868,8 @@ static void get_asset(struct simulator_ctx *sim, struct simple_asset *asset) {
   SoupMessage *msg = soup_message_new ("GET", url);
   asset_req_desc *req = new asset_req_desc;
   req->asset = asset; req->sim = sim;
-  sim_shutdown_hold(sim); // FIXME - probably don't want to do this
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
-			 get_asset_resp, req);
+  sim_shutdown_hold(sim); // not sure we want to do this
+  sim_queue_soup_message(sim, msg, get_asset_resp, req);
   
 }
 
@@ -1025,8 +1022,7 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
   }
 
   sim_shutdown_hold(sim);
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
 }
 
@@ -1136,8 +1132,7 @@ static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
   st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
 
   sim_shutdown_hold(sim);
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 got_region_info, st);
 
 }
@@ -1274,8 +1269,7 @@ static void map_name_request(struct simulator_ctx* sim, const char* name,
   st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
 
   sim_shutdown_hold(sim);
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 got_region_by_name, st);
 
 }
@@ -1436,8 +1430,7 @@ static void user_profile_by_id(struct simulator_ctx *sim, uuid_t id,
   }
 
   sim_shutdown_hold(sim);
-  // FIXME - why SOUP_MESSAGE(foo)?
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  sim_queue_soup_message(sim, msg,
 			 got_user_by_id_resp, new user_by_id_state(sim,cb,cb_priv));
 }		       
 

@@ -70,7 +70,7 @@ extern const char *sl_wearable_names[]; // don't forget to update this!
 
 // various internal flags
 #define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply
-#define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region - FIXME remove
+#define AGENT_FLAG_INCOMING 0x2 // expecting agent to enter region
 #define AGENT_FLAG_PURGE 0x4 // agent is being purged
 #define AGENT_FLAG_IN_LOGOUT 0x8 // agent is logging out
 #define AGENT_FLAG_CHILD 0x10 // is a child agent
@@ -78,7 +78,7 @@ extern const char *sl_wearable_names[]; // don't forget to update this!
 
 // FIXME - these are hacks
 #define AGENT_FLAG_APPEARANCE_UPD 0x40 // need to send AvatarAppearance to other agents
-#define AGENT_FLAG_NEED_OTHER_AVS 0x80 // need to send AvatarAppearance etc for other avs - FIXME set this
+#define AGENT_FLAG_NEED_OTHER_AVS 0x80 // need to send AvatarAppearance etc for other avs
 #define AGENT_FLAG_ANIM_UPDATE 0x100 // need to send AvatarAnimation to other agents
 #define AGENT_FLAG_AV_FULL_UPD 0x200 // need to send full ObjectUpdate for this avatar
 
@@ -126,7 +126,12 @@ void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
 void user_set_texture_entry(struct user_ctx *user, struct caj_string* data);
 void user_set_visual_params(struct user_ctx *user, struct caj_string* data);
 
-struct animation_desc; // FIXME - move this to this header
+struct animation_desc {
+  uuid_t anim, obj;
+  int32_t sequence;
+  int caj_type; // internal animation type info - FIXME remove?
+};
+
 void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,
 			int replace);
 void user_clear_animation_by_type(struct user_ctx *ctx, int caj_type);

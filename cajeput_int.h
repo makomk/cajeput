@@ -139,11 +139,6 @@ struct avatar_obj {
   caj_vector4 footfall;
 };
 
-struct animation_desc {
-  uuid_t anim, obj;
-  int32_t sequence;
-  int caj_type; // internal animation type info - FIXME remove?
-};
 
 /* !!!     WARNING   WARNING   WARNING    !!!
    Changing the user_hooks structure breaks ABI compatibility. Also,

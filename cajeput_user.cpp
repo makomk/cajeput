@@ -306,7 +306,7 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   chat.chat_type = CHAT_TYPE_NORMAL;
   uuid_clear(chat.source); // FIXME - set this to something?
   uuid_clear(chat.owner);
-  chat.name = "Cajeput";
+  chat.name = (char*)"Cajeput";
   chat.msg = (char*)msg;
 
   // slightly evil hack

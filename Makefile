@@ -12,6 +12,7 @@ all: cajeput_sim cajeput_j2k_test lsl_compile
 
 clean:
 	rm -f cajeput_main cajeput_sim caj_llsd_test *.o sl_messages.[ch]
+	rm -f lsl.tab.[ch] lsl-lex.c
 
 depend: lsl_consts.c lsl-lex.c lsl.tab.c lsl.tab.h sl_messages.c sl_messages.h caj_version.h
 	gcc -MM *.cpp *.c > depend.make

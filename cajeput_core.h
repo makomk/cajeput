@@ -179,10 +179,10 @@ void sim_remove_shutdown_hook(struct simulator_ctx *sim,
 
 // ----- MISC STUFF ---------
 
-
-struct simple_asset { // for makeshift scripting stuff
+// this is actually the usual asset description, and needs renaming
+struct simple_asset {
   char *name, *description;
-  int8_t type; // FIXME - is this right?
+  int8_t type;
   uuid_t id;
   caj_string data;
 };
@@ -241,7 +241,7 @@ void sim_asset_finished_load(struct simulator_ctx *sim,
 struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
 void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 
-  // FIXME - Move these to their own header...
+// these should probably be in their own header, but never mind.
 #define ASSET_TEXTURE 0
 #define ASSET_SOUND 1
 #define ASSET_CALLING_CARD 2
@@ -264,6 +264,26 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 #define ASSET_JPEG_IMAGE 19
 #define ASSET_ANIMATION 20
 #define ASSET_GESTURE 21
+
+  // more SL flags, almost but not quite the same as the asset ones
+#define INV_TYPE_TEXTURE 0
+#define INV_TYPE_SOUND 1
+#define INV_TYPE_CALLING_CARD 2
+#define INV_TYPE_LANDMARK 3
+  // 4 and 5 aren't used anymore
+#define INV_TYPE_OBJECT 6
+#define INV_TYPE_NOTECARD 7
+#define INV_TYPE_CATEGORY 8
+#define INV_TYPE_ROOT 9
+#define INV_TYPE_LSL 10
+  // 11-14 not used anymore
+#define INV_TYPE_SNAPSHOT 15
+  // 16 not used anymore
+#define INV_TYPE_ATTACHMENT 17 // curious?
+#define INV_TYPE_WEARABLE 18 
+#define INV_TYPE_ANIMATION 19
+#define INV_TYPE_GESTURE 20
+
 
   // another bunch of SL flags, this time permissions
 #define PERM_TRANSFER (1 << 13)

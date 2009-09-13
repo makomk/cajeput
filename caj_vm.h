@@ -57,7 +57,7 @@
 #include <vector>
 
 
-// FIXME - remove this. It doesn't really exist anymore.
+// Should we remove this? It's not really needed anymore
 #define INSN_QUIT 0xff0
 
 
@@ -94,7 +94,7 @@
 // artificial limits - FIXME enforce these too
 #define VM_LIMIT_HEAP 65536
 #define VM_LIMIT_HEAP_ENTRIES (65536/8)
-#define VM_LIMIT_INSNS 16384 // too low?
+#define VM_LIMIT_INSNS 16384 // too low? Too high?
 
 struct insn_info {
   uint8_t special, arg1, arg2, ret;

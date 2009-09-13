@@ -102,13 +102,13 @@ struct primitive_obj {
   uint8_t sale_type;
 
   uint8_t material, path_curve, profile_curve;
-  uint16_t path_begin, path_end; // FIXME - why 16 bits?
+  uint16_t path_begin, path_end;
   uint8_t path_scale_x, path_scale_y, path_shear_x, path_shear_y;
   int8_t path_twist, path_twist_begin, path_radius_offset;
   int8_t path_taper_x, path_taper_y;
   uint8_t path_revolutions; // slightly oddball one, this.
   int8_t path_skew;
-  uint16_t profile_begin, profile_end, profile_hollow; // again, why 16 bits?
+  uint16_t profile_begin, profile_end, profile_hollow;
   uuid_t creator, owner;
   permission_flags perms;
   int32_t sale_price;
@@ -147,7 +147,8 @@ struct primitive_obj {
 
 // -------- SCRIPTING GLUE --------------------
 
-  typedef void(*compile_done_cb)(void *priv, int success, char* output, int output_len);
+  typedef void(*compile_done_cb)(void *priv, int success, const char* output, 
+				 int output_len);
 
   struct cajeput_script_hooks {
     
@@ -223,10 +224,6 @@ void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
 			     void *script_priv, int evmask);
 void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params);
-
-// FIXME - this should definitely be internal
-void world_move_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
-			const caj_vector3 &new_pos);
 
   // for use by the physics engine only
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,

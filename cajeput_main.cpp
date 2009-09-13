@@ -559,8 +559,8 @@ static void free_update_script_desc(user_ctx* ctx, void *priv) {
    delete upd;
 }
 
-static void update_script_compiled_cb(void *priv, int success, char* output, 
-				      int output_len) {
+static void update_script_compiled_cb(void *priv, int success, 
+				      const char* output, int output_len) {
   printf("DEBUG: in update_script_compiled_cb\n");
   update_script_desc *upd = (update_script_desc*)priv;
   soup_server_unpause_message(upd->sim->soup, upd->msg);
@@ -574,7 +574,7 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
     llsd_map_append(resp,"compiled",llsd_new_bool(success));
 
     errors = llsd_new_array();
-    char *outp = output;
+    const char *outp = output;
     for(;;) {
       char *next = strchr(outp,'\n'); if(next == NULL) break;
       int len = next-outp;

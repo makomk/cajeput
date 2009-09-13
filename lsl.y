@@ -63,7 +63,6 @@ static expr_node * enode_make_float(char *s, YYLTYPE *loc) {
   return enode;
 }
 
-/* FIXME - need to remove quotes either here or in lexer */
 static expr_node * enode_make_str(char *s, YYLTYPE *loc) {
   struct expr_node *enode = malloc(sizeof(struct expr_node));
   enode->u.s = s; enode_set_loc(enode, loc);
@@ -285,7 +284,7 @@ typedef struct func_args {
 %token <str> IDENTIFIER
 %token <str> NUMBER REAL STR
 %token <vtype> INTEGER FLOAT STRING KEY VECTOR ROTATION LIST /* LSL types */
-%left '=' ASSIGNADD ASSIGNSUB ASSIGNMUL ASSIGNDIV ASSIGNMOD // FIXME - add other assignment ops
+%left '=' ASSIGNADD ASSIGNSUB ASSIGNMUL ASSIGNDIV ASSIGNMOD
 %left L_OR
 %left L_AND /* FIXME - the LSL wiki is contradictory as to the precidence of && and || */
 %left '|'
@@ -312,6 +311,7 @@ typedef struct func_args {
 %type <args> arglist
 %type <vtype> type 
 %type <list> list
+%expect 1 /* 1 shift-reduce conflict due to dangling else problem */
 %%
 program : functions states { 
   $$ = NULL; global_prog.funcs = $1->funcs; global_prog.globals = $1->globals;
@@ -502,8 +502,7 @@ type : INTEGER { $$ = VM_TYPE_INT; }
 %%
 #include <stdio.h>
 
-		/* bison -d lsl.y && flex lsl.lex && gcc -o lsl_compile lsl.tab.c lex.yy.c -lfl */
-
+#if 0 /* debugging code */
 static void print_expr(expr_node *enode) {
   list_node *lnode; int i;
   if(enode == NULL) { printf("<NULL enode> "); return; }
@@ -722,6 +721,7 @@ static void print_stmts(statement *statem, int indent) {
     printf("\n");
   }
 }
+#endif
 
 lsl_program *caj_parse_lsl(const char* fname) {
   extern FILE *yyin;

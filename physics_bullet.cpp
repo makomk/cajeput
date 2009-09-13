@@ -891,7 +891,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   // FIXME - this limits max terrain height to 100 metres
   phys->ground_shape = new btHeightfieldTerrainShape(256, 256, heightfield,
 						     0, 0.0f, 100.0f, 1,
-						     PHY_FLOAT, 0 /* fixme - flip? */);
+						     PHY_FLOAT, 0);
   btTransform ground_transform;
   ground_transform.setIdentity();
   ground_transform.setOrigin(btVector3(128,50,128));
