@@ -658,11 +658,6 @@ static void do_teleport_put_agent_resp(SoupSession *session, SoupMessage *msg, g
     osglue_teleport_failed(tp_priv, "Error. Agent PUT request failed");
   } else {
     printf("DEBUG: Got agent PUT response: ~%s~", msg->response_body->data);
-    JsonParser *parser = json_parser_new();
-    const char *reason = "[NO REASON - FIXME!]";
-    int success = helper_parse_json_resp(parser, msg->response_body->data,
-					 msg->response_body->length, &reason);
-    // FIXME - need to do something with the return value from helper_parse_json_resp
     if(strcasecmp(msg->response_body->data, "True") == 0) {
       // FIXME - this is where we should actually send the avatar across
       teleport_desc *tp = tp_priv->tp;
@@ -680,7 +675,6 @@ static void do_teleport_put_agent_resp(SoupSession *session, SoupMessage *msg, g
     } else {
       osglue_teleport_failed(tp_priv,"Agent PUT request returned error");
     }
-    g_object_unref(parser);
   }
 }
 

@@ -69,8 +69,8 @@ void caj_inv_free_contents_desc(struct inventory_contents* inv) {
 }
 
 // arbitrary limit to prevent certain potential attacks
-// FIXME - in theory, we can do this in a streaming fashion that doesn't
-// require us to have all the inventory in memory at once.
+// in theory, we can do this in a streaming fashion that doesn't require us to
+// have all the inventory in memory at once, but that's a pain.
 #define MAX_INVENTORY_DESC 65535
 
 struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
@@ -101,10 +101,9 @@ struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv,
   grow_array<inventory_item>(&inv->num_items, &inv->alloc_items, 
 			     &inv->items);
   struct inventory_item* item = &inv->items[inv->num_items++];
-  // FIXME - HACK, these shouldn't be null, bug in os inventory glue code
-  item->name = strdup(name == NULL ? "" : name);
-  item->description = strdup(desc == NULL ? "" : desc);
-  item->creator_id = strdup(creator == NULL ? "" : creator);
+  item->name = strdup(name);
+  item->description = strdup(desc);
+  item->creator_id = strdup(creator);
   uuid_copy(item->folder_id, inv->folder_id);// FIXME - remove item->folder_id?
 
   return item;

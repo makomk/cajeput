@@ -48,7 +48,7 @@ struct primitive_obj;
 #define SL_THROTTLE_TASK 4 // object updates
 #define SL_THROTTLE_TEXTURE 5
 #define SL_THROTTLE_ASSET 6
-static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
+extern const char *sl_throttle_names[]; // don't forget to update this!
 
 // Note - it's important this stays in sync with OpenSim
 #define SL_WEARABLE_BODY 0
@@ -66,10 +66,7 @@ static const char *sl_throttle_names[] = { "resend","land","wind","cloud","task"
 #define SL_WEARABLE_SKIRT 12
 
 #define SL_NUM_WEARABLES 13 // WARNING: changing this would break ABI compat
-static const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
-					  "pants","shoes","socks","jacket",
-					  "gloves","undershirt","underpants",
-					  "skirt"};
+extern const char *sl_wearable_names[]; // don't forget to update this!
 
 // various internal flags
 #define AGENT_FLAG_RHR 0x1 // got RegionHandshakeReply

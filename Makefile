@@ -40,9 +40,8 @@ caj_vm_insns.h caj_vm_ops.h: caj_vm_make_insns.py opcode_data.txt
 lsl_consts.c: lsl_consts.py
 	python lsl_consts.py
 
-# if I split off the runtime code properly, libuuid won't be needed anymore
-lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o lsl_consts.o
-	$(CXX) -O0 -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o caj_vm.o  lsl_consts.o -lfl -luuid
+lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o lsl_consts.o
+	$(CXX) -O0 -Wall -ggdb -o lsl_compile lsl.tab.o lsl-lex.o caj_lsl_compile.o lsl_consts.o -lfl
 
 # cajeput_vm_test: caj_vm.o
 #	$(CXX) $(CFLAGS) -o cajeput_vm_test caj_vm.o
@@ -55,7 +54,7 @@ caj_llsd_test: caj_llsd.c caj_llsd.h caj_llsd_test.c
 
 include depend.make
 
-CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o caj_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o opensim_xml_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_vm.o cajeput_dump.o cajeput_world.o cajeput_user.o libopenjpeg/openjpeg.a
+CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o sl_messages.o sl_udp_proto.o caj_llsd.o physics_bullet.o cajeput_inventory.o opensim_inventory_glue.o opensim_xml_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_types.o caj_vm.o cajeput_dump.o cajeput_world.o cajeput_user.o libopenjpeg/openjpeg.a
 
 cajeput_sim: $(CAJEPUT_OBJS)
 	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) $(GLIB_LIBS) -luuid -lbulletdynamics -lbulletcollision -lbulletmath

@@ -1,11 +1,11 @@
 #ifndef TERRAIN_COMPRESS_H
 #define TERRAIN_COMPRESS_H
 
+#include "caj_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include "caj_types.h"
 
 #define LAYER_TYPE_LAND 0x4C
 

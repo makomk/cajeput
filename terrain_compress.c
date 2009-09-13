@@ -62,7 +62,7 @@ struct patch_header {
 
 static struct bit_packer *new_bit_packer(char* buf, int len) {
   struct bit_packer *bitpack = malloc(sizeof(struct bit_packer));
-  bitpack->buf = buf; bitpack->buflen = len;
+  bitpack->buf = (unsigned char*)buf; bitpack->buflen = len;
   memset(buf, 0, len);
   bitpack->bytePos = bitpack->bitPos = 0;
   return bitpack;

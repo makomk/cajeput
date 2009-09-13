@@ -148,7 +148,7 @@ public:
 
     uint16_t *arg_offsets = new uint16_t[arg_count];
     func->name = name;
-    func->ret_type = ret_type; // FIXME - not handled yet
+    func->ret_type = ret_type;
     frame_sz += vtype_size(ret_type)+1; // for the return address
     func->arg_types = arg_types;
     for(int i = 0; i < arg_count; i++) {

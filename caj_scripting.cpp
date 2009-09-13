@@ -183,6 +183,11 @@ static void list_insert_after(list_head *item, list_head *here) {
   here->next->prev = item; here->next = item;
 }
 
+static void list_insert_before(list_head *item, list_head *here) {
+  item->prev = here->prev; item->next = here;
+  here->prev->next = item; here->prev = item;
+}
+
 static unsigned char *read_file_data(const char *name, int *lenout) {
   int len = 0, maxlen = 512, ret;
   unsigned char *data = (unsigned char*)malloc(maxlen);
@@ -514,9 +519,8 @@ static gpointer script_thread(gpointer data) {
 	st_load_script(msg->scr);
 	if(msg->scr->vm != NULL) {
 	  printf("DEBUG: adding to run queue\n");
-	  // FIXME - should insert at end of running queue
 	  msg->scr->is_running = 1;
-	  list_insert_after(&msg->scr->list, &running);
+	  list_insert_before(&msg->scr->list, &running);
 	  script_upd_evmask(msg->scr);
 	} else {
 	  printf("DEBUG: failed to load script\n");
@@ -530,6 +534,9 @@ static gpointer script_thread(gpointer data) {
 	list_remove(&msg->scr->list);
 	if(msg->scr->vm != NULL) vm_free_script(msg->scr->vm);
 	msg->scr->vm = NULL;
+	delete msg->scr->detected; msg->scr->detected = NULL;
+	
+	// sending this message must be the last thing we do with the script
 	msg->msg_type = CAJ_SMSG_SCRIPT_KILLED;
 	send_to_mt(simscr, msg); msg = NULL;
 	break;
@@ -598,7 +605,9 @@ static void save_script_text_file(caj_string *dat, char *name) {
 
 // internal function, main thread
 static void mt_free_script(sim_script *scr) {
-  // FIXME - TODO!!!
+  if(scr->vm != NULL) { 
+    printf("ERROR: mt_free_script before scr->vm freed. This will leak!\n");
+  }
   free(scr->cvm_file);
   delete scr;
 }

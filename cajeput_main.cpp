@@ -439,7 +439,6 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 char *caps_get_uri(struct cap_descrip* desc) {
   // FIXME - iffy memory handling
   char *uri = (char*)malloc(200);
-  // FIXME - hardcoded port/IP
   sprintf(uri,"http://%s:%i" CAPS_PATH "/%s", desc->sim->ip_addr,
 	  (int)desc->sim->http_port,desc->cap);
   return uri;
@@ -569,7 +568,6 @@ static void update_script_compiled_cb(void *priv, int success, char* output,
   if(upd->ctx != NULL) {
     caj_llsd *resp; caj_llsd *errors;
     printf("DEBUG: sending %s script compile response\n", success ? "successful" : "unsuccessful");
-    // FIXME - this probably ain't right; think OpenSim gets this wrong
     resp = llsd_new_map();
     llsd_map_append(resp,"state",llsd_new_string("complete"));
     llsd_map_append(resp,"new_asset",llsd_new_uuid(upd->asset_id));
@@ -613,7 +611,7 @@ static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_dat
   caps_remove(upd->cap);
   user_remove_delete_hook(ctx, free_update_script_desc, upd);
 
-  printf("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
+  // printf("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
 
   struct world_obj* obj = world_object_by_id(ctx->sim, upd->task_id);
   if(obj == NULL) {
@@ -644,9 +642,7 @@ static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_dat
 
   return;
   
-  // FIXME - TODO
-
- out_fail:
+ out_fail: // FIXME - not really the right way to fail
   delete upd;
   soup_message_set_status(msg,400);
 }
@@ -725,7 +721,7 @@ static void simstatus_rest_handler (SoupServer *server,
 				SoupClientContext *client,
 				gpointer user_data) {
   /* struct simulator_ctx* sim = (struct simulator_ctx*) user_data; */
-  // For OpenSim grid protocol - FIXME check actual status?
+  // For OpenSim grid protocol - should we check actual status somehow?
   soup_message_set_status(msg,200);
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
 			    "OK",2);
@@ -1158,6 +1154,6 @@ int main(void) {
   set_sigint_handler();
   g_main_loop_run(main_loop);
 
-  // Cleanup - FIXME, this is missing stuff
+  // Cleanup runs elsewhere.
   return 0;
 }

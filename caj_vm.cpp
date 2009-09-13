@@ -66,6 +66,7 @@ struct script_state {
   uint16_t num_gvals, num_gptrs;
   uint16_t num_funcs;
   uint16_t* bytecode;
+  uint16_t* patched_bytecode; // FIXME - only needed on 64-bit systems
   int32_t *stack_start, *stack_top;
   int32_t* gvals;
   heap_header** gptrs;
@@ -93,7 +94,8 @@ static script_state *new_script(void) {
   st->ip = 0;  st->mem_use = 0; st->scram_flag = 0;
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
-  st->bytecode = NULL; st->nfuncs = NULL;
+  st->bytecode = st->patched_bytecode = NULL; 
+  st->nfuncs = NULL;
   st->stack_start = st->stack_top = NULL;
   st->gvals = NULL; st->gptr_types = NULL;
   st->gptrs = NULL; st->funcs = NULL;
@@ -154,6 +156,7 @@ void vm_free_script(script_state * st) {
     heap_header *p = st->gptrs[i]; heap_ref_decr(p, st);
   }
   delete[] st->gvals; delete[] st->gptrs; delete[] st->gptr_types;
+  if(st->patched_bytecode != st->bytecode) delete[] st->patched_bytecode;
   delete[] st->bytecode; // FIXME - will want to add bytecode sharing
 
   for(unsigned i = 0; i < st->num_funcs; i++) {
@@ -439,10 +442,11 @@ public:
 	}
 	break;	
       default:
-	// FIXME - check this is a valid header
 	pos = sect_end; break;
       }
     }
+
+    if(has_failed) return NULL;
 
     if(heap == NULL || st->gvals == NULL || st->gptrs == NULL ||
        st->funcs == NULL || st->bytecode == NULL) {
@@ -603,8 +607,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	    delete vs.verify; goto out;
 	  };
 	  if(fudge > 0) {
-	    // FIXME - record fudge factors somewhere
-	    bytecode[vs.ip] += fudge;
+	    assert(st->patched_bytecode != NULL);
+	    st->patched_bytecode[vs.ip] = bytecode[vs.ip] + fudge;
 	  }
 	  break;
 	}
@@ -618,8 +622,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	    delete vs.verify; goto out;
 	  };
 	  if(fudge > 0) {
-	    // FIXME - record fudge factors somewhere
-	    bytecode[vs.ip] += fudge;
+	    assert(st->patched_bytecode != NULL);
+	    st->patched_bytecode[vs.ip] = bytecode[vs.ip] + fudge;
 	  }
 	  break;
 	}
@@ -633,8 +637,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	    delete vs.verify; goto out;
 	  };
 	  if(fudge > 0) {
-	    // FIXME - record fudge factors somewhere
-	    bytecode[vs.ip] += fudge;
+	    assert(st->patched_bytecode != NULL);
+	    st->patched_bytecode[vs.ip] = bytecode[vs.ip] + fudge;
 	  }
 	  break;
 	}
@@ -648,8 +652,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	    delete vs.verify; goto out;
 	  };
 	  if(fudge > 0) {
-	    // FIXME - record fudge factors somewhere
-	    bytecode[vs.ip] += fudge;
+	    assert(st->patched_bytecode != NULL);
+	    st->patched_bytecode[vs.ip] = bytecode[vs.ip] + fudge;
 	  }
 	  break;
 	}
@@ -766,6 +770,12 @@ static int verify_code(script_state *st) {
     return 0;
   }
 
+  if(ptr_stack_sz() != 1) {
+    st->patched_bytecode = new uint16_t[st->bytecode_len];
+    memcpy(st->patched_bytecode, st->bytecode, 
+	   st->bytecode_len*sizeof(uint16_t));
+  }
+
   unsigned char *visited = new uint8_t[st->bytecode_len];
   memset(visited, 0, st->bytecode_len);
   for(int i = 0; i < st->num_funcs; i++) {
@@ -773,6 +783,9 @@ static int verify_code(script_state *st) {
     if(!verify_pass1(visited, st->bytecode, &st->funcs[i])) goto out_fail;
     if(!verify_pass2(visited, st->bytecode, &st->funcs[i], st)) goto out_fail;
   }
+
+  if(st->patched_bytecode == NULL)
+    st->patched_bytecode = st->bytecode;
 
   delete[] visited;  return 1;
  out_fail:
@@ -808,7 +821,7 @@ static heap_header* get_stk_ptr(int32_t *tloc) {
 
 
 static void step_script(script_state* st, int num_steps) {
-  uint16_t* bytecode = st->bytecode;
+  uint16_t* bytecode = st->patched_bytecode;
   int32_t* stack_top = st->stack_top;
   uint32_t ip = st->ip;
   assert((st->ip & 0x80000000) == 0 && st->scram_flag == 0); // caller should know better :-P
@@ -1573,14 +1586,12 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
       }
     case VM_TYPE_STR:
       { 
-	// FIXME - need to make strings null-terminated, I think!
 	frame_ptr -= ptr_stack_sz();
 	heap_header *p = get_stk_ptr(frame_ptr+1);
 	int32_t len = p->len;
 	char *buf = (char*)malloc(len+1);
 	memcpy(buf, script_getptr(p), len);
 	buf[len] = 0;
-	printf("DEBUG: string argument '%s'\n", buf);
 	*va_arg(args, char**) = buf;
 	break;
       }

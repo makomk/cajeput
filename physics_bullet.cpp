@@ -172,7 +172,7 @@ static btConvexHullShape *make_boxlike_shape(primitive_obj *prim,
 	 x_bottom, y_bottom, z_bottom, x_top, y_top, z_top);
 
   for(int i = 0; i < num_points; i++) {
-    // FIXME - remove duplicate points
+    // it'd be nice if we removed duplicate points, but that's a pain
     hull->addPoint(btVector3(profile[i].x * x_bottom, z_bottom, 
 			     profile[i].y * y_bottom));
     hull->addPoint(btVector3(x_shear + profile[i].x * x_top, z_top,
@@ -399,21 +399,20 @@ static void upd_object_full(struct simulator_ctx *sim, void *priv,
   }
 }
 
-/* FIXME - HACK */
+#if 0 // this is outdated and needs rewriting if it's ever used
 static void set_force(struct simulator_ctx *sim, void *priv,
 		      struct world_obj *obj, caj_vector3 force) {
-#if 0 // FIXME - need to reimplement this
   btVector3 real_force(force.x,force.z,force.y);
   if(obj->phys == NULL)
     return;
   struct phys_obj *physobj = (struct phys_obj *)obj->phys;
   //printf("DEBUG: applying force %f, %f, %f\n",force.x,force.y,force.z);
-  physobj->body->clearForces(); /* FIXME - this resets rotation too! */
+  physobj->body->clearForces(); /* this resets rotation too! Not wanted! */
   physobj->body->applyCentralForce(real_force);
   if(force.x != 0.0f || force.y != 0.0f || force.z != 0.0f)
     physobj->body->setActivationState(ACTIVE_TAG);
-#endif
 }
+#endif
 
 static void apply_impulse(struct simulator_ctx *sim, void *priv,
 			  struct world_obj *obj, caj_vector3 impulse,
@@ -449,7 +448,7 @@ static void set_avatar_flying(struct simulator_ctx *sim, void *priv,
   struct phys_obj *physobj = (struct phys_obj *)obj->phys;
   struct physics_ctx *phys = (struct physics_ctx*)priv;
 
-  g_static_mutex_lock(&phys->mutex); // FIXME - do we really need this?
+  g_static_mutex_lock(&phys->mutex); // do we really need this?
   if(physobj->is_flying != is_flying) {
     physobj->is_flying = is_flying;
 #if 0 // FIXME - need to re-add this!
@@ -535,7 +534,8 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 							 local_inertia);
       physobj->body = new btRigidBody(body_info);
       physobj->body->setUserPointer(physobj);
-      physobj->body->setDamping(0.1f, 0.2f); // FIXME - is this right?
+      // numbers picked at random. FIXME? SL actually has 0 linear damping.
+      physobj->body->setDamping(0.1f, 0.2f); 
       if(physobj->objtype == OBJ_TYPE_AVATAR) {
 	physobj->body->setAngularFactor(0.0f); /* Note: doesn't work on 2.73 */
 	phys->dynamicsWorld->addRigidBody(physobj->body, COL_AVATAR, AVATAR_COLLIDES_WITH);
@@ -691,7 +691,9 @@ static gpointer physics_thread(gpointer data) {
     g_static_mutex_unlock(&phys->mutex);
 
     // poke the main thread. Note that this ain't really useful on the first pass
-    write(phys->pipe[1], "", 1);
+    if(write(phys->pipe[1], "", 1) <= 0) {
+      printf("WARNING: couldn't poke main thread in physics code\n");
+    }
 
     // FIXME - this really doesn't look right...
     double time_skip = next_step - g_timer_elapsed(timer, NULL);
@@ -738,7 +740,12 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
 			 gpointer priv) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
   if(cond & G_IO_IN) {
-    { char buf[40]; read(phys->pipe[0], buf, 40); }
+    { 
+      char buf[40]; 
+      if(read(phys->pipe[0], buf, 40)  <= 0) {
+	printf("WARNING: couldn't read from physics pipe\n");
+      }
+    }
     
     g_static_mutex_lock(&phys->mutex);
 
@@ -753,8 +760,6 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
       newpos.y = physobj->pos.getZ(); // swap Y and Z
       newpos.z = physobj->pos.getY();
 
-      // FIXME - there seems to be something subtly dodgy about the
-      // rotation code. Try creating a sphere and rolling it...
       newrot.x = physobj->rot.getX();
       newrot.y = physobj->rot.getZ();
       newrot.z = physobj->rot.getY();
@@ -783,8 +788,6 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
 	  physobj->obj->rot = newrot; // FIXME - may have to change once linking added
 	world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
       }
-      
-      // FIXME - TODO;
     }
 
    g_static_mutex_unlock(&phys->mutex);
@@ -806,7 +809,7 @@ static void destroy_physics(struct simulator_ctx *sim, void *priv) {
   // that need cleaning up, and this is as good a place as any to do so.
   do_phys_updates_locked(phys);
 
-  // is this needed anymore?
+  // is this needed anymore? Yes, for stuff like the ground.
   int count = phys->dynamicsWorld->getNumCollisionObjects();
   for(int i = count-1; i >= 0; i--) {
     btCollisionObject* obj = phys->dynamicsWorld->getCollisionObjectArray()[i];
@@ -872,7 +875,6 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   btVector3 worldMin(0,0,0);
   btVector3 worldMax(256,WORLD_HEIGHT,256);
 
-  // FIXME - variable name seems dodgy
   phys->overlappingPairCache = new bt32BitAxisSweep3(worldMin,worldMax,MAX_OBJECTS);
 
   phys->solver = new btSequentialImpulseConstraintSolver();
@@ -884,13 +886,6 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   phys->dynamicsWorld->setInternalTickCallback(tick_callback, phys);
   phys->dynamicsWorld->setGravity(btVector3(0,-9.8,0));
 
-#if 0
-  phys->ground_shape = new btBoxShape(btVector3(256,1,256));
-  
-  btTransform ground_transform;
-  ground_transform.setIdentity();
-  ground_transform.setOrigin(btVector3(128,24.5,128));
-#else
   float *heightfield = sim_get_heightfield(sim);
   // WARNING: note that this does *NOT* make its own copy of the heightfield
   // FIXME - this limits max terrain height to 100 metres
@@ -900,7 +895,6 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   btTransform ground_transform;
   ground_transform.setIdentity();
   ground_transform.setOrigin(btVector3(128,50,128));
-#endif
   
   btDefaultMotionState* motion = new btDefaultMotionState(ground_transform);
   btRigidBody::btRigidBodyConstructionInfo body_info(0.0,motion,phys->ground_shape,btVector3(0,0,0));

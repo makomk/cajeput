@@ -211,7 +211,7 @@ struct user_ctx {
 
   uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
   struct caj_string texture_entry, visual_params;
-  struct animation_desc default_anim; // FIXME - merge into list of animations
+  struct animation_desc default_anim;
   std::vector<animation_desc> anims;
   int32_t anim_seq; // FIXME - seems fishy
 
@@ -324,19 +324,6 @@ struct simulator_ctx {
 // ------ CALLBACKS ----------------
 
 void sim_call_shutdown_hook(struct simulator_ctx *sim);
-
-
-// should be small enough not to be affected by sane quantisation
-#define SL_QUAT_EPS 0.0001
-
-// FIXME - stick this somewhere sane
-static int caj_quat_equal(struct caj_quat *q1, struct caj_quat *q2) {
-  return fabs(q1->x - q2->x) < SL_QUAT_EPS && 
-    fabs(q1->y - q2->y) < SL_QUAT_EPS &&
-    fabs(q1->z - q2->z) < SL_QUAT_EPS &&
-    fabs(q1->w - q2->w) < SL_QUAT_EPS;
-}
-
 
 void sim_int_init_udp(struct simulator_ctx *sim);
 void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,

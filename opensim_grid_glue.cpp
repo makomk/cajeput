@@ -134,13 +134,13 @@ static void do_grid_login(struct simulator_ctx* sim) {
   uuid_unparse(u, buf);
   soup_value_hash_insert(hash,"UUID",G_TYPE_STRING,buf);
   sprintf(buf,"http://%s:%i",ip_addr,
-	  (int)sim_get_http_port(sim)); // FIXME
+	  (int)sim_get_http_port(sim));
   soup_value_hash_insert(hash,"server_uri",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_region_x(sim));
   soup_value_hash_insert(hash,"region_locx",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_region_y(sim));
   soup_value_hash_insert(hash,"region_locy",G_TYPE_STRING,buf);
-  soup_value_hash_insert(hash,"sim_ip",G_TYPE_STRING,ip_addr); // FIXME
+  soup_value_hash_insert(hash,"sim_ip",G_TYPE_STRING,ip_addr);
   soup_value_hash_insert(hash,"remoting_port",G_TYPE_STRING,"8895"); // ??? FIXME
   sprintf(buf,"%i",(int)sim_get_udp_port(sim));
   soup_value_hash_insert(hash,"sim_port",G_TYPE_STRING,buf);
@@ -257,7 +257,6 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   if(!soup_value_hash_lookup(args,"circuit_code",G_TYPE_INT,
 			     &uinfo.circuit_code)) goto bad_args;
   // FIXME - use startpos_x/y/z, secure_session_id
-  // FIXME - do something with appearance data (struct)
   
   // WTF? Why such an odd path?
   snprintf(seed_cap,50,"%s0000/",caps_path);
@@ -767,9 +766,10 @@ struct os_asset {
   uuid_t full_id;
   char *id, *name, *description;
   int type;
+  int local, temporary; // bool
 };
 
-// not complete; doesn't handle Data itself
+// not complete; doesn't handle Data itself. FIXME - we could do this now!
 static xml_serialisation_desc deserialise_asset[] = {
   { "Data", XML_STYPE_SKIP, 0 }, // base64-encoded
   { "FullID", XML_STYPE_UUID, offsetof(os_asset, full_id) },
@@ -777,8 +777,8 @@ static xml_serialisation_desc deserialise_asset[] = {
   { "Name", XML_STYPE_STRING, offsetof(os_asset, name) },
   { "Description", XML_STYPE_STRING, offsetof(os_asset, description) },
   { "Type", XML_STYPE_INT, offsetof(os_asset, type) },
-  { "Local", XML_STYPE_SKIP, 0 }, // actually bool. FIXME
-  { "Temporary", XML_STYPE_SKIP, 0 }, // ditto
+  { "Local", XML_STYPE_BOOL, offsetof(os_asset, local) },
+  { "Temporary", XML_STYPE_BOOL, offsetof(os_asset, temporary) },
   { NULL, }
 };
 
@@ -834,10 +834,10 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
     asset->data.data = (unsigned char*)malloc(asset->data.len);
     memcpy(asset->data.data, texstr, asset->data.len);
 
-    // FIXME - evil bug in the deserialisation code!
-    asset->name = strdup(oasset.name == NULL ? "" : oasset.name);
-    asset->description = strdup(oasset.description == NULL ? "" : oasset.description);
+    asset->name = strdup(oasset.name);
+    asset->description = strdup(oasset.description);
     asset->type = oasset.type;
+    // FIXME - do something with local & temporary flags?
     xmlFree(oasset.name); xmlFree(oasset.description);
     xmlFree(oasset.id); // FIXME - do something with this?
 
@@ -950,7 +950,8 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
     blocks[num_blocks].flags = val;
     if(!soup_value_hash_lookup(sim_info, "map-image-id", G_TYPE_STRING, &s))
       goto bad_block;
-    uuid_parse(s, blocks[num_blocks].map_image); // FIXME - check return value
+    if(uuid_parse(s, blocks[num_blocks].map_image))
+      goto bad_block;
     if(!soup_value_hash_lookup(sim_info, "sim_ip", G_TYPE_STRING, &s))
       goto bad_block;
     blocks[num_blocks].sim_ip = s;
@@ -962,7 +963,8 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
     blocks[num_blocks].http_port = atoi(s);
     if(!soup_value_hash_lookup(sim_info, "uuid", G_TYPE_STRING, &s))
       goto bad_block;
-    uuid_parse(s, blocks[num_blocks].region_id); // FIXME - check return value
+    if(uuid_parse(s, blocks[num_blocks].region_id))
+      goto bad_block;
     
     // FIXME - do something with regionhandle, sim_uri?
 
@@ -971,8 +973,6 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
 
     num_blocks++;
     
-    // FIXME - TODO
-      
     continue;    
   bad_block:
     printf("WARNING: Map block response has bad block, skipping\n");
@@ -985,8 +985,6 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
   g_hash_table_destroy(hash); // must be after calling the callback
   delete st;
   return;
-
-  // FIXME - TODO
 
  out_free_fail:
   g_hash_table_destroy(hash);
@@ -1032,16 +1030,6 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
 			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
 }
 
-#if 0
-struct os_region_info { // FIXME - merge with other region info desc.
-  int x, y;
-  char *name;
-  char *sim_ip;
-  int sim_port, http_port;
-  uuid_t region_id;
-  // FIXME - TODO
-};
-#endif
 
 struct region_info_state {
   simulator_ctx* sim;
@@ -1094,7 +1082,8 @@ static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer use
   info.http_port = atoi(s);
   if(!soup_value_hash_lookup(hash, "region_UUID", G_TYPE_STRING, &s))
     goto bad_block;
-  uuid_parse(s, info.region_id); // FIXME - check return value
+  if(uuid_parse(s, info.region_id))
+    goto bad_block;
 
   // NOTE! This doesn't fill out a bunch of stuff that it should, because the
   // response doesn't contain the required information!
@@ -1322,7 +1311,7 @@ static void do_teleport_resolve_cb(SoupAddress *addr,
       osglue_teleport_send_agent(tp_priv->our_sim, tp, tp_priv);
     }
   }
-  // FIXME - free SoupAddress??
+  g_object_unref(addr);
 }
 
 static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv, 
@@ -1510,7 +1499,6 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->user_logoff = user_logoff;
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
-  //hooks->fetch_user_inventory = fetch_user_inventory;
   hooks->map_block_request = map_block_request;
   hooks->map_name_request = map_name_request;
   hooks->do_teleport = do_teleport;

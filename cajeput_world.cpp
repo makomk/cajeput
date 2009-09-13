@@ -657,6 +657,8 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   }
   if(inv != NULL) {
     printf("FIXME: item name clash in user_rez_script");
+    user_send_message(ctx, "FIXME: item name clash in user_rez_script");
+    return;
   }
 
   inv = new inventory_item();
@@ -703,16 +705,6 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
     inv->priv = NULL;
   }
 }
-
-#if 0 // FIXME - remove this
-static void world_insert_demo_objects(struct simulator_ctx *sim) {
-  struct primitive_obj *prim = world_begin_new_prim(sim);
-  prim->ob.local_pos.x = 128.0f; 
-  prim->ob.local_pos.y = 128.0f; 
-  prim->ob.local_pos.z = 25.0f;
-  world_insert_obj(sim, &prim->ob);
-}
-#endif
 
 static void world_move_root_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
 			     const caj_vector3 &new_pos) {
@@ -772,7 +764,6 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			   &prim->children[i]->ob.rot, &upd->rot);
 	world_mark_object_updated(sim, &prim->children[i]->ob, UPDATE_LEVEL_POSROT);
       }
-       // FIXME - move child prims
     }
     obj->rot = upd->rot;
   }
@@ -873,7 +864,6 @@ void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *obj,
 
 // --- START of part of hacky object update code. FIXME - remove this ---
 
-// FIXME - move this in with rest of the object update code 
 void world_int_init_obj_updates(user_ctx *ctx) {
   struct simulator_ctx* sim = ctx->sim;
   for(std::map<uint32_t,world_obj*>::iterator iter = sim->localid_map.begin();

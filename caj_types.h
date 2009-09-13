@@ -20,11 +20,15 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SL_TYPES_H
-#define SL_TYPES_H
+#ifndef CAJ_TYPES_H
+#define CAJ_TYPES_H
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct caj_string {
   unsigned char* data;
@@ -97,52 +101,24 @@ static inline float caj_vect3_dist(const struct caj_vector3 *v1, const struct ca
   return sqrtf(x*x + y*y + z*z);
 }
 
-static void caj_mult_quat_quat(struct caj_quat *out, const struct caj_quat* q1,
-			       const struct caj_quat *q2) {
-  caj_quat ret;
-  ret.w = - q1->x*q2->x - q1->y*q2->y - q1->z*q2->z + q1->w*q2->w;
-  ret.x =   q1->x*q2->w + q1->y*q2->z - q1->z*q2->y + q1->w*q2->x;
-  ret.y = - q1->x*q2->z + q1->y*q2->w + q1->z*q2->x + q1->w*q2->y;
-  ret.z =   q1->x*q2->y - q1->y*q2->x + q1->z*q2->w + q1->w*q2->z;
-  *out = ret;
+void caj_mult_quat_quat(struct caj_quat *out, const struct caj_quat* q1,
+			const struct caj_quat *q2);
+void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
+			 const struct caj_vector3 *vec);
+
+// should be small enough not to be affected by sane quantisation
+#define CAJ_QUAT_EPS 0.0001
+
+static inline int caj_quat_equal(struct caj_quat *q1, struct caj_quat *q2) {
+  return fabs(q1->x - q2->x) < CAJ_QUAT_EPS && 
+    fabs(q1->y - q2->y) < CAJ_QUAT_EPS &&
+    fabs(q1->z - q2->z) < CAJ_QUAT_EPS &&
+    fabs(q1->w - q2->w) < CAJ_QUAT_EPS;
 }
 
-static void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
-			        const struct caj_vector3 *vec) {
-  // FIXME - blind copy and paste from OpenSim code
-  caj_vector3 ret;
-  ret.x =
-    rot->w * rot->w * vec->x +
-    2.f * rot->y * rot->w * vec->z -
-    2.f * rot->z * rot->w * vec->y +
-    rot->x * rot->x * vec->x +
-    2.f * rot->y * rot->x * vec->y +
-    2.f * rot->z * rot->x * vec->z -
-    rot->z * rot->z * vec->x -
-    rot->y * rot->y * vec->x;
-
-  ret.y =
-    2.f * rot->x * rot->y * vec->x +
-    rot->y * rot->y * vec->y +
-    2.f * rot->z * rot->y * vec->z +
-    2.f * rot->w * rot->z * vec->x -
-    rot->z * rot->z * vec->y +
-    rot->w * rot->w * vec->y -
-    2.f * rot->x * rot->w * vec->z -
-    rot->x * rot->x * vec->y;
-  
-  ret.z =
-    2.f * rot->x * rot->z * vec->x +
-    2.f * rot->y * rot->z * vec->y +
-    rot->z * rot->z * vec->z -
-    2.f * rot->w * rot->y * vec->x -
-    rot->y * rot->y * vec->z +
-    2.f * rot->w * rot->x * vec->y -
-    rot->x * rot->x * vec->z +
-    rot->w * rot->w * vec->z;
-  
-  *out = ret;
+#ifdef __cplusplus
 }
+#endif
 
 #ifdef __cplusplus
 

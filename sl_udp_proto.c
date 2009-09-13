@@ -388,7 +388,7 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  break;
 	case SL_MSG_F32:
 	  if(len+4 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
-	  caj_float_to_bin_le(rawmsg+len, *(float*)blk+bt->vals[k].offset);
+	  caj_float_to_bin_le(rawmsg+len, *(float*)(blk+bt->vals[k].offset));
 	  len += 4;
 	  break;
 	case SL_MSG_F64: // TODO

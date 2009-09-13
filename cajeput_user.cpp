@@ -28,6 +28,12 @@
 #include "caj_helpers.h"
 #include <cassert>
 
+const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
+const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
+					  "pants","shoes","socks","jacket",
+					  "gloves","undershirt","underpants",
+					  "skirt"};
+
 void user_reset_timeout(struct user_ctx* ctx) {
   ctx->last_activity = g_timer_elapsed(ctx->sim->timer, NULL);
 }
@@ -286,7 +292,6 @@ void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim) {
   } 
 }
 
-// FIXME - remove???
 void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 			   const struct chat_message *msg, void *user_data) {
   struct user_ctx* ctx = (user_ctx*)user_data;
@@ -299,12 +304,12 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   struct chat_message chat;
   chat.source_type = CHAT_SOURCE_SYSTEM;
   chat.chat_type = CHAT_TYPE_NORMAL;
-  uuid_clear(chat.source); // FIXME - set this?
+  uuid_clear(chat.source); // FIXME - set this to something?
   uuid_clear(chat.owner);
   chat.name = "Cajeput";
   chat.msg = (char*)msg;
 
-  // FIXME - evil hack
+  // slightly evil hack
   user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
@@ -374,15 +379,13 @@ static void do_real_teleport(struct teleport_desc* tp) {
   } else if(tp->region_handle == tp->ctx->sim->region_handle) {
     user_teleport_failed(tp, "FIXME: Local teleport not supported");
   } else {
-    //user_teleport_failed(tp, "FIXME: Teleports not supported");
     simulator_ctx *sim = tp->ctx->sim;
     sim->gridh.do_teleport(sim, tp);
   }
 }
 
 void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
-  if(tp->ctx != NULL) {
-    // FIXME - need to check hook not NULL
+  if(tp->ctx != NULL && tp->ctx->userh->teleport_failed != NULL) {
     tp->ctx->userh->teleport_failed(tp->ctx, reason);
   }
   del_teleport_desc(tp);
@@ -390,8 +393,7 @@ void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
 
 // In theory, we can send arbitrary strings, but that seems to be bugged.
 void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
-  // FIXME - need to check hook not NULL
-  if(tp->ctx != NULL) 
+  if(tp->ctx != NULL && tp->ctx->userh->teleport_progress != NULL) 
     tp->ctx->userh->teleport_progress(tp->ctx, msg, tp->flags);
 }
 
@@ -587,9 +589,7 @@ void user_remove_int(user_ctx **user) {
   printf("Removing user %s %s\n", ctx->first_name, ctx->last_name);
 
   // If we're logging out, sending DisableSimulator causes issues
-  // HACK - also, for now teleports are also problematic - FIXME
-  if(ctx->userh != NULL  && !(ctx->flags & (AGENT_FLAG_IN_LOGOUT|
-					    AGENT_FLAG_TELEPORT_COMPLETE)) &&
+  if(ctx->userh != NULL  && !(ctx->flags & AGENT_FLAG_IN_LOGOUT) &&
      ctx->userh->disable_sim != NULL) {
     // HACK HACK HACK - should be in main hook?
     ctx->userh->disable_sim(ctx->user_priv); // FIXME
@@ -975,8 +975,6 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
     prim->children[prim->num_children++] = child;
   }
 
-  // FIXME - we need to handle child prims here too!
-
   xmlFreeDoc(doc); return prim;
   
  free_prim_fail: 
@@ -988,7 +986,6 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
 }
 
 static void rez_obj_asset_callback(simulator_ctx *sim, void* priv, simple_asset *asset) {
-  // TODO - FIXME.
   rez_object_desc *desc = (rez_object_desc*)priv;
   if(desc->ctx == NULL) {
     delete desc;
