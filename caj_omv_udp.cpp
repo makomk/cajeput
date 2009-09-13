@@ -1690,6 +1690,24 @@ static void handle_RequestTaskInventory_msg(struct omuser_ctx* lctx, struct sl_m
   }
 }
 
+static void handle_RemoveTaskInventory_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RemoveTaskInventory, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RemoveTaskInventory, InventoryData, invd, msg);
+  if(ad == NULL || invd == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  struct primitive_obj* prim = get_prim_for_update(lctx, 
+						   invd->LocalID);
+  if(prim == NULL)
+    return;
+  if(world_prim_delete_inv(lctx->u->sim, prim, invd->ItemID)) {
+    // updates the inventory serial, hopefully forcing an update
+    send_object_properties(lctx, invd->LocalID);
+  } else {
+    user_send_message(lctx->u, "ERROR: inventory deletion failed");
+  }
+}
+
 static void handle_RezScript_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(RezScript, AgentData, ad, msg);
   SL_DECLBLK_GET1(RezScript, UpdateBlock, upd, msg);
@@ -1702,14 +1720,22 @@ static void handle_RezScript_msg(struct omuser_ctx* lctx, struct sl_message* msg
   if(prim == NULL)
     return;
 
+  struct permission_flags perms;
+  perms.base = invd->BaseMask;
+  perms.current = invd->OwnerMask;
+  perms.group = invd->GroupMask;
+  perms.everyone = invd->EveryoneMask;
+  perms.next = invd->NextOwnerMask;
+
   if(uuid_is_null(invd->ItemID)) {
     user_rez_script(lctx->u, prim, (char*)invd->Name.data, (char*)invd->Description.data,
-		    invd->Flags);
+		    invd->Flags, &perms);
 
     // updates the inventory serial
     send_object_properties(lctx, upd->ObjectLocalID);
   } else {
     printf("FIXME: need to handle RezScript from inventory\n");
+    user_send_message(lctx->u, "FIXME: need to handle RezScript from inventory\n");
   }
   sl_dump_packet(msg);
 
@@ -1733,7 +1759,7 @@ static void handle_ObjectGrab_msg(struct omuser_ctx* lctx, struct sl_message* ms
 
   // FIXME - do something with GrabOffset and SurfaceInfo!
 
-  user_touch_prim(lctx->u->sim, lctx->u, prim, TRUE);
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_START);
 }
 
 static void handle_ObjectGrabUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1754,7 +1780,7 @@ static void handle_ObjectGrabUpdate_msg(struct omuser_ctx* lctx, struct sl_messa
 
   // FIXME - do something with GrabOffset and SurfaceInfo!
 
-  user_touch_prim(lctx->u->sim, lctx->u, prim, FALSE);
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_CONT);
 }
 
 static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1772,7 +1798,7 @@ static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* 
 
   // FIXME - do something with SurfaceInfo!
 
-  user_untouch_prim(lctx->u->sim, lctx->u, prim);
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_END);
 }
 
 static void handle_ObjectDuplicate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2867,6 +2893,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectShape);
   ADD_HANDLER(RezScript);
   ADD_HANDLER(RequestTaskInventory);
+  ADD_HANDLER(RemoveTaskInventory);
   ADD_HANDLER(TransferRequest);
   ADD_HANDLER(ObjectFlagUpdate);
   ADD_HANDLER(DeRezObject);

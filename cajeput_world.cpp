@@ -417,18 +417,21 @@ void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params)
   caj_string_copy(&prim->extra_params, params);
 }
 
+static void prim_free_inv_item(inventory_item *inv) {
+  free(inv->name); free(inv->description); free(inv->creator_id);
+
+  if(inv->asset_hack != NULL) {
+    free(inv->asset_hack->name); free(inv->asset_hack->description);
+    caj_string_free(&inv->asset_hack->data);
+    delete inv->asset_hack;
+  }
+  delete inv;
+}
+
 void world_free_prim(struct primitive_obj *prim) {
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
-
-    free(inv->name); free(inv->description); free(inv->creator_id);
-
-    if(inv->asset_hack != NULL) {
-      free(inv->asset_hack->name); free(inv->asset_hack->description);
-      caj_string_free(&inv->asset_hack->data);
-      delete inv->asset_hack;
-    }
-    delete inv;
+    prim_free_inv_item(inv);
   }
   free(prim->name); free(prim->description); free(prim->inv.filename);
   caj_string_free(&prim->tex_entry); caj_string_free(&prim->extra_params);
@@ -540,48 +543,40 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   }
 }
 
-void user_touch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int is_start) {
-  printf("DEBUG: in user_touch_prim\n");
-  // FIXME - this is going to become a whole lot more complex once we start
-  // supporting linksets in Cajeput
+void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim, int touch_type) {
+  printf("DEBUG: in user_prim_touch, type %i\n", touch_type);
+  int handled = 0;
+
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
 
     if(inv->asset_type == ASSET_LSL_TEXT && inv->priv != NULL) {
       int evmask = sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
-      if(is_start ? (evmask & CAJ_EVMASK_TOUCH) : (evmask & CAJ_EVMASK_TOUCH_CONT)) {
-	 printf("DEBUG: sending touch event to script\n");
-	sim->scripth.do_touch(sim, sim->script_priv, inv->priv,
-			      ctx, &ctx->av->ob, is_start);
+
+      if(evmask & (CAJ_EVMASK_TOUCH_CONT | CAJ_EVMASK_TOUCH)) {
+	handled = 1; // any touch handler will do for this
+
+	// we leave finer-grained filtering to the script engine
+	printf("DEBUG: sending touch event %i to script\n", touch_type);
+	sim->scripth.touch_event(sim, sim->script_priv, inv->priv,
+				 ctx, &ctx->av->ob, touch_type);
       } else {
 	 printf("DEBUG: ignoring script not interested in touch event\n");
       }
     }
   }
-}
-
-void user_untouch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim) {
-  // FIXME - this is going to become a whole lot more complex once we start
-  // supporting linksets in Cajeput. Will probably want to merge with 
-  // user_touch_prim at that point...
-  for(unsigned i = 0; i < prim->inv.num_items; i++) {
-    inventory_item *inv = prim->inv.items[i];
-
-    if(inv->asset_type == ASSET_LSL_TEXT && inv->priv != NULL) {
-      int evmask = sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
-      if(evmask & CAJ_EVMASK_TOUCH) {
-	printf("DEBUG: sending untouch event to script\n");
-	sim->scripth.do_untouch(sim, sim->script_priv, inv->priv,
-				ctx, &ctx->av->ob);
-      } else {
-	 printf("DEBUG: ignoring script not interested in untouch event\n");
-      }
-    }
+  if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
+     !handled) {
+    printf("DEBUG: passing touch event to parent prim\n");
+    user_prim_touch(sim, ctx, (primitive_obj*)prim->ob.parent, touch_type);
   }
 }
 
+void world_prim_mark_inv_updated(struct primitive_obj *prim) {
+  prim->inv.serial++; free(prim->inv.filename); prim->inv.filename = NULL;
+  
+}
 
 static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) {
   if(prim->inv.num_items >= prim->inv.alloc_items) {
@@ -592,7 +587,38 @@ static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) 
   }
 
   prim->inv.items[prim->inv.num_items++] = inv;
-  prim->inv.serial++; free(prim->inv.filename); prim->inv.filename = NULL;
+  world_prim_mark_inv_updated(prim);
+}
+
+inventory_item* world_prim_find_inv(struct primitive_obj *prim, uuid_t item_id) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+    if(uuid_compare(inv->item_id, item_id) == 0) return inv;
+  }
+  return NULL;
+}
+
+int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim, 
+			  uuid_t item_id) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+    if(uuid_compare(inv->item_id, item_id) == 0) {
+      if(inv->priv != NULL) {
+	sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
+	inv->priv = NULL;
+      }
+
+      prim_free_inv_item(inv);
+      prim->inv.num_items--;
+      for(/* carry on */; i < prim->inv.num_items; i++) {
+	prim->inv.items[i] = prim->inv.items[i+1];
+      }
+
+      world_prim_mark_inv_updated(prim);
+      return TRUE;
+    }
+  } 
+  return FALSE;
 }
 
 struct script_update_cb_hack {
@@ -647,7 +673,8 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 
 // FIXME - need to make the item name unique!!
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
-		     const char *name, const char *descrip, uint32_t flags) {
+		     const char *name, const char *descrip, uint32_t flags,
+		     const permission_flags *perms) {
   inventory_item *inv = NULL;
 
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
@@ -665,6 +692,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   
   inv->name = strdup(name); inv->description = strdup(descrip);
 
+  // FIXME - this isn't quite right...
   uuid_copy(inv->folder_id, prim->ob.id);
   uuid_copy(inv->owner_id, ctx->user_id);
   uuid_copy(inv->creator_as_uuid, ctx->user_id);
@@ -674,14 +702,15 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 
   inv->creator_id = (char*)malloc(40); uuid_unparse(ctx->user_id, inv->creator_id);
 
-  // FIXME - use client-provided perms
-  inv->perms.base = inv->perms.current = inv->perms.next = 0x7fffffff;
-  inv->perms.group = inv->perms.everyone = 0;
+  inv->perms = *perms;
+
+  printf("DEBUG: rez script perms base 0x%x owner 0x%x group 0x%x everyone 0x%x next 0x%x\n",
+	 perms->base, perms->current, perms->group, perms->everyone, perms->next);
 
   inv->asset_type = ASSET_LSL_TEXT; 
   inv->inv_type = INV_TYPE_LSL;
   inv->sale_type = 0; // FIXME
-  inv->group_owned = 0;
+  inv->group_owned = 0; // FIXME - set from message?
   inv->sale_price = 0;
   inv->creation_date = time(NULL);
   inv->flags = flags;
@@ -692,7 +721,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   asset->description = strdup(descrip);
   uuid_copy(asset->id, inv->asset_id);
   asset->type = ASSET_LSL_TEXT;
-  caj_string_set(&asset->data, "default\n{  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
+  caj_string_set(&asset->data, "default\n{\n  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
   inv->asset_hack = asset;
 
   prim_add_inventory(prim, inv);

@@ -782,14 +782,23 @@ static void send_detected_event(sim_scripts *simscr, sim_script *scr,
   send_to_script(simscr, msg);
 }
 
-static void do_touch(simulator_ctx *sim, void *priv, void *script,
-		     user_ctx *user, world_obj *av, int is_start) {
+static void handle_touch(simulator_ctx *sim, void *priv, void *script,
+		     user_ctx *user, world_obj *av, int touch_type) {
   sim_scripts *simscr = (sim_scripts*)priv;
   sim_script *scr = (sim_script*)script;
-  if(is_start ? (scr->evmask & CAJ_EVMASK_TOUCH) :
-     (scr->evmask & CAJ_EVMASK_TOUCH_CONT)) {
+  if(touch_type == CAJ_TOUCH_CONT ? (scr->evmask & CAJ_EVMASK_TOUCH_CONT) :
+     (scr->evmask & CAJ_EVMASK_TOUCH)) {
+    int event_id;
+    switch(touch_type) {
+    case CAJ_TOUCH_START: event_id = EVENT_TOUCH_START; break;
+    case CAJ_TOUCH_CONT: event_id = EVENT_TOUCH; break;
+    case CAJ_TOUCH_END: event_id = EVENT_TOUCH_END; break;
+    default:
+      printf("FIXME: unhandled touch type\n"); return;
+    }
+
     detected_event *det = new detected_event();
-    det->event_id = is_start ? EVENT_TOUCH_START : EVENT_TOUCH;
+    det->event_id = event_id;
 
     det->name = strdup(user_get_name(user));
     det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
@@ -797,22 +806,6 @@ static void do_touch(simulator_ctx *sim, void *priv, void *script,
     send_detected_event(simscr, scr, det);
   }
 }
-static void do_untouch(simulator_ctx *sim, void *priv, void *script,
-		     user_ctx *user, world_obj *av) {
-  sim_scripts *simscr = (sim_scripts*)priv;
-  sim_script *scr = (sim_script*)script;
-  if(scr->evmask & CAJ_EVMASK_TOUCH) {
-    detected_event *det = new detected_event();
-    det->event_id = EVENT_TOUCH_END;
-
-    det->name = strdup(user_get_name(user));
-    det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
-    user_get_uuid(user, det->key);
-    send_detected_event(simscr, scr, det);
-  }
-}
-
-
 
 static gboolean script_poll_timer(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
@@ -917,8 +910,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->add_script = add_script;
   hooks->kill_script = kill_script;
   hooks->get_evmask = get_evmask;
-  hooks->do_touch = do_touch;
-  hooks->do_untouch = do_untouch;
+  hooks->touch_event = handle_touch;
 
   return 1;
 }

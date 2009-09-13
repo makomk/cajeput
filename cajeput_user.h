@@ -165,10 +165,13 @@ void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
 					 void* priv),
 			       void *cb_priv);
 
-void user_touch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int is_start);
-void user_untouch_prim(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim);
+
+#define CAJ_TOUCH_START 0
+#define CAJ_TOUCH_CONT 1
+#define CAJ_TOUCH_END 2
+
+void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
+		     struct primitive_obj* prim, int touch_type);
 
 // check whether the asset can be retrieved without giving an inventory item
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);

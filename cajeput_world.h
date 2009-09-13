@@ -158,10 +158,8 @@ struct primitive_obj {
     void (*kill_script)(simulator_ctx *sim, void *priv, void *script);
 
     int (*get_evmask)(simulator_ctx *sim, void *priv, void *script);
-    void (*do_touch)(simulator_ctx *sim, void *priv, void *script,
-		     user_ctx *user, world_obj *av, int is_start);
-    void (*do_untouch)(simulator_ctx *sim, void *priv, void *script,
-		     user_ctx *user, world_obj *av);
+    void (*touch_event)(simulator_ctx *sim, void *priv, void *script,
+			user_ctx *user, world_obj *av, int touch_type);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
@@ -225,6 +223,11 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
 			     void *script_priv, int evmask);
 void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params);
 
+inventory_item* world_prim_find_inv(struct primitive_obj *prim, uuid_t item_id);
+void world_prim_mark_inv_updated(struct primitive_obj *prim);
+int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim, 
+			  uuid_t item_id);
+
   // for use by the physics engine only
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 			      const caj_vector3 *new_pos);
@@ -236,8 +239,10 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
 			      caj_vector3 impulse, int is_local);
 
+
 void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
-		     const char *name, const char *descrip, uint32_t flags);
+		     const char *name, const char *descrip, uint32_t flags,
+		     const permission_flags *perms);
 
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
 		     struct primitive_obj* child);
