@@ -845,6 +845,7 @@ static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   caj_string_copy(&newprim->tex_entry, &prim->tex_entry);
   caj_string_copy(&newprim->extra_params, &prim->extra_params);
   uuid_generate(newprim->ob.id);
+  newprim->ob.phys = NULL;
 
   // FIXME - clone children!
   prim->ob.parent = NULL; prim->children = NULL;
