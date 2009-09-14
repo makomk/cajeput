@@ -152,6 +152,7 @@ struct user_hooks {
   void(*teleport_progress)(struct user_ctx* ctx, const char* msg, 
 			   uint32_t flags);
   void(*teleport_complete)(struct user_ctx* ctx, struct teleport_desc *tp);
+  void(*teleport_local)(struct user_ctx* ctx, struct teleport_desc *tp);
   void(*remove)(void* user_priv);
  
   void(*disable_sim)(void* user_priv); // HACK

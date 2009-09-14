@@ -372,18 +372,6 @@ static void del_teleport_desc(teleport_desc* desc) {
   delete desc;
 }
 
-// for after region handle is resolved...
-static void do_real_teleport(struct teleport_desc* tp) {
-  if(tp->ctx == NULL) {
-    user_teleport_failed(tp,"cancelled");
-  } else if(tp->region_handle == tp->ctx->sim->region_handle) {
-    user_teleport_failed(tp, "FIXME: Local teleport not supported");
-  } else {
-    simulator_ctx *sim = tp->ctx->sim;
-    sim->gridh.do_teleport(sim, tp);
-  }
-}
-
 void user_teleport_failed(struct teleport_desc* tp, const char* reason) {
   if(tp->ctx != NULL && tp->ctx->userh->teleport_failed != NULL) {
     tp->ctx->userh->teleport_failed(tp->ctx, reason);
@@ -397,14 +385,45 @@ void user_teleport_progress(struct teleport_desc* tp, const char* msg) {
     tp->ctx->userh->teleport_progress(tp->ctx, msg, tp->flags);
 }
 
-void user_complete_teleport(struct teleport_desc* tp) {
+static void user_complete_teleport_int(struct teleport_desc* tp, int is_local) {
   if(tp->ctx != NULL) {
     printf("DEBUG: completing teleport\n");
     tp->ctx->flags |= AGENT_FLAG_TELEPORT_COMPLETE;
-    // FIXME - need to check hook not NULL
-    tp->ctx->userh->teleport_complete(tp->ctx, tp);
+    // FIXME - need to check hook not NULL?
+    if(is_local)
+      tp->ctx->userh->teleport_local(tp->ctx, tp);
+    else
+      tp->ctx->userh->teleport_complete(tp->ctx, tp);
+    
   }
   del_teleport_desc(tp);
+}
+
+void user_complete_teleport(struct teleport_desc* tp) {
+  user_complete_teleport_int(tp, FALSE);
+}
+
+// for after region handle is resolved...
+static void do_real_teleport(struct teleport_desc* tp) {
+  if(tp->ctx == NULL) {
+    user_teleport_failed(tp,"cancelled");
+  } else if(tp->region_handle == tp->ctx->sim->region_handle) {
+    if(tp->ctx->av == NULL) {
+      // FIXME - not quite right?
+      user_teleport_failed(tp,"Your avatar disappeared!");
+      return;
+    }
+    // FIXME - this is horribly hacky!
+    struct caj_multi_upd pos_upd;
+    pos_upd.flags = CAJ_MULTI_UPD_POS;
+    pos_upd.pos = tp->pos;
+    
+    world_multi_update_obj(tp->ctx->sim, &tp->ctx->av->ob, &pos_upd);
+    user_complete_teleport_int(tp, TRUE);
+  } else {
+    simulator_ctx *sim = tp->ctx->sim;
+    sim->gridh.do_teleport(sim, tp);
+  }
 }
 
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,

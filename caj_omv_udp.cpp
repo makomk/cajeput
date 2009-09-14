@@ -1005,6 +1005,18 @@ static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
   user_event_queue_send(ctx,"TeleportFinish",msg);
 }
 
+static void teleport_local(struct user_ctx* ctx, struct teleport_desc *tp) {
+  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
+  SL_DECLMSG(TeleportLocal, msg);
+  SL_DECLBLK(TeleportLocal, Info, info, &msg);
+  uuid_copy(info->AgentID, ctx->user_id);
+  info->LocationID = 0; // FIXME!!!!!
+  info->Position = tp->pos;
+  info->LookAt = tp->look_at;
+  info->TeleportFlags = tp->flags;
+  sl_send_udp(lctx, &msg);
+}
+
 // FIXME - handle TeleportRequest message (by UUID)?
 
 static void handle_TeleportLocationRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2712,6 +2724,7 @@ static user_hooks our_hooks = {
   teleport_failed,
   teleport_progress,
   teleport_complete,
+  teleport_local,
   remove_user,
   disable_sim,
   chat_callback,
