@@ -370,7 +370,7 @@ static void del_object(struct simulator_ctx *sim, void *priv,
 
 static void upd_object_full(struct simulator_ctx *sim, physics_ctx *phys,
 			    struct world_obj *obj, int phys_type) {
-  if(obj->type != OBJ_TYPE_PRIM) {
+  if(obj->type != OBJ_TYPE_PRIM && obj->type != OBJ_TYPE_AVATAR) {
     upd_object_pos(sim, phys, obj);
   } else {
     if(phys_type == PHYS_TYPE_PHANTOM) {
