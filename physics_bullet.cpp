@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <set>
 #include <vector>
+#include <map>
 
 #define GRAVITY 9.8
 
@@ -79,6 +80,7 @@ struct phys_obj {
   world_obj *obj; // main thread use only
   int collide_down; // physics thread only; for avatars
   int collide_down_ticks; // for avatars, mutex protected. + colliding, - not.
+  std::map<int,btTransform> child_pos_upd;
 #if 0
   btPairCachingGhostObject* ghost;
   btKinematicCharacterController* control;
@@ -201,7 +203,7 @@ static coord_2d circle_profile_8[] = { { 0.000000f, 1.000000f },
 				       { -0.707107f, 0.707107f } };
 				       
 
-static btCollisionShape* shape_from_obj(struct world_obj *obj) {
+static btCollisionShape* shape_from_obj_part(struct world_obj *obj) {
   if(obj->type == OBJ_TYPE_AVATAR) {
     // FIXME - take into account avatar's height
     return new btCapsuleShape(0.25f,1.25f); /* radius, height */
@@ -277,6 +279,31 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
   }
 }
 
+static btCollisionShape* shape_from_obj(struct world_obj *obj) {
+  btCollisionShape *root_shape = shape_from_obj_part(obj);
+  if(obj->type != OBJ_TYPE_PRIM) return root_shape;
+  
+  primitive_obj *prim = (primitive_obj*)obj;
+  if(prim->num_children == 0) return root_shape;
+
+  btCompoundShape *compound = new btCompoundShape();
+  btTransform trans;
+
+  trans.setIdentity();
+  compound->addChildShape(trans, root_shape);
+  for(int i = 0; i < prim->num_children; i++) {
+    primitive_obj *child = prim->children[i];
+    btQuaternion rot(child->ob.rot.x,child->ob.rot.z,
+		     child->ob.rot.y,child->ob.rot.w);
+    // don't think we need to clear the translation
+    trans.setOrigin(btVector3(child->ob.local_pos.x,
+			      child->ob.local_pos.z,
+			      child->ob.local_pos.y));
+    trans.setRotation(rot.inverse());
+    compound->addChildShape(trans, shape_from_obj_part(&child->ob));
+  }
+  return compound;
+}
 
 static int compute_phys_type(struct world_obj *obj) {
   if(obj->type == OBJ_TYPE_AVATAR) {
@@ -336,6 +363,29 @@ static void add_object(struct simulator_ctx *sim, void *priv,
   }
 }
 
+static void upd_child_pos(struct simulator_ctx *sim, physics_ctx *phys,
+			  primitive_obj *parent, world_obj *child) {
+  if(parent->ob.phys == NULL) return;
+  phys_obj *physobj = (phys_obj*)parent->ob.phys;
+
+  for(int i = 0; i < parent->num_children; i++) {
+    if(parent->children[i] == (primitive_obj*)child) {
+      btTransform trans;
+      trans.setIdentity();
+      trans.setOrigin(btVector3(child->local_pos.x,child->local_pos.z,
+				child->local_pos.y));
+      trans.setRotation(btQuaternion(child->rot.x,child->rot.z,child->rot.y,
+				     child->rot.w).inverse());
+      g_static_mutex_lock(&phys->mutex);
+      physobj->child_pos_upd[i+1] = trans;
+      phys->changed.insert(physobj);
+      g_static_mutex_unlock(&phys->mutex);
+      return;
+    }
+  }
+  
+}
+
 static void upd_object_pos(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
@@ -348,9 +398,22 @@ static void upd_object_pos(struct simulator_ctx *sim, void *priv,
     physobj->pos_update = 1;
     phys->changed.insert(physobj);
     g_static_mutex_unlock(&phys->mutex);
+  } else if(obj->parent != NULL && obj->parent->type == OBJ_TYPE_PRIM) {
+    upd_child_pos(sim, phys, (primitive_obj*)obj->parent, obj);
   }
 }
 
+static void free_shape(btCollisionShape *shape) {
+  // FIXME - we really don't want to use dynamic_cast if possible
+  btCompoundShape *compound = dynamic_cast<btCompoundShape*>(shape);
+  if(compound != NULL) {
+    int count = compound->getNumChildShapes();
+    for(int i = 0; i < count; i++) {
+      delete compound->getChildShape(i);
+    }
+  }
+  delete shape;
+}
 
 static void del_object(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj) {
@@ -361,7 +424,7 @@ static void del_object(struct simulator_ctx *sim, void *priv,
     physobj->is_deleted = 1; physobj->obj = NULL;
     phys->changed.insert(physobj);
     if(physobj->newshape != NULL) {
-      delete physobj->shape; physobj->newshape = NULL;
+      free_shape(physobj->newshape); physobj->newshape = NULL;
     }
     g_static_mutex_unlock(&phys->mutex);
     obj->phys = NULL;
@@ -373,7 +436,11 @@ static void upd_object_full(struct simulator_ctx *sim, physics_ctx *phys,
   if(obj->type != OBJ_TYPE_PRIM && obj->type != OBJ_TYPE_AVATAR) {
     upd_object_pos(sim, phys, obj);
   } else {
-    if(phys_type == PHYS_TYPE_PHANTOM) {
+    if(obj->parent != NULL) {
+      del_object(sim, phys, obj);
+      if(obj->parent->type == OBJ_TYPE_PRIM)
+	upd_object_full(sim, phys, obj->parent, compute_phys_type(obj->parent));
+    } else if(phys_type == PHYS_TYPE_PHANTOM) {
       del_object(sim, phys, obj);
     } else if(obj->phys == NULL) {
       add_object(sim, phys, obj);
@@ -385,11 +452,12 @@ static void upd_object_full(struct simulator_ctx *sim, physics_ctx *phys,
 
       g_static_mutex_lock(&phys->mutex);
 
-      delete physobj->newshape;
+      free_shape(physobj->newshape);
       physobj->newshape = shape_from_obj(obj);
 
       physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y);  // don't always want this, but...
       physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
+      physobj->child_pos_upd.clear();
       physobj->pos_update = 0; physobj->phystype = phys_type;
       phys->changed.insert(physobj);
 
@@ -414,8 +482,12 @@ static void upd_object(struct simulator_ctx *sim, void *priv,
   int phys_type = obj->phys == NULL ? PHYS_TYPE_PHANTOM : 
     ((phys_obj*) obj->phys)->phystype;
 
-  if((update_flags & (CAJ_OBJUPD_SHAPE|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_CREATED|
-		      CAJ_OBJUPD_CHILDREN|CAJ_OBJUPD_PARENT)) || 
+  if((update_flags & (CAJ_OBJUPD_PARENT|CAJ_OBJUPD_CREATED)) && obj->parent != NULL) {
+    // we update the parent object when we get the CAJ_OBJUPD_PARENT for it
+    del_object(sim, phys, obj);
+  } else if((update_flags & (CAJ_OBJUPD_SHAPE|CAJ_OBJUPD_SCALE|
+			     CAJ_OBJUPD_CREATED|CAJ_OBJUPD_CHILDREN|
+			     CAJ_OBJUPD_PARENT)) || 
      new_phys_type != phys_type) {
     upd_object_full(sim, phys, obj, new_phys_type);
   } else if(update_flags & CAJ_OBJUPD_POSROT) {
@@ -500,7 +572,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 	}
 	delete physobj->body;
       }
-      delete physobj->shape;
+      free_shape(physobj->shape);
       delete physobj;
 
       phys->physical.erase(physobj); // should really only do this for physical objs
@@ -517,7 +589,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 	delete physobj->body;
       }
       if(physobj->newshape != NULL) {
-	delete physobj->shape;
+	free_shape(physobj->shape);
 	physobj->shape = physobj->newshape; physobj->newshape = NULL;
       }
 
@@ -573,6 +645,36 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
       physobj->body->setWorldTransform(transform); // needed for physical objects
       physobj->body->activate(TRUE); // very much necessary
       physobj->pos_update = 0;
+    }
+
+    if(!physobj->child_pos_upd.empty()) {
+      // FIXME - use static_cast once this is fully debugged
+      btCompoundShape *shape = dynamic_cast<btCompoundShape*>(physobj->shape);
+      assert(shape != NULL);
+      for(std::map<int,btTransform>::iterator iter = physobj->child_pos_upd.begin();
+	  iter != physobj->child_pos_upd.end(); iter++) {
+	assert(iter->first < shape->getNumChildShapes());
+	shape->updateChildTransform(iter->first, iter->second);
+      }
+
+      // FIXME - code duplication!
+      btScalar mass;
+      if(physobj->phystype != PHYS_TYPE_PHYSICAL) 
+	mass = 0.0f;
+      else if(physobj->objtype == OBJ_TYPE_AVATAR)
+	mass = 50.0f;
+      else mass = 10.0f; // FIXME - dynamic mass?
+  
+      btVector3 inertia;
+      shape->calculateLocalInertia(mass,inertia);
+      physobj->body->setMassProps(mass,inertia);
+      physobj->body->updateInertiaTensor();
+
+      // not 100% sure why this is needed, but otherwise collisions don't
+      // work right afterwards.
+      physobj->body->activate(TRUE);
+
+      physobj->child_pos_upd.clear();
     }
 
     if(physobj->flying_changed) {

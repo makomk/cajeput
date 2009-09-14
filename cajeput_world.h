@@ -55,9 +55,17 @@ struct world_obj {
   struct obj_chat_listener *chat;
 };
 
-  // again internal, flags
-  // if you add new ones, don't forget to update the object update code
-  // appropriately.
+// again internal, flags
+// if you add new ones, don't forget to update the object update code
+// appropriately.
+// Also, in order to avoid the physics code breaking, please:
+//  - change the property, then mark as updated, not the other way around
+//  - between adding, reordering or removing the children of a parent prim and
+//    marking it as CAJ_OBJUPD_CHILDREN, do NOT mark ANY of its child prims with
+//    any update except  CAJ_OBJUPD_PARENT
+//  - when adding a linkset, do NOT mark any of the children as anything except
+//    CAJ_OBJUPD_CREATED until the parent prim has been CAJ_OBJUPD_CREATED.
+//  Thank you.
 #define CAJ_OBJUPD_POSROT 0x1
 #define CAJ_OBJUPD_CREATED 0x2 // newly-created object
 #define CAJ_OBJUPD_SCALE 0x4
