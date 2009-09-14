@@ -30,6 +30,7 @@ struct user_name {
 };
 
 struct grid_glue_ctx {
+  simgroup_ctx *sgrp;
   gchar *userserver, *gridserver, *assetserver;
   gchar *inventoryserver;
   gchar *user_recvkey, *asset_recvkey, *grid_recvkey;

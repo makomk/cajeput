@@ -95,7 +95,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
     event_queue_get_resp(msg, ctx);
   } else {
     soup_server_pause_message(ctx->sim->soup, msg);
-    ctx->evqueue.timeout = g_timer_elapsed(ctx->sim->timer, NULL) + 10.0;
+    ctx->evqueue.timeout = g_timer_elapsed(ctx->sgrp->timer, NULL) + 10.0;
     ctx->evqueue.msg = msg;
   }
 

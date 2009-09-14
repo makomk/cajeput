@@ -4,7 +4,10 @@ inventory_server=http://127.0.0.1:8003/
 grid_recvkey=null
 grid_sendkey=null
 
-[sim]
+[simgroup]
+sims=example
+
+[sim example]
 udp_port=9000
 http_port=9000
 region_x=1000

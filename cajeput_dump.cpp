@@ -653,7 +653,10 @@ static void revivify_prim(simulator_ctx *sim, primitive_obj *prim,
 }
 
 void world_int_dump_prims(simulator_ctx *sim) {
-  int fd = open("simstate.dat.new", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+  char filename[256], fname_new[256]; // FIXME!!!
+  snprintf(filename, 256, "simstate-%s.dat", sim->shortname);
+  snprintf(fname_new, 256, "simstate-%s.dat.new", sim->shortname);  
+  int fd = open(fname_new, O_WRONLY|O_CREAT|O_TRUNC, 0644);
   if(fd < 0) {
     printf("ERROR: couldn't open file to save simstate\n"); return;
   }
@@ -670,13 +673,15 @@ void world_int_dump_prims(simulator_ctx *sim) {
     }
   }
   if(close(fd) < 0) { printf("ERROR: dump_prims write error?\n"); return; }
-  if(rename("simstate.dat.new","simstate.dat")) {
+  if(rename(fname_new, filename)) {
     printf("ERROR: dump_prims failed to rename simstate\n"); return;
   }
 }
 
 void world_int_load_prims(simulator_ctx *sim) {
-  int fd = open("simstate.dat", O_RDONLY, 0644);
+  char filename[256]; // FIXME!!!
+  snprintf(filename, 256, "simstate-%s.dat", sim->shortname);
+  int fd = open(filename, O_RDONLY, 0644);
   if(fd < 0) {
     printf("ERROR: couldn't open saved simstate\n"); return;
   }

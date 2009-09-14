@@ -36,9 +36,12 @@ extern "C" {
 
 struct user_ctx;
 struct simulator_ctx;
+struct simgroup_ctx;
 struct cap_descrip;
 
 // --- START sim query code ---
+
+struct simgroup_ctx* sim_get_simgroup(struct simulator_ctx* sim);
 
 // NB strings returned should NOT be free()d or stored
 uint32_t sim_get_region_x(struct simulator_ctx *sim);
@@ -57,8 +60,12 @@ void sim_set_script_priv(struct simulator_ctx *sim, void* p);
 float* sim_get_heightfield(struct simulator_ctx *sim);
 
 // These, on the other hand, require you to g_free the returned string
-char *sim_config_get_value(struct simulator_ctx *sim, const char* section,
-			   const char* key);
+char *sgrp_config_get_value(struct simgroup_ctx *sim, const char* section,
+			    const char* key);
+char *sim_config_get_value(struct simulator_ctx *sim, const char* key,
+			   GError **error);
+gint sim_config_get_integer(struct simulator_ctx *sim, const char* key,
+			   GError **error);
 
 // Glue code
 void sim_queue_soup_message(struct simulator_ctx *sim, SoupMessage* msg,
@@ -296,7 +303,7 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 #define PERM_DAMAGE (1 << 20)
 
 void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
-		   void(*cb)(struct simulator_ctx *sim, void *priv,
+		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset), void *cb_priv);
 #ifdef __cplusplus
 }

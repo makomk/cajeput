@@ -69,7 +69,7 @@ void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int thro
   if(len > 0 && (msg->flags & MSG_RELIABLE)) {
     // FIXME - remove acks on resend?
     udp_resend_desc *resend = new udp_resend_desc();
-    resend->time = g_timer_elapsed(lctx->u->sim->timer, NULL) + RESEND_INTERVAL;
+    resend->time = g_timer_elapsed(lctx->u->sgrp->timer, NULL) + RESEND_INTERVAL;
     resend->ctr = 0;
     resend->msg = *msg;
     lctx->resends[msg->seqno] = resend;
@@ -121,7 +121,7 @@ static void free_resend_data(omuser_ctx* lctx) {
 
 static gboolean resend_timer(gpointer data) {
   struct omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
-  double time_now = g_timer_elapsed(lsim->sim->timer, NULL);
+  double time_now = g_timer_elapsed(lsim->sim->sgrp->timer, NULL);
 
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {    
     if(lctx->u->flags & (AGENT_FLAG_IN_SLOW_REMOVAL|AGENT_FLAG_PURGE))
@@ -738,7 +738,7 @@ struct asset_request {
 };
 
 // Note: as well as being a callback, this is called directly in one situation
-static void do_send_asset_cb(struct simulator_ctx *sim, void *priv,
+static void do_send_asset_cb(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset) {
   asset_request *req = (asset_request*)priv;
   if(req->ctx != NULL) {
@@ -890,7 +890,7 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
       req->channel_type = tinfo->ChannelType;
       caj_string_copy(&req->params, &tinfo->Params);
     
-      do_send_asset_cb(lctx->u->sim, req, inv->asset_hack); // HACK
+      do_send_asset_cb(lctx->u->sim->sgrp, req, inv->asset_hack); // HACK
       
       // prim inventory items - TODO
     }

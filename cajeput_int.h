@@ -201,6 +201,7 @@ struct user_ctx {
   double last_activity;
   float draw_dist;
   struct simulator_ctx* sim;
+  struct simgroup_ctx* sgrp;
   struct avatar_obj* av;
 
   caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
@@ -252,11 +253,11 @@ struct obj_chat_listener {
 };
 
 struct asset_cb_desc {
-   void(*cb)(struct simulator_ctx *sim, void *priv,
+   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 	     struct simple_asset *asset);
   void *cb_priv;
   
-  asset_cb_desc( void(*cb_)(struct simulator_ctx *sim, void *priv,
+  asset_cb_desc( void(*cb_)(struct simgroup_ctx *sgrp, void *priv,
 			    struct simple_asset *asset), void *cb_priv_) :
     cb(cb_), cb_priv(cb_priv_) { };
 };
@@ -271,16 +272,36 @@ struct asset_desc {
   std::set<asset_cb_desc*> cbs;
 };
 
+struct simgroup_ctx {
+  std::map<obj_uuid_t,inventory_contents*> inv_lib;
+  std::map<obj_uuid_t,texture_desc*> textures;
+  std::map<obj_uuid_t,asset_desc*> assets;
+  GTimer *timer;
+
+  char *release_notes;
+  int release_notes_len;
+
+  int state_flags;
+
+  GKeyFile *config;
+  
+  int hold_off_shutdown;
+
+  std::map<uint64_t, simulator_ctx*> sims;
+};
+
 #define CAJEPUT_SIM_READY 1 // TODO
-#define CAJEPUT_SIM_SHUTTING_DOWN 2
+#define CAJEPUT_SGRP_SHUTTING_DOWN 2
 
 struct simulator_ctx {
+  simgroup_ctx *sgrp;
+  char *cfg_sect, *shortname;
   struct user_ctx* ctxts;
   char *name;
   uint32_t region_x, region_y;
   uint64_t region_handle;
   float *terrain;
-  int state_flags, hold_off_shutdown;
+  int state_flags;
   uint16_t http_port, udp_port;
   char *ip_addr;
   uuid_t region_id, owner;
@@ -289,16 +310,7 @@ struct simulator_ctx {
   struct world_octree* world_tree;
   SoupServer *soup;
   SoupSession *soup_session;
-  GTimer *timer;
-  GKeyFile *config;
 
-  std::map<obj_uuid_t,inventory_contents*> inv_lib;
-
-  std::map<obj_uuid_t,texture_desc*> textures;
-  std::map<obj_uuid_t,asset_desc*> assets;
-
-  char *release_notes;
-  int release_notes_len;
   gchar *welcome_message;
 
   void *grid_priv;

@@ -35,7 +35,7 @@ const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 					  "skirt"};
 
 void user_reset_timeout(struct user_ctx* ctx) {
-  ctx->last_activity = g_timer_elapsed(ctx->sim->timer, NULL);
+  ctx->last_activity = g_timer_elapsed(ctx->sgrp->timer, NULL);
 }
 
 
@@ -167,7 +167,7 @@ void user_set_wearable(struct user_ctx *ctx, int id,
 }
 
 void user_set_throttles(struct user_ctx *ctx, float rates[]) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  double time_now = g_timer_elapsed(ctx->sgrp->timer, NULL);
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
     ctx->throttles[i].time = time_now;
     ctx->throttles[i].level = 0.0f;
@@ -208,7 +208,7 @@ void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 }
 
 void user_reset_throttles(struct user_ctx *ctx) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  double time_now = g_timer_elapsed(ctx->sgrp->timer, NULL);
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
     ctx->throttles[i].time = time_now;
     ctx->throttles[i].level = 0.0f;
@@ -216,7 +216,7 @@ void user_reset_throttles(struct user_ctx *ctx) {
 }
 
 void user_update_throttles(struct user_ctx *ctx) {
-  double time_now = g_timer_elapsed(ctx->sim->timer, NULL);
+  double time_now = g_timer_elapsed(ctx->sgrp->timer, NULL);
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
     assert(time_now >=  ctx->throttles[i].time); // need monotonic time
     ctx->throttles[i].level += ctx->throttles[i].rate * 
@@ -319,8 +319,8 @@ void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
 					    void* priv),
 				  void *cb_priv) {
   std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
-       sim->inv_lib.find(folder_id);
-  if(iter == sim->inv_lib.end()) {
+       sim->sgrp->inv_lib.find(folder_id);
+  if(iter == sim->sgrp->inv_lib.end()) {
     sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
 				      folder_id,cb,cb_priv);
   } else {
@@ -511,7 +511,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   uuid_copy(ctx->session_id, uinfo->session_id);
   uuid_copy(ctx->secure_session_id, uinfo->secure_session_id);
 
-  ctx->sim = sim;
+  ctx->sim = sim; ctx->sgrp = sim->sgrp;
   ctx->next = sim->ctxts; sim->ctxts = ctx;
   if(uinfo->is_child) {
     ctx->flags = AGENT_FLAG_CHILD;
@@ -1004,7 +1004,7 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
   xmlFreeDoc(doc); return NULL;
 }
 
-static void rez_obj_asset_callback(simulator_ctx *sim, void* priv, simple_asset *asset) {
+static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset *asset) {
   rez_object_desc *desc = (rez_object_desc*)priv;
   if(desc->ctx == NULL) {
     delete desc;

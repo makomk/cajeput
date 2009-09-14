@@ -1484,6 +1484,7 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
     return false;
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;
+  grid->sgrp = sim_get_simgroup(sim);
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 
@@ -1503,11 +1504,11 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   hooks->get_asset = get_asset;
   hooks->cleanup = cleanup;
 
-  grid->gridserver = sim_config_get_value(sim,"grid","gridserver");
-  grid->inventoryserver = sim_config_get_value(sim,"grid","inventory_server");
+  grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","gridserver");
+  grid->inventoryserver = sgrp_config_get_value(grid->sgrp,"grid","inventory_server");
   grid->userserver = grid->assetserver = NULL;
-  grid->grid_recvkey = sim_config_get_value(sim,"grid","grid_recvkey");
-  grid->grid_sendkey = sim_config_get_value(sim,"grid","grid_sendkey");
+  grid->grid_recvkey = sgrp_config_get_value(grid->sgrp,"grid","grid_recvkey");
+  grid->grid_sendkey = sgrp_config_get_value(grid->sgrp,"grid","grid_sendkey");
   grid->user_recvkey = grid->user_sendkey = NULL;
   grid->asset_recvkey = grid->asset_sendkey = NULL;
 
