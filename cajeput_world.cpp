@@ -27,7 +27,6 @@
 #include "caj_script.h"
 #include <cassert>
 
-static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 
 // --- START octree code ---
@@ -337,7 +336,6 @@ void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   //FIXME - generate local ID properly.
   sim->localid_map.insert(std::pair<uint32_t,world_obj*>(ob->local_id,ob));
   world_octree_insert(sim->world_tree, ob);
-  sim->physh.add_object(sim,sim->phys_priv,ob);
 
   if(ob->type == OBJ_TYPE_PRIM) {
     primitive_obj *prim = (primitive_obj*)ob;
@@ -346,7 +344,7 @@ void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
     }
   }
 
-  mark_new_obj_for_updates(sim, ob);
+  world_mark_object_updated(sim, ob, CAJ_OBJUPD_CREATED);
 }
 
 void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
@@ -392,7 +390,7 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->description = strdup("");
   prim->perms.next = prim->perms.current = prim->perms.base = 0x7fffffff;
   prim->perms.group = prim->perms.everyone = 0;
-  prim->flags = 0; prim->caj_flags = 0;
+  prim->flags = 0; prim->caj_flags = 0; prim->ob.phys = NULL;
   
   prim->ob.parent = NULL; prim->children = NULL;
   prim->num_children = 0;
@@ -489,9 +487,8 @@ void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main,
   main->children[main->num_children++] = child;
   child->ob.parent = &main->ob;
 
-  // we probably only need to update the child object
-  world_mark_object_updated(sim, &main->ob, UPDATE_LEVEL_FULL);
-  world_mark_object_updated(sim, &child->ob, UPDATE_LEVEL_FULL);
+  world_mark_object_updated(sim, &child->ob, CAJ_OBJUPD_PARENT);
+  world_mark_object_updated(sim, &main->ob, CAJ_OBJUPD_CHILDREN);
   
   // FIXME - this isn't quite right. Need to handle rotation
   child->ob.local_pos.x -= main->ob.local_pos.x;
@@ -518,7 +515,7 @@ void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
   free(prim->hover_text); prim->hover_text = (char*)malloc(len+1);
   memcpy(prim->hover_text, text, len); prim->hover_text[len] = 0;
   memcpy(prim->text_color, color, sizeof(prim->text_color));
-  world_mark_object_updated(sim, &prim->ob, UPDATE_LEVEL_FULL);
+  world_mark_object_updated(sim, &prim->ob, CAJ_OBJUPD_TEXT);
 }
 
 void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
@@ -538,8 +535,7 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   }
   if(newflags != prim->flags) {
     prim->flags = newflags;
-    // FIXME - don't really want a full update here!
-    world_mark_object_updated(sim, &prim->ob, UPDATE_LEVEL_FULL);
+    world_mark_object_updated(sim, &prim->ob, CAJ_OBJUPD_FLAGS);
   }
 }
 
@@ -770,7 +766,7 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
       for(int i = 0; i < prim->num_children; i++) {
 	// Shouldn't be setting this directly. FIXME
 	prim->children[i]->ob.local_pos = prim->children[i]->ob.local_pos + delt;
-	world_mark_object_updated(sim, &prim->children[i]->ob, UPDATE_LEVEL_POSROT);
+	world_mark_object_updated(sim, &prim->children[i]->ob, CAJ_OBJUPD_POSROT);
       }
     }
     world_move_obj_local_int(sim, obj, upd->pos);
@@ -791,7 +787,7 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			   &prim->children[i]->ob.rot, &invrot);
 	caj_mult_quat_quat(&prim->children[i]->ob.rot, 
 			   &prim->children[i]->ob.rot, &upd->rot);
-	world_mark_object_updated(sim, &prim->children[i]->ob, UPDATE_LEVEL_POSROT);
+	world_mark_object_updated(sim, &prim->children[i]->ob, CAJ_OBJUPD_POSROT);
       }
     }
     obj->rot = upd->rot;
@@ -810,9 +806,12 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
       }
   }
 
-  // FIXME - do we really need a full update in the scale case?
-  world_mark_object_updated(sim, obj, (upd->flags & CAJ_MULTI_UPD_SCALE) ?
-			    UPDATE_LEVEL_FULL : UPDATE_LEVEL_POSROT);
+  int objupd = 0;
+  if(upd->flags & CAJ_MULTI_UPD_SCALE)
+    objupd |= CAJ_OBJUPD_SCALE;
+  if(upd->flags & (CAJ_MULTI_UPD_POS|CAJ_MULTI_UPD_ROT))
+     objupd |= CAJ_OBJUPD_POSROT;
+  world_mark_object_updated(sim, obj, objupd);
 }
 
 
@@ -892,6 +891,9 @@ void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *obj,
 }
 
 // --- START of part of hacky object update code. FIXME - remove this ---
+// The API provided by world_mark_object_updated/world_move_obj_from_phys will 
+// probably now remain the same after the object update code is rewritten,
+// though.
 
 void world_int_init_obj_updates(user_ctx *ctx) {
   struct simulator_ctx* sim = ctx->sim;
@@ -899,16 +901,8 @@ void world_int_init_obj_updates(user_ctx *ctx) {
       iter != sim->localid_map.end(); iter++) {
     world_obj *obj = iter->second;
     if(obj->type == OBJ_TYPE_PRIM) {
-      ctx->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL;
+      ctx->obj_upd[obj->local_id] = CAJ_OBJUPD_CREATED;
     }
-  }
-}
-
-static void mark_new_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
-  if(obj->type != OBJ_TYPE_PRIM) return;
-
-  for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
-    user->obj_upd[obj->local_id] = UPDATE_LEVEL_FULL;
   }
 }
 
@@ -930,27 +924,23 @@ static void mark_object_updated_nophys(simulator_ctx* sim, world_obj *obj,
 
   for(user_ctx* user = sim->ctxts; user != NULL; user = user->next) {
     std::map<uint32_t, int>::iterator cur = user->obj_upd.find(obj->local_id);
-    if(cur == user->obj_upd.end() || cur->second < update_level) {
+    if(cur == user->obj_upd.end()) {
       user->obj_upd[obj->local_id] = update_level; 
+    } else {
+      cur->second |= update_level;
     }
   }
 }
 
 void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level) {
-  if(obj->type != OBJ_TYPE_PRIM) return;
-
-  if(update_level == UPDATE_LEVEL_POSROT) 
-    sim->physh.upd_object_pos(sim, sim->phys_priv, obj);
-  else
-    sim->physh.upd_object_full(sim, sim->phys_priv, obj);
-
+  sim->physh.upd_object(sim, sim->phys_priv, obj, update_level);
   mark_object_updated_nophys(sim, obj, update_level);
 }
 
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 			      const caj_vector3 *new_pos) {
   world_move_root_obj_int(sim, ob, *new_pos);
-  mark_object_updated_nophys(sim, ob, UPDATE_LEVEL_POSROT);
+  mark_object_updated_nophys(sim, ob, CAJ_OBJUPD_POSROT);
 }
 
 void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,

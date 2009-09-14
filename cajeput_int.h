@@ -402,10 +402,6 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 
-#define UPDATE_LEVEL_FULL 255
-#define UPDATE_LEVEL_POSROT 1 // pos/rot
-#define UPDATE_LEVEL_NONE 0
-
 void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
 
 // --------- CAPS STUFF -----------------------------

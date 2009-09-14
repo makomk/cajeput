@@ -1235,7 +1235,7 @@ static void handle_ObjectFlagUpdate_msg(struct omuser_ctx* lctx, struct sl_messa
   if(ad->IsTemporary) prim->flags |= PRIM_FLAG_TEMP_ON_REZ; 
   /* if(ad->CastsShadows) ???; - FIXME */
   
-  world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+  world_mark_object_updated(lctx->u->sim, &prim->ob, CAJ_OBJUPD_FLAGS);
 }
 
 // TODO - ObjectFlagUpdate
@@ -1260,7 +1260,7 @@ static void handle_ObjectImage_msg(struct omuser_ctx* lctx, struct sl_message* m
     caj_string_free(&prim->tex_entry);
     caj_string_copy(&prim->tex_entry, &objd->TextureEntry);
 
-    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+    world_mark_object_updated(lctx->u->sim, &prim->ob, CAJ_OBJUPD_TEXTURE);
   }
 }
 
@@ -1281,7 +1281,7 @@ static void handle_ObjectMaterial_msg(struct omuser_ctx* lctx, struct sl_message
     prim->material = objd->Material;
 
     // seems a tad wasteful...
-    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+    world_mark_object_updated(lctx->u->sim, &prim->ob, CAJ_OBJUPD_MATERIAL);
   }
 }
 
@@ -1322,8 +1322,7 @@ static void handle_ObjectShape_msg(struct omuser_ctx* lctx, struct sl_message* m
     prim->profile_end = objd->ProfileEnd;
     prim->profile_hollow = objd->ProfileHollow;   
 
-    // this *does* really require the full update, I think.
-    world_mark_object_updated(lctx->u->sim, &prim->ob, UPDATE_LEVEL_FULL);
+    world_mark_object_updated(lctx->u->sim, &prim->ob, CAJ_OBJUPD_SHAPE);
   }
 }
 
@@ -2609,16 +2608,16 @@ static gboolean obj_update_timer(gpointer data) {
     while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
 	  iter != ctx->obj_upd.end()) {
 
-      if(iter->second == UPDATE_LEVEL_NONE) {
-	iter++; continue;
-      } else if(iter->second == UPDATE_LEVEL_POSROT) {
-	obj_send_terse_upd(lctx, lsim->sim->localid_map[iter->first]);
-	iter->second = UPDATE_LEVEL_NONE;
-      } else /* if(iter->second == UPDATE_LEVEL_FULL) - FIXME handle other cases */ {
+      /* FIXME - we should support compressed updates too */
+      if(iter->second & (CAJ_OBJUPD_CREATED|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_SHAPE|
+			 CAJ_OBJUPD_TEXTURE|CAJ_OBJUPD_FLAGS|CAJ_OBJUPD_MATERIAL|
+			 CAJ_OBJUPD_TEXT|CAJ_OBJUPD_PARENT)) {
 	printf("DEBUG: sending full update for %u\n", iter->first);
 	obj_send_full_upd(lctx, lsim->sim->localid_map[iter->first]);
-	iter->second = UPDATE_LEVEL_NONE;
+      } else if(iter->second & CAJ_OBJUPD_POSROT) {
+	obj_send_terse_upd(lctx, lsim->sim->localid_map[iter->first]);
       }
+      iter->second = 0; iter++; continue;
     }
 
     // FIXME - should probably move this elsewhere

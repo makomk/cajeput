@@ -368,15 +368,15 @@ static void del_object(struct simulator_ctx *sim, void *priv,
   }
 }
 
-static void upd_object_full(struct simulator_ctx *sim, void *priv,
-			    struct world_obj *obj) {
-  struct physics_ctx *phys = (struct physics_ctx*)priv;
-  if(obj->type == OBJ_TYPE_PRIM) {
-    int phys_type = compute_phys_type(obj);
+static void upd_object_full(struct simulator_ctx *sim, physics_ctx *phys,
+			    struct world_obj *obj, int phys_type) {
+  if(obj->type != OBJ_TYPE_PRIM) {
+    upd_object_pos(sim, phys, obj);
+  } else {
     if(phys_type == PHYS_TYPE_PHANTOM) {
-      del_object(sim, priv, obj);
+      del_object(sim, phys, obj);
     } else if(obj->phys == NULL) {
-      add_object(sim, priv, obj);
+      add_object(sim, phys, obj);
     } else {
       // FIXME - shouldn't *really* need to regenerate the shape if we're just
       // making an object physical (though currently we do have to, or the 
@@ -400,6 +400,26 @@ static void upd_object_full(struct simulator_ctx *sim, void *priv,
 
       g_static_mutex_unlock(&phys->mutex);
     }
+  }
+}
+
+static void upd_object(struct simulator_ctx *sim, void *priv,
+		       struct world_obj *obj, int update_flags) {
+  struct physics_ctx *phys = (struct physics_ctx*)priv;
+
+  if(update_flags & CAJ_OBJUPD_CREATED)
+      assert(obj->phys == NULL);
+
+  int new_phys_type = compute_phys_type(obj);
+  int phys_type = obj->phys == NULL ? PHYS_TYPE_PHANTOM : 
+    ((phys_obj*) obj->phys)->phystype;
+
+  if((update_flags & (CAJ_OBJUPD_SHAPE|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_CREATED|
+		      CAJ_OBJUPD_CHILDREN|CAJ_OBJUPD_PARENT)) || 
+     new_phys_type != phys_type) {
+    upd_object_full(sim, phys, obj, new_phys_type);
+  } else if(update_flags & CAJ_OBJUPD_POSROT) {
+    upd_object_pos(sim, phys, obj);
   }
 }
 
@@ -868,10 +888,8 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   struct physics_ctx *phys = new physics_ctx();
   *priv = phys; phys->sim = sim;
 
-  hooks->add_object = add_object;
+  hooks->upd_object = upd_object;
   hooks->del_object = del_object;
-  hooks->upd_object_pos = upd_object_pos;
-  hooks->upd_object_full = upd_object_full;
   // hooks->set_force = set_force;
   hooks->set_target_velocity = set_target_velocity;
   hooks->set_avatar_flying = set_avatar_flying;

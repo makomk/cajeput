@@ -55,6 +55,20 @@ struct world_obj {
   struct obj_chat_listener *chat;
 };
 
+  // again internal, flags
+  // if you add new ones, don't forget to update the object update code
+  // appropriately.
+#define CAJ_OBJUPD_POSROT 0x1
+#define CAJ_OBJUPD_CREATED 0x2 // newly-created object
+#define CAJ_OBJUPD_SCALE 0x4
+#define CAJ_OBJUPD_SHAPE 0x8
+#define CAJ_OBJUPD_TEXTURE 0x10
+#define CAJ_OBJUPD_FLAGS 0x20
+#define CAJ_OBJUPD_MATERIAL 0x40
+#define CAJ_OBJUPD_TEXT 0x80
+#define CAJ_OBJUPD_PARENT 0x100 // object reparented
+#define CAJ_OBJUPD_CHILDREN 0x200 // object's children changed; FIXME - make sure this is sent
+
   // bunch of SL constants
 #define MATERIAL_STONE   0
 #define MATERIAL_METAL   1
@@ -171,8 +185,9 @@ struct primitive_obj {
 // ----- PHYSICS GLUE -------------
 
 struct cajeput_physics_hooks {
-  void(*add_object)(struct simulator_ctx *sim, void *priv,
-		    struct world_obj *obj);
+  /* upd_object also does adding of objects */
+  void(*upd_object)(struct simulator_ctx *sim, void *priv,
+		    struct world_obj *obj, int update_flags);
   void(*del_object)(struct simulator_ctx *sim, void *priv,
 		    struct world_obj *obj);
   /* void(*set_force)(struct simulator_ctx *sim, void *priv,
@@ -182,10 +197,6 @@ struct cajeput_physics_hooks {
   void(*set_avatar_flying)(struct simulator_ctx *sim, void *priv,
 			   struct world_obj *obj, int is_flying);
   void(*destroy)(struct simulator_ctx *sim, void *priv);
-  void(*upd_object_pos)(struct simulator_ctx *sim, void *priv,
-			struct world_obj *obj);
-  void(*upd_object_full)(struct simulator_ctx *sim, void *priv,
-			 struct world_obj *obj);
   void(*apply_impulse)(struct simulator_ctx *sim, void *priv,
 		       struct world_obj *obj, caj_vector3 impulse,
 		       int is_local);
