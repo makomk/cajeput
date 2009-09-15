@@ -777,6 +777,8 @@ static void shutdown_sim(simulator_ctx *sim) {
   sim->physh.destroy(sim, sim->phys_priv);
   sim->phys_priv = NULL;
   
+  free(sim->cfg_sect); free(sim->shortname);
+  
   world_octree_destroy(sim->world_tree);
   g_free(sim->name);
   g_free(sim->ip_addr);

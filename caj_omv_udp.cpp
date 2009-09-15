@@ -422,7 +422,7 @@ static void map_block_req_cb(void *priv, struct map_block_info *blocks, int coun
       }
       
       reply.flags |= MSG_RELIABLE;
-      sl_dump_packet(&reply);
+      printf("DEBUG: sending MapBlockReply\n");
       sl_send_udp(req->lctx, &reply);
     }
     
