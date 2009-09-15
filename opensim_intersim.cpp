@@ -214,7 +214,8 @@ static void agent_POST_stage2(void *priv, int is_ok) {
  out:
   soup_message_set_status(st->msg,200); // FIXME - application/json?
   soup_message_set_response(st->msg,"text/plain",SOUP_MEMORY_STATIC,
-			    is_ok?"true":"false", is_ok?4:5); 
+			    is_ok?"{\"reason\":\"\",\"success\":true}":
+			    "{\"reason\":\"\",\"success\":false}", is_ok?28:29); 
   g_object_unref(st->parser); delete st;
 }
 
@@ -833,7 +834,6 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 			 do_teleport_put_agent_resp, tp_priv);
   
 }
-
 
 static void do_teleport_send_agent_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   os_teleport_desc *tp_priv = (os_teleport_desc*)user_data;
