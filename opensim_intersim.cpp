@@ -22,6 +22,7 @@
 
 #include "cajeput_core.h"
 #include "cajeput_user.h"
+#include "cajeput_grid_glue.h"
 #include <libsoup/soup.h>
 #include "caj_types.h"
 #include <uuid/uuid.h>
@@ -109,7 +110,7 @@ struct agent_POST_state {
   SoupServer *server;
   SoupMessage *msg;
   JsonParser *parser;
-  struct simulator_ctx* sim;
+  struct simgroup_ctx* sgrp;
 };
 
 // FIXME - call this in login
@@ -161,12 +162,12 @@ static void fill_in_child_caps(user_ctx *user, JsonNode *node) {
 }
 
 static void agent_POST_stage2(void *priv, int is_ok) {
-  int is_child = 0;
+  int is_child = 0; uint64_t region_handle;
   char seed_cap[50]; const char *caps_path, *s;
   agent_POST_state* st = (agent_POST_state*)priv;
   JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
   struct sim_new_user uinfo;
-  user_ctx *user;
+  user_ctx *user; simulator_ctx *sim;
  
   soup_server_unpause_message(st->server,st->msg);
   if(helper_json_get_uuid(object, "agent_id", uinfo.user_id)) {
@@ -181,6 +182,24 @@ static void agent_POST_stage2(void *priv, int is_ok) {
     printf("DEBUG agent POST: couldn't get secure_session_id\n");
     is_ok = 0; goto out;
   }
+
+  s = helper_json_get_string(object, "destination_handle");
+  if(s == NULL) {
+    printf("DEBUG agent POST: couldn't get region handle\n");
+    is_ok = 0; goto out;
+  }
+  region_handle = atoll(s);
+  if(region_handle == 0) {
+    printf("DEBUG agent POST: bogus region handle\n");
+    is_ok = 0; goto out;    
+  }
+
+  sim = caj_local_sim_by_region_handle(st->sgrp, region_handle);
+  if(sim == NULL) {
+    printf("DEBUG agent POST: not one of our regions\n");
+    is_ok = 0; goto out;
+  }
+
   // HACK
   uinfo.first_name = (char*)helper_json_get_string(object, "first_name");
   uinfo.last_name = (char*)helper_json_get_string(object, "last_name");
@@ -204,15 +223,16 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
   uinfo.is_child = 1;
-  user = sim_prepare_new_user(st->sim, &uinfo);
+  user = sim_prepare_new_user(sim, &uinfo);
 
   if(user != NULL) {
     fill_in_child_caps(user, json_object_get_member(object,"children_seeds"));
-    add_child_cap(user, sim_get_region_handle(st->sim), caps_path);
+    add_child_cap(user, region_handle, caps_path);
   }
 
  out:
   soup_message_set_status(st->msg,200); // FIXME - application/json?
+  // FIXME - generate proper response!
   soup_message_set_response(st->msg,"text/plain",SOUP_MEMORY_STATIC,
 			    is_ok?"{\"reason\":\"\",\"success\":true}":
 			    "{\"reason\":\"\",\"success\":false}", is_ok?28:29); 
@@ -223,11 +243,11 @@ static void agent_POST_handler(SoupServer *server,
 			       SoupMessage *msg,
 			       uuid_t agent_id,
 			       JsonParser *parser,
-			       struct simulator_ctx* sim) {
+			       struct simgroup_ctx* sgrp) {
   const char *agent_id_st, *session_id_st;
   JsonObject *object; uuid_t u;
   JsonNode * node = json_parser_get_root(parser);
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
 
   if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
     printf("Root JSON node not object?!\n");
@@ -253,8 +273,8 @@ static void agent_POST_handler(SoupServer *server,
     state->msg = msg;
     g_object_ref(parser);  
     state->parser = parser;
-    state->sim = sim;
-    osglue_validate_session(sim, agent_id_st, session_id_st, grid,
+    state->sgrp = sgrp;
+    osglue_validate_session(sgrp, agent_id_st, session_id_st, grid,
 			    agent_POST_stage2, state);
   }
 
@@ -291,12 +311,12 @@ static void agent_PUT_handler(SoupServer *server,
 			      SoupMessage *msg,
 			      uuid_t agent_id,
 			      JsonParser *parser,
-			      struct simulator_ctx* sim) {
+			      struct simgroup_ctx* sgrp) {
   JsonNode * node = json_parser_get_root(parser); // reused later
   JsonObject *object; user_ctx *user;
-  const char *msg_type, *callback_uri;
-  user_grid_glue *user_glue;
-  uuid_t user_id, session_id;
+  const char *msg_type, *callback_uri, *s;
+  user_grid_glue *user_glue; simulator_ctx *sim;
+  uuid_t user_id, session_id; uint64_t region_handle;
   // GRID_PRIV_DEF(sim);
   int is_ok = 1;
 
@@ -313,6 +333,26 @@ static void agent_PUT_handler(SoupServer *server,
     printf("DEBUG agent PUT: couldn't get agent_id\n");
     is_ok = 0; goto out_fail;
   }
+
+  // FIXME - code duplication with PUT handler
+  s = helper_json_get_string(object, "destination_handle");
+  if(s == NULL) {
+    printf("DEBUG agent PUT: couldn't get region handle\n");
+    is_ok = 0; goto out;
+  }
+  region_handle = atoll(s);
+  if(region_handle == 0) {
+    printf("DEBUG agent PUT: bogus region handle\n");
+    is_ok = 0; goto out;    
+  }
+
+  sim = caj_local_sim_by_region_handle(sgrp, region_handle);
+  if(sim == NULL) {
+    printf("DEBUG agent PUT: not one of our regions\n");
+    is_ok = 0; goto out;
+  }
+
+
 #if 0 /* not meaningful - just get zero UUID */
   if(helper_json_get_uuid(object, "session_uuid", session_id)) {
     printf("DEBUG agent PUT: couldn't get session_id\n");
@@ -491,7 +531,7 @@ void osglue_agent_rest_handler(SoupServer *server,
 			       GHashTable *query,
 			       SoupClientContext *client,
 			       gpointer user_data) {
-  struct simulator_ctx* sim = (struct simulator_ctx*) user_data;
+  struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
   const char *reqtype = "???";
   uuid_t agent_id; uint64_t region_handle = 0;
   char *s; char buf[40]; char* cmd = NULL;
@@ -558,14 +598,19 @@ void osglue_agent_rest_handler(SoupServer *server,
 
   if(msg->method == SOUP_METHOD_POST && region_handle == 0
      && cmd == NULL) {
-    agent_POST_handler(server, msg, agent_id, parser, sim);
+    agent_POST_handler(server, msg, agent_id, parser, sgrp);
   } else if(msg->method == SOUP_METHOD_PUT && region_handle == 0
      && cmd == NULL) {
-    agent_PUT_handler(server, msg, agent_id, parser, sim);
-  } else if(msg->method == SOUP_METHOD_DELETE && cmd != NULL &&
+    agent_PUT_handler(server, msg, agent_id, parser, sgrp);
+  } else if(msg->method == SOUP_METHOD_DELETE && cmd != NULL && 
+	    region_handle != 0 &&
 	    (strcmp(cmd,"release/") == 0 || strcmp(cmd,"release") == 0)) {
-    // FIXME - check region ID in URL
-    agent_DELETE_release_handler(server, msg, agent_id, parser, sim);
+    simulator_ctx *sim = caj_local_sim_by_region_handle(sgrp, region_handle);
+    if(sim == NULL) {
+      printf("ERROR: agent DELETE for unknown region\n"); goto out_fail;
+    } else {
+      agent_DELETE_release_handler(server, msg, agent_id, parser, sim);
+    }
   } /* else if(msg->method == SOUP_METHOD_DELETE && region_handle == 0
      && cmd == NULL) {
     agent_DELETE_handler(server, msg, agent_id, sim);
@@ -581,6 +626,8 @@ void osglue_agent_rest_handler(SoupServer *server,
   return;
   
  out_fail:
+  if(parser != NULL)
+    g_object_unref(parser); 
   soup_message_set_status(msg,400);
 }
 

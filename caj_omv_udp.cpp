@@ -443,8 +443,8 @@ static void handle_MapBlockRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   priv->name = NULL; priv->x = pos->MinX; priv->y = pos->MinY;
   user_add_self_pointer(&priv->ctx);
   sl_dump_packet(msg);
-  ctx->sim->gridh.map_block_request(ctx->sim, pos->MinX, pos->MaxX, pos->MinY, 
-				    pos->MaxY, map_block_req_cb, priv);
+  ctx->sgrp->gridh.map_block_request(ctx->sgrp, pos->MinX, pos->MaxX, pos->MinY, 
+				     pos->MaxY, map_block_req_cb, priv);
 }
 
 static void handle_MapNameRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -457,8 +457,8 @@ static void handle_MapNameRequest_msg(struct omuser_ctx* lctx, struct sl_message
   priv->ctx = ctx; priv->flags = ad->Flags; priv->lctx = lctx;
   priv->name = strdup((char*)name->Name.data);
   user_add_self_pointer(&priv->ctx);
-  ctx->sim->gridh.map_name_request(ctx->sim, priv->name, 
-				   map_block_req_cb, priv);
+  ctx->sgrp->gridh.map_name_request(ctx->sgrp, priv->name, 
+				    map_block_req_cb, priv);
 }
 
 
@@ -652,7 +652,7 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
   req->fetch_folders = inv->FetchFolders;
   req->fetch_items = inv->FetchItems;
   
-  user_fetch_inventory_folder(lctx->u->sim, lctx->u, inv->FolderID,
+  user_fetch_inventory_folder(lctx->u->sgrp, lctx->u, inv->FolderID,
 			      inventory_descendents_cb, req);
 }
 
@@ -715,7 +715,7 @@ static void handle_FetchInventory_msg(struct omuser_ctx* lctx, struct sl_message
     user_ctx **pctx = new user_ctx*();
     *pctx = lctx->u;  user_add_self_pointer(pctx);
     
-    user_fetch_inventory_item(lctx->u->sim, lctx->u, inv->ItemID,
+    user_fetch_inventory_item(lctx->u, inv->ItemID,
 			      inventory_item_cb, pctx);
   }
 }
@@ -782,7 +782,7 @@ static void do_send_asset_cb(struct simgroup_ctx *sgrp, void *priv,
 }
 
 static void do_send_asset(asset_request *req) {
-  sim_get_asset(req->lctx->u->sim, req->asset_id, do_send_asset_cb, req);
+  caj_get_asset(req->lctx->u->sgrp, req->asset_id, do_send_asset_cb, req);
 }
 
 static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1887,7 +1887,7 @@ static void handle_UUIDNameRequest_msg(struct omuser_ctx* lctx, struct sl_messag
       SL_GETBLKI(UUIDNameRequest,UUIDNameBlock,msg,i);
     user_ctx **pctx = new user_ctx*(); *pctx = lctx->u;
     user_add_self_pointer(pctx);
-    caj_uuid_to_name(lctx->u->sim, req->ID, uuid_name_resp, pctx);
+    caj_uuid_to_name(lctx->u->sgrp, req->ID, uuid_name_resp, pctx);
   }
 }
 
@@ -2292,13 +2292,13 @@ static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* 
     
     if(ri->DiscardLevel >= 0) {
       if(iter == lctx->image_reqs.end()) {
-	texture_desc *texture = sim_get_texture(lctx->u->sim, ri->Image);
+	texture_desc *texture = caj_get_texture(lctx->u->sgrp, ri->Image);
 	image_request* ireq = new image_request;
 	ireq->texture = texture;
 	ireq->priority = ri->DownloadPriority;
 	ireq->discard = ri->DiscardLevel;
 	ireq->packet_no = ri->Packet;
-	sim_request_texture(lctx->u->sim, texture);
+	caj_request_texture(lctx->u->sgrp, texture);
 	lctx->image_reqs[ri->Image] = ireq;
       } else {
 	image_request* ireq = iter->second;
@@ -2754,7 +2754,7 @@ static gboolean got_packet(GIOChannel *source,
     if(msg.tmpl == &sl_msgt_UseCircuitCode) {
       // FIXME - needs a full rewrite
 
-      printf("DEBUG: handling UseCircuitCode\n");
+      printf("DEBUG: handling UseCircuitCode on %s\n", lsim->sim->shortname);
       // FIXME - need to handle dupes
       SL_DECLBLK_GET1(UseCircuitCode, CircuitCode, cc, &msg);
       struct user_ctx* ctx; struct sl_message ack;

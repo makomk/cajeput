@@ -264,13 +264,13 @@ static void got_inventory_items_resp(SoupSession *session, SoupMessage *msg, gpo
 }
 
 // fetch contents of inventory folder
-void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
+void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 			    void *user_priv, uuid_t folder_id,
 			    void(*cb)(struct inventory_contents* inv, 
 				      void* priv),
 			    void *cb_priv) {
   uuid_t u; char tmp[40]; char uri[256];
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
   USER_PRIV_DEF(user_priv);
   xmlTextWriterPtr writer;
   xmlBufferPtr buf;
@@ -322,7 +322,7 @@ void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
   req->cb_priv = cb_priv;
   uuid_copy(req->folder_id, folder_id);
   user_grid_glue_ref(user_glue);
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  caj_queue_soup_message(sgrp, SOUP_MESSAGE(msg),
 			 got_inventory_items_resp, req);
     
   xmlFreeTextWriter(writer);  
@@ -403,13 +403,13 @@ static void got_inventory_item_resp(SoupSession *session, SoupMessage *msg, gpoi
 }
 
 
-void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
+void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			    void *user_priv, uuid_t item_id,
 			    void(*cb)(struct inventory_item* item, 
 				      void* priv),
 			    void *cb_priv) {
   uuid_t u, user_id; char tmp[40]; char uri[256];
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
   USER_PRIV_DEF(user_priv);
   xmlTextWriterPtr writer;
   xmlBufferPtr buf;
@@ -476,7 +476,7 @@ void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
   req->cb_priv = cb_priv;
   uuid_copy(req->item_id, item_id);
   user_grid_glue_ref(user_glue);
-  sim_queue_soup_message(sim, SOUP_MESSAGE(msg),
+  caj_queue_soup_message(sgrp, SOUP_MESSAGE(msg),
 			 got_inventory_item_resp, req);
     
   xmlFreeTextWriter(writer);  

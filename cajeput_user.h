@@ -149,18 +149,17 @@ void user_reset_timeout(struct user_ctx* ctx);
 void user_add_self_pointer(struct user_ctx** pctx);
 void user_del_self_pointer(struct user_ctx** pctx);
 
-void caj_uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id, 
 		      void(*cb)(uuid_t uuid, const char* first, 
 				const char* last, void *priv),
 		      void *cb_priv);
 
-void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user, 
+void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
 				 uuid_t folder_id,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
-void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user, 
-			       uuid_t item_id,
+void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);

@@ -22,6 +22,7 @@
 
 #include "cajeput_core.h"
 #include "cajeput_user.h"
+#include "cajeput_grid_glue.h"
 #include <libsoup/soup.h>
 #include "caj_types.h"
 #include <uuid/uuid.h>
@@ -81,10 +82,10 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
   // FIXME - check region_locx/y, sim_ip, sim_port
   if(!soup_value_hash_lookup(hash,"user_url",G_TYPE_STRING,
 			     &s)) goto bad_resp;
-  grid->userserver = g_strdup(s);
+  if(grid->userserver != NULL) grid->userserver = g_strdup(s);
   if(!soup_value_hash_lookup(hash,"asset_url",G_TYPE_STRING,
 			     &s)) goto bad_resp;
-  grid->assetserver = g_strdup(s);
+  if(grid->assetserver != NULL) grid->assetserver = g_strdup(s);
 
   //printf("DEBUG: login response ~%s~\n",msg->response_body->data);
   printf("Grid login complete\n");
@@ -103,7 +104,8 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
   // plus a bunch of info we sent ourselves.
 }
 
-static void do_grid_login(struct simulator_ctx* sim) {
+static void do_grid_login(struct simgroup_ctx *sgrp,
+			  struct simulator_ctx* sim) {
   char buf[40];
   uuid_t zero_uuid, u;
   uuid_clear(zero_uuid);
@@ -133,8 +135,10 @@ static void do_grid_login(struct simulator_ctx* sim) {
   sim_get_region_uuid(sim, u);
   uuid_unparse(u, buf);
   soup_value_hash_insert(hash,"UUID",G_TYPE_STRING,buf);
-  sprintf(buf,"http://%s:%i",ip_addr,
-	  (int)sim_get_http_port(sim));
+  
+  // no, this isn't a mistake, we have to put the *UDP* port here and not the 
+  // HTTP one. Otherwise, stuff breaks. *glares at OpenSim*
+  sprintf(buf,"http://%s:%i",ip_addr, (int)sim_get_udp_port(sim));
   soup_value_hash_insert(hash,"server_uri",G_TYPE_STRING,buf);
   sprintf(buf,"%i",(int)sim_get_region_x(sim));
   soup_value_hash_insert(hash,"region_locx",G_TYPE_STRING,buf);
@@ -158,7 +162,7 @@ static void do_grid_login(struct simulator_ctx* sim) {
   }
 
 
-  sim_queue_soup_message(sim, msg,
+  caj_queue_soup_message(sgrp, msg,
 			 got_grid_login_response, sim);
   
   // TODO
@@ -294,7 +298,7 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
 struct validate_session_state {
   validate_session_cb callback;
   void *priv;
-  simulator_ctx *sim;
+  simgroup_ctx *sgrp;
 };
 
 static void got_validate_session_resp(SoupSession *session, SoupMessage *msg, 
@@ -303,7 +307,7 @@ static void got_validate_session_resp(SoupSession *session, SoupMessage *msg,
   int is_ok = 0;
   validate_session_state* vs = (validate_session_state*) user_data;
   printf("DEBUG: got check_auth_session response\n");
-  sim_shutdown_release(vs->sim);
+  caj_shutdown_release(vs->sgrp);
   if(soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
@@ -320,7 +324,7 @@ static void got_validate_session_resp(SoupSession *session, SoupMessage *msg,
   delete vs;
 }
 
-void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
+void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
 			     const char *session_id, grid_glue_ctx* grid,
 			     validate_session_cb callback, void *priv)  {
   GHashTable *hash;
@@ -344,10 +348,10 @@ void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
   validate_session_state *vs_state = new validate_session_state();
   vs_state->callback = callback;
   vs_state->priv = priv;
-  vs_state->sim = sim;
+  vs_state->sgrp = sgrp;
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, val_msg,
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, val_msg,
 			 got_validate_session_resp, vs_state);
   				   
 }
@@ -356,12 +360,13 @@ void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
 static void xmlrpc_expect_user(SoupServer *server,
 			       SoupMessage *msg,
 			       GValueArray *params,
-			       struct simulator_ctx* sim) {
-  GRID_PRIV_DEF(sim);
+			       struct simgroup_ctx* sgrp) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   GHashTable *args = NULL;
   char *agent_id, *session_id, *s;
   uint64_t region_handle;
   GHashTable *hash;
+  simulator_ctx *sim;
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
@@ -375,7 +380,9 @@ static void xmlrpc_expect_user(SoupServer *server,
 			     &s)) goto bad_args;
   region_handle = atoll(s);
   if(region_handle == 0) goto bad_args;
-  if(region_handle != sim_get_region_handle(sim)) {
+
+  sim = caj_local_sim_by_region_handle(sgrp, region_handle);
+  if(sim == NULL) {
     printf("Got expect_user for wrong region\n");
     goto return_fail;
   }
@@ -389,7 +396,7 @@ static void xmlrpc_expect_user(SoupServer *server,
     state->params = params;
     state->args = args;
     state->sim = sim;
-    osglue_validate_session(sim, agent_id, session_id, grid,
+    osglue_validate_session(sgrp, agent_id, session_id, grid,
 			    xmlrpc_expect_user_2, state);
   }
 
@@ -415,14 +422,15 @@ static void xmlrpc_expect_user(SoupServer *server,
 static void xmlrpc_logoff_user(SoupServer *server,
 			       SoupMessage *msg,
 			       GValueArray *params,
-			       struct simulator_ctx* sim) {
-  GRID_PRIV_DEF(sim);
+			       struct simgroup_ctx* sgrp) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   GHashTable *args = NULL;
   int secret_ok = 1;
   uuid_t agent_id, region_secret;
   char *s;
   uint64_t region_handle;
   GHashTable *hash;
+  struct simulator_ctx *sim;
   // GError *error = NULL;
   printf("DEBUG: Got a logoff_user call\n");
   if(params->n_values != 1 || 
@@ -433,7 +441,8 @@ static void xmlrpc_logoff_user(SoupServer *server,
 			     &s)) goto bad_args;
   region_handle = atoll(s);
   if(region_handle == 0) goto bad_args;
-  if(region_handle != sim_get_region_handle(sim)) {
+  sim = caj_local_sim_by_region_handle(sgrp, region_handle);
+  if(sim == NULL) {
     printf("Got logoff_user for wrong region\n");
     goto return_null;
   }
@@ -450,7 +459,7 @@ static void xmlrpc_logoff_user(SoupServer *server,
   printf("DEBUG: logoff_user call is valid, walking the user tree\n");
 
   user_logoff_user_osglue(sim, agent_id, 
-			  secret_ok?NULL:region_secret);
+			 secret_ok?NULL:region_secret);
 
  return_null: // FIXME - should actually return nothing
   hash = soup_value_hash_new();
@@ -476,7 +485,7 @@ static void xmlrpc_handler (SoupServer *server,
 				GHashTable *query,
 				SoupClientContext *client,
 				gpointer user_data) {
-  struct simulator_ctx* sim = (struct simulator_ctx*) user_data;
+  struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
   char *method_name;
   GValueArray *params;
 
@@ -506,11 +515,11 @@ static void xmlrpc_handler (SoupServer *server,
   }
 
   if(strcmp(method_name, "logoff_user") == 0) {
-    xmlrpc_logoff_user(server, msg, params, sim);
+    xmlrpc_logoff_user(server, msg, params, sgrp);
     
   } else if(strcmp(method_name, "expect_user") == 0) {
     printf("DEBUG: expect_user ~%s~\n", msg->request_body->data);
-    xmlrpc_expect_user(server, msg, params, sim);
+    xmlrpc_expect_user(server, msg, params, sgrp);
   } else {
     printf("DEBUG: unknown xmlrpc method %s called\n", method_name);
     g_value_array_free(params);
@@ -542,7 +551,8 @@ static void got_user_logoff_resp(SoupSession *session, SoupMessage *msg, gpointe
 }
 
 
-static void user_logoff(struct simulator_ctx* sim,
+static void user_logoff(struct simgroup_ctx *sgrp,
+			struct simulator_ctx* sim,
 			const uuid_t user_id, const caj_vector3 *pos,
 			const caj_vector3 *look_at) {
   char buf[40];
@@ -583,12 +593,13 @@ static void user_logoff(struct simulator_ctx* sim,
     return;
   }
 
-  sim_queue_soup_message(sim, msg,
+  caj_queue_soup_message(sgrp, msg,
 			 got_user_logoff_resp, sim);
-  sim_shutdown_hold(sim);
+  sim_shutdown_hold(sim); // FIXME
 }
 
-static void user_created(struct simulator_ctx* sim,
+static void user_created(struct simgroup_ctx *sgrp,
+			 struct simulator_ctx* sim,
 			 struct user_ctx* user,
 			 void **user_priv) {
   // GRID_PRIV_DEF(sim);
@@ -599,7 +610,8 @@ static void user_created(struct simulator_ctx* sim,
   *user_priv = user_glue;
 }
 
-static void user_deleted(struct simulator_ctx* sim,
+static void user_deleted(struct simgroup_ctx *sgrp,
+			 struct simulator_ctx* sim,
 			 struct user_ctx* user,
 			 void *user_priv) {
   USER_PRIV_DEF(user_priv);
@@ -620,7 +632,8 @@ static void user_entered_callback_resp(SoupSession *session, SoupMessage *msg, g
 
 }
 
-void user_entered(simulator_ctx *sim, user_ctx *user,
+void user_entered(struct simgroup_ctx *sgrp,
+		  simulator_ctx *sim, user_ctx *user,
 		  void *user_priv) {
   USER_PRIV_DEF(user_priv);
 
@@ -636,7 +649,7 @@ void user_entered(simulator_ctx *sim, user_ctx *user,
     soup_message_set_request (msg, "text/plain",
 			      SOUP_MEMORY_STATIC, "", 0);
     sim_shutdown_hold(sim);
-    sim_queue_soup_message(sim, msg,
+    caj_queue_soup_message(sgrp, msg,
 			   user_entered_callback_resp, sim);
     free(user_glue->enter_callback_uri);
     user_glue->enter_callback_uri = NULL;  
@@ -658,7 +671,7 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
 }
 
 struct asset_req_desc {
-  struct simulator_ctx *sim;
+  struct simgroup_ctx *sgrp;
   texture_desc *texture;
   simple_asset *asset;
 };
@@ -669,7 +682,7 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
   texture_desc *texture = req->texture;
   const char* content_type = 
     soup_message_headers_get_content_type(msg->response_headers, NULL);
-  sim_shutdown_release(req->sim);
+  caj_shutdown_release(req->sgrp);
 
   printf("Get texture resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
@@ -729,7 +742,7 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
       texture->data = (unsigned char*)malloc(texture->len);
       memcpy(texture->data, msg->response_body->data, texture->len);
     }
-    sim_texture_finished_load(texture);
+    caj_texture_finished_load(texture);
   } else {
     // HACK!
     texture->flags |= CJP_TEXTURE_MISSING;
@@ -741,8 +754,8 @@ static void get_texture_resp(SoupSession *session, SoupMessage *msg,
 }
 
 // FIXME - move texture stuff elsewhere
-static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture) {
-  GRID_PRIV_DEF(sim);
+static void get_texture(struct simgroup_ctx *sgrp, struct texture_desc *texture) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   // FIXME - should allocate proper buffer
   char url[255], asset_id[40];
   assert(grid->assetserver != NULL);
@@ -753,9 +766,9 @@ static void get_texture(struct simulator_ctx *sim, struct texture_desc *texture)
 
   SoupMessage *msg = soup_message_new ("GET", url);
   asset_req_desc *req = new asset_req_desc;
-  req->texture = texture; req->sim = sim;
-  sim_shutdown_hold(sim); // FIXME - probably don't want to do this
-  sim_queue_soup_message(sim, msg,
+  req->texture = texture; req->sgrp = sgrp;
+  caj_shutdown_hold(sgrp); // FIXME - probably don't want to do this
+  caj_queue_soup_message(sgrp, msg,
 			 get_texture_resp, req);
 
 }
@@ -787,7 +800,7 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
   xmlDocPtr doc; os_asset oasset;
   /* const char* content_type = 
      soup_message_headers_get_content_type(msg->response_headers, NULL); */
-  sim_shutdown_release(req->sim);
+  caj_shutdown_release(req->sgrp);
 
   printf("Get asset resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
@@ -841,7 +854,7 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
 
     xmlFree(texstr);
     xmlFreeDoc(doc);
-    sim_asset_finished_load(req->sim, asset, TRUE);
+    caj_asset_finished_load(req->sgrp, asset, TRUE);
     delete req;
     return;
   } else {
@@ -851,12 +864,12 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
  out_fail_free:
    xmlFreeDoc(doc);
  out_fail:
-  sim_asset_finished_load(req->sim, asset, FALSE);
+  caj_asset_finished_load(req->sgrp, asset, FALSE);
   delete req;
 }
 
-static void get_asset(struct simulator_ctx *sim, struct simple_asset *asset) {
-  GRID_PRIV_DEF(sim);
+static void get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   // FIXME - should allocate proper buffer
   char url[255], asset_id[40];
   assert(grid->assetserver != NULL);
@@ -867,21 +880,21 @@ static void get_asset(struct simulator_ctx *sim, struct simple_asset *asset) {
 
   SoupMessage *msg = soup_message_new ("GET", url);
   asset_req_desc *req = new asset_req_desc;
-  req->asset = asset; req->sim = sim;
-  sim_shutdown_hold(sim); // not sure we want to do this
-  sim_queue_soup_message(sim, msg, get_asset_resp, req);
+  req->asset = asset; req->sgrp = sgrp;
+  caj_shutdown_hold(sgrp); // not sure we want to do this
+  caj_queue_soup_message(sgrp, msg, get_asset_resp, req);
   
 }
 
 struct map_block_state {
-  struct simulator_ctx *sim;
+  struct simgroup_ctx *sgrp;
   void(*cb)(void *priv, struct map_block_info *blocks, 
 	    int count);
   void *cb_priv;
 
-  map_block_state(struct simulator_ctx *sim_, void(*cb_)(void *priv, struct map_block_info *blocks, 
+  map_block_state(struct simgroup_ctx *sgrp_, void(*cb_)(void *priv, struct map_block_info *blocks, 
 							 int count), void *cb_priv_) : 
-    sim(sim_), cb(cb_), cb_priv(cb_priv_) { };
+    sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
 };
 
 static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
@@ -892,7 +905,7 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
   GHashTable *hash = NULL;
   GValueArray *sims = NULL;
 
-  sim_shutdown_release(st->sim);
+  caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
     printf("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -990,7 +1003,7 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
   delete st;
 }
 
-static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x, 
+static void map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x, 
 			      int min_y, int max_y, 
 			      void(*cb)(void *priv, struct map_block_info *blocks, 
 					int count),
@@ -999,7 +1012,7 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
   GHashTable *hash;
   //GError *error = NULL;
   SoupMessage *msg;
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
 
   printf("DEBUG: map block request (%i,%i)-(%i,%i)\n",
 	 min_x, min_y, max_x, max_y);
@@ -1021,9 +1034,9 @@ static void map_block_request(struct simulator_ctx *sim, int min_x, int max_x,
     return;
   }
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, msg,
-			 got_map_block_resp, new map_block_state(sim,cb,cb_priv));
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
+			 got_map_block_resp, new map_block_state(sgrp,cb,cb_priv));
 }
 
 
@@ -1139,7 +1152,7 @@ static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
 
 
 struct region_by_name_state {
-  simulator_ctx* sim;
+  simgroup_ctx* sgrp;
   void(*cb)(void* cb_priv, map_block_info* info, int count);
   void *cb_priv;
 };
@@ -1151,7 +1164,7 @@ static void got_region_by_name(SoupSession *session, SoupMessage *msg, gpointer 
   GHashTable *hash = NULL;
   char *s; //uuid_t u;
 
-  sim_shutdown_release(st->sim);
+  caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
     printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -1242,10 +1255,10 @@ static void got_region_by_name(SoupSession *session, SoupMessage *msg, gpointer 
   delete st;
 }
 
-static void map_name_request(struct simulator_ctx* sim, const char* name,
+static void map_name_request(struct simgroup_ctx* sgrp, const char* name,
 			    void(*cb)(void* cb_priv, map_block_info* info, int count),
 			    void *cb_priv) {
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
 
   GHashTable *hash;
   //GError *error = NULL;
@@ -1266,10 +1279,10 @@ static void map_name_request(struct simulator_ctx* sim, const char* name,
   }
 
   region_by_name_state *st = new region_by_name_state();
-  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+  st->sgrp = sgrp; st->cb = cb; st->cb_priv = cb_priv;
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, msg,
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
 			 got_region_by_name, st);
 
 }
@@ -1334,7 +1347,8 @@ static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv,
   }
 }
 
-static void do_teleport(struct simulator_ctx* sim, struct teleport_desc* tp) {
+static void do_teleport(struct simgroup_ctx* sgrp,
+			struct simulator_ctx* sim, struct teleport_desc* tp) {
   //GRID_PRIV_DEF(sim);
  
   // FIXME - handle teleport via region ID
@@ -1348,12 +1362,12 @@ struct user_profile {
 };
 
 struct user_by_id_state {
-  struct simulator_ctx *sim;
+  struct simgroup_ctx *sgrp;
   void(*cb)(user_profile* profile, void *priv);
   void *cb_priv;
   
-  user_by_id_state(simulator_ctx *sim_, void(*cb_)(user_profile* profile, void *priv),
-		   void *cb_priv_) : sim(sim_), cb(cb_), cb_priv(cb_priv_) { };
+  user_by_id_state(simgroup_ctx *sgrp_, void(*cb_)(user_profile* profile, void *priv),
+		   void *cb_priv_) : sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
 };
 
 static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
@@ -1362,7 +1376,7 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
   user_profile profile;
   GHashTable *hash = NULL;
 
-  sim_shutdown_release(st->sim);
+  caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
     printf("User by ID req failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -1406,14 +1420,14 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
 }
 
 
-static void user_profile_by_id(struct simulator_ctx *sim, uuid_t id, 
+static void user_profile_by_id(struct simgroup_ctx *sgrp, uuid_t id, 
 			       void(*cb)(user_profile* profile, void *priv),
 			       void *cb_priv) {
   char buf[40];
   GHashTable *hash;
   //GError *error = NULL;
   SoupMessage *msg;
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
 
   hash = soup_value_hash_new();
   uuid_unparse(id, buf);
@@ -1429,9 +1443,9 @@ static void user_profile_by_id(struct simulator_ctx *sim, uuid_t id,
     return;
   }
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, msg,
-			 got_user_by_id_resp, new user_by_id_state(sim,cb,cb_priv));
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
+			 got_user_by_id_resp, new user_by_id_state(sgrp,cb,cb_priv));
 }		       
 
 struct uuid_to_name_state {
@@ -1457,18 +1471,18 @@ static void uuid_to_name_cb(user_profile* profile, void *priv) {
   delete st;
 }
 
-static void uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+static void uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id, 
 			 void(*cb)(uuid_t uuid, const char* first, 
 				   const char* last, void *priv),
 			 void *cb_priv) {
   // FIXME - use cached UUID->name mappings once we have some
-  user_profile_by_id(sim, id, uuid_to_name_cb, 
+  user_profile_by_id(sgrp, id, uuid_to_name_cb, 
 		     new uuid_to_name_state(cb,cb_priv,id));
   //cb(id, NULL, NULL, cb_priv); // FIXME!!!  
 }
 
-static void cleanup(struct simulator_ctx* sim) {
-  GRID_PRIV_DEF(sim);
+static void cleanup(struct simgroup_ctx* sgrp) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   g_free(grid->userserver);
   g_free(grid->gridserver);
   g_free(grid->assetserver);
@@ -1478,13 +1492,13 @@ static void cleanup(struct simulator_ctx* sim) {
   delete grid;
 }
 
-int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim, 
+int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp, 
 			   void **priv, struct cajeput_grid_hooks *hooks) {
   if(api_version != CAJEPUT_API_VERSION) 
     return false;
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;
-  grid->sgrp = sim_get_simgroup(sim);
+  grid->sgrp = sgrp;
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 
@@ -1512,10 +1526,10 @@ int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim,
   grid->user_recvkey = grid->user_sendkey = NULL;
   grid->asset_recvkey = grid->asset_sendkey = NULL;
 
-  sim_http_add_handler(sim, "/", xmlrpc_handler, 
-		       sim, NULL);
-  sim_http_add_handler(sim, "/agent/", osglue_agent_rest_handler, 
-		       sim, NULL);
+  caj_http_add_handler(sgrp, "/", xmlrpc_handler, 
+		       sgrp, NULL);
+  caj_http_add_handler(sgrp, "/agent/", osglue_agent_rest_handler, 
+		       sgrp, NULL);
 
   return true;
 }

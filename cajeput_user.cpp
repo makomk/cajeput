@@ -25,6 +25,7 @@
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include "cajeput_anims.h"
+#include "cajeput_grid_glue.h"
 #include "caj_helpers.h"
 #include <cassert>
 
@@ -39,11 +40,11 @@ void user_reset_timeout(struct user_ctx* ctx) {
 }
 
 
-void caj_uuid_to_name(struct simulator_ctx *sim, uuid_t id, 
+void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id, 
 		      void(*cb)(uuid_t uuid, const char* first, 
 				const char* last, void *priv),
 		      void *cb_priv) {
-  sim->gridh.uuid_to_name(sim, id, cb, cb_priv);
+  sgrp->gridh.uuid_to_name(sgrp, id, cb, cb_priv);
 }
 
 user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
@@ -313,23 +314,22 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
-void user_fetch_inventory_folder(simulator_ctx *sim, user_ctx *user, 
+void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
 				 uuid_t folder_id,
 				  void(*cb)(struct inventory_contents* inv, 
 					    void* priv),
 				  void *cb_priv) {
   std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
-       sim->sgrp->inv_lib.find(folder_id);
-  if(iter == sim->sgrp->inv_lib.end()) {
-    sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
+       sgrp->inv_lib.find(folder_id);
+  if(iter == sgrp->inv_lib.end()) {
+    sgrp->gridh.fetch_inventory_folder(sgrp,user,user->grid_priv,
 				      folder_id,cb,cb_priv);
   } else {
     cb(iter->second, cb_priv);
   }
 }
 
-void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user, 
-			       uuid_t item_id,
+void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv) {
@@ -343,8 +343,8 @@ void user_fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
     cb(iter->second, cb_priv);
   }
 #endif
-  sim->gridh.fetch_inventory_item(sim,user,user->grid_priv,
-				  item_id,cb,cb_priv);
+  user->sgrp->gridh.fetch_inventory_item(user->sgrp,user,user->grid_priv,
+					 item_id,cb,cb_priv);
 }
 
 
@@ -421,8 +421,8 @@ static void do_real_teleport(struct teleport_desc* tp) {
     world_multi_update_obj(tp->ctx->sim, &tp->ctx->av->ob, &pos_upd);
     user_complete_teleport_int(tp, TRUE);
   } else {
-    simulator_ctx *sim = tp->ctx->sim;
-    sim->gridh.do_teleport(sim, tp);
+    simgroup_ctx *sgrp = tp->ctx->sgrp;
+    sgrp->gridh.do_teleport(sgrp,tp->ctx->sim, tp);
   }
 }
 
@@ -469,12 +469,14 @@ void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
   user_event_queue_send(ctx,"EnableSimulator",body);
 }
 
-static void debug_prepare_new_user(struct sim_new_user *uinfo) {
+static void debug_prepare_new_user(struct simulator_ctx *sim,
+				   struct sim_new_user *uinfo) {
   char user_id[40], session_id[40];
   uuid_unparse(uinfo->user_id,user_id);
   uuid_unparse(uinfo->session_id,session_id);
-  printf("Expecting new user %s %s, user_id=%s, session_id=%s, "
-	 "circuit_code=%lu (%s)\n", uinfo->first_name, uinfo->last_name,
+  printf("DEBUG: %s expecting new user %s %s, user_id=%s, session_id=%s, "
+	 "circuit_code=%lu (%s)\n", sim->shortname,
+	 uinfo->first_name, uinfo->last_name,
 	 user_id, session_id, (unsigned long)uinfo->circuit_code,
 	 uinfo->is_child ? "child" : "main");
 }
@@ -505,7 +507,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->default_anim.caj_type = CAJ_ANIM_TYPE_DEFAULT;
   ctx->anim_seq = 2;
 
-  debug_prepare_new_user(uinfo);
+  debug_prepare_new_user(sim, uinfo);
 
   uuid_copy(ctx->user_id, uinfo->user_id);
   uuid_copy(ctx->session_id, uinfo->session_id);
@@ -527,7 +529,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 
   user_set_throttles(ctx,throttle_init);
 
-  sim->gridh.user_created(sim,ctx,&ctx->grid_priv);
+  sim->sgrp->gridh.user_created(sim->sgrp,sim,ctx,&ctx->grid_priv);
 
   // HACK
   world_int_init_obj_updates(ctx);
@@ -586,7 +588,7 @@ int user_complete_movement(user_ctx *ctx) {
     world_obj_add_channel(ctx->sim,&ctx->av->ob,0);
     world_obj_add_channel(ctx->sim,&ctx->av->ob,DEBUG_CHANNEL);
 
-    ctx->sim->gridh.user_entered(ctx->sim, ctx, ctx->grid_priv);
+    ctx->sgrp->gridh.user_entered(ctx->sgrp, ctx->sim, ctx, ctx->grid_priv);
   }
 
   return true;
@@ -594,13 +596,13 @@ int user_complete_movement(user_ctx *ctx) {
 
 void user_remove_int(user_ctx **user) {
   user_ctx* ctx = *user;
-  simulator_ctx *sim = ctx->sim;
+  simgroup_ctx *sgrp = ctx->sgrp;
   if(ctx->av != NULL) {
     world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       // FIXME - should set look_at correctly
-      sim->gridh.user_logoff(sim, ctx->user_id,
-			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
+      sgrp->gridh.user_logoff(sgrp, ctx->sim, ctx->user_id,
+			      &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
     free(ctx->av); ctx->av = NULL;
   }
@@ -619,7 +621,7 @@ void user_remove_int(user_ctx **user) {
   // mustn't do this in user_session_close; that'd break teleport
   user_int_event_queue_free(ctx);
 
-  sim->gridh.user_deleted(ctx->sim,ctx,ctx->grid_priv);
+  sgrp->gridh.user_deleted(sgrp, ctx->sim,ctx,ctx->grid_priv);
 
   user_int_caps_cleanup(ctx);
 
@@ -649,12 +651,11 @@ void user_remove_int(user_ctx **user) {
 
 // FIXME - purge the texture sends here
 void user_session_close(user_ctx* ctx, int slowly) {
-  simulator_ctx *sim = ctx->sim;
   if(ctx->av != NULL) {
     // FIXME - code duplication
     world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
-      sim->gridh.user_logoff(sim, ctx->user_id,
+      ctx->sgrp->gridh.user_logoff(ctx->sgrp, ctx->sim, ctx->user_id,
 			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
     free(ctx->av); ctx->av = NULL;
@@ -1043,7 +1044,7 @@ static void rez_obj_inv_callback(struct inventory_item* item, void* priv) {
   } else {
     // FIXME - what if the user isn't the inventory owner? Perms would be wrong
     desc->perms = item->perms;
-    sim_get_asset(desc->ctx->sim, item->asset_id, rez_obj_asset_callback, desc);
+    caj_get_asset(desc->ctx->sgrp, item->asset_id, rez_obj_asset_callback, desc);
   }
 }
 
@@ -1052,7 +1053,7 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector
     rez_object_desc *desc = new rez_object_desc();
     desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
     desc->pos = pos; // FIXME - do proper raycast
-    user_fetch_inventory_item(ctx->sim, ctx, item_id,
+    user_fetch_inventory_item(ctx, item_id,
 			      rez_obj_inv_callback, desc);
   } else {
     // FIXME - ????

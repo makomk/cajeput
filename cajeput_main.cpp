@@ -49,6 +49,15 @@ struct cap_descrip;
 
 // --- START sim query code ---
 
+struct simulator_ctx* caj_local_sim_by_region_handle(struct simgroup_ctx *sgrp,
+						     uint64_t region_handle) {
+  std::map<uint64_t, simulator_ctx*>::iterator iter = 
+    sgrp->sims.find(region_handle);
+  if(iter == sgrp->sims.end())
+    return NULL;
+  else return iter->second;
+}
+
 struct simgroup_ctx* sim_get_simgroup(struct simulator_ctx* sim) {
   return sim->sgrp;
 }
@@ -75,16 +84,20 @@ void sim_get_owner_uuid(struct simulator_ctx *sim, uuid_t u) {
   uuid_copy(u, sim->owner);
 }
 uint16_t sim_get_http_port(struct simulator_ctx *sim) {
-  return sim->http_port;
+  return sim->sgrp->http_port;
 }
 uint16_t sim_get_udp_port(struct simulator_ctx *sim) {
   return sim->udp_port;
 }
-void* sim_get_grid_priv(struct simulator_ctx *sim) {
-  return sim->grid_priv;
+void* caj_get_grid_priv(struct simgroup_ctx *sgrp) {
+  return sgrp->grid_priv;
 }
-void sim_set_grid_priv(struct simulator_ctx *sim, void* p) {
-  sim->grid_priv = p;
+void caj_set_grid_priv(struct simgroup_ctx *sgrp, void* p) {
+  sgrp->grid_priv = p;
+}
+void* sim_get_grid_priv(struct simulator_ctx *sim) {
+  // compatability  - FIXME remove
+  return sim->sgrp->grid_priv;
 }
 void* sim_get_script_priv(struct simulator_ctx *sim) {
   return sim->script_priv;
@@ -114,18 +127,32 @@ gint sim_config_get_integer(struct simulator_ctx *sim, const char* key,
   return g_key_file_get_integer(sim->sgrp->config,sim->cfg_sect,key,error);
 }
 
-
+// legacy code - FIXME remove this
 void sim_queue_soup_message(struct simulator_ctx *sim, SoupMessage* msg,
 			    SoupSessionCallback callback, void* user_data) {
-  soup_session_queue_message(sim->soup_session, msg, callback, user_data);
+  soup_session_queue_message(sim->sgrp->soup_session, msg, callback, user_data);
 }
 
-void sim_http_add_handler (struct simulator_ctx *sim,
+void caj_queue_soup_message(struct simgroup_ctx *sgrp, SoupMessage* msg,
+			    SoupSessionCallback callback, void* user_data) {
+  soup_session_queue_message(sgrp->soup_session, msg, callback, user_data);
+}
+
+
+void caj_http_add_handler (struct simgroup_ctx *sgrp,
 			   const char            *path,
 			   SoupServerCallback     callback,
 			   gpointer               user_data,
 			   GDestroyNotify         destroy) {
-  soup_server_add_handler(sim->soup,path,callback,user_data,destroy);
+  soup_server_add_handler(sgrp->soup,path,callback,user_data,destroy);
+}
+
+void caj_shutdown_hold(struct simgroup_ctx *sgrp) {
+  sgrp->hold_off_shutdown++;
+}
+
+void caj_shutdown_release(struct simgroup_ctx *sgrp) {
+  sgrp->hold_off_shutdown--;
 }
 
 void sim_shutdown_hold(struct simulator_ctx *sim) {
@@ -145,7 +172,7 @@ static GMainLoop *main_loop;
 
 // may want to move this to a thread, but it's reasonably fast since it 
 // doesn't have to do a full decode
-void sim_texture_read_metadata(struct texture_desc *desc) {
+static void sim_texture_read_metadata(struct texture_desc *desc) {
   struct cajeput_j2k info;
   if(cajeput_j2k_info(desc->data, desc->len, &info)) {
     assert(info.num_discard > 0);
@@ -182,7 +209,7 @@ static void save_texture(texture_desc *desc, const char* dirname) {
     }
 }
 
-void sim_texture_finished_load(texture_desc *desc) {
+void caj_texture_finished_load(texture_desc *desc) {
   assert(desc->data != NULL);
   sim_texture_read_metadata(desc);
   save_texture(desc,"tex_cache");
@@ -206,11 +233,11 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
   }
 }
 
-struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id) {
+struct texture_desc *caj_get_texture(struct simgroup_ctx *sgrp, uuid_t asset_id) {
   texture_desc *desc;
   std::map<obj_uuid_t,texture_desc*>::iterator iter =
-    sim->sgrp->textures.find(asset_id);
-  if(iter != sim->sgrp->textures.end()) {
+    sgrp->textures.find(asset_id);
+  if(iter != sgrp->textures.end()) {
     desc = iter->second;
   } else {
     desc = new texture_desc();
@@ -220,14 +247,14 @@ struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id)
     desc->refcnt = 0;
     desc->width = desc->height = desc->num_discard = 0;
     desc->discard_levels = NULL;
-    sim->sgrp->textures[asset_id] = desc;
+    sgrp->textures[asset_id] = desc;
   }
   desc->refcnt++; return desc;
 }
 
 static const char* texture_dirs[] = {"temp_assets","tex_cache",NULL};
 
-void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
+void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc) {
   if(desc->data == NULL && (desc->flags & 
 		     (CJP_TEXTURE_PENDING | CJP_TEXTURE_MISSING)) == 0) {
     char asset_str[40], fname[80]; int fd; 
@@ -269,7 +296,7 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc) {
 
     // No cached copy, have to do a real fetch
     desc->flags |= CJP_TEXTURE_PENDING;
-    sim->gridh.get_texture(sim, desc);
+    sgrp->gridh.get_texture(sgrp, desc);
   }
 }
 
@@ -284,12 +311,12 @@ int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
   return TRUE; // FIXME - need actual permission checks
 }
 
-void sim_asset_finished_load(struct simulator_ctx *sim, 
+void caj_asset_finished_load(struct simgroup_ctx *sgrp, 
 			     struct simple_asset *asset, int success) {
   // FIXME - use something akin to containerof?
   std::map<obj_uuid_t,asset_desc*>::iterator iter =
-    sim->sgrp->assets.find(asset->id);
-  assert(iter != sim->sgrp->assets.end());
+    sgrp->assets.find(asset->id);
+  assert(iter != sgrp->assets.end());
   asset_desc *desc = iter->second;
   assert(desc->status == CAJ_ASSET_PENDING);
   assert(asset == &desc->asset);
@@ -299,19 +326,19 @@ void sim_asset_finished_load(struct simulator_ctx *sim,
 
   for(std::set<asset_cb_desc*>::iterator iter = desc->cbs.begin(); 
       iter != desc->cbs.end(); iter++) {
-    (*iter)->cb(sim->sgrp, (*iter)->cb_priv, success ? &desc->asset : NULL);
+    (*iter)->cb(sgrp, (*iter)->cb_priv, success ? &desc->asset : NULL);
     delete (*iter);
   }
   desc->cbs.clear();
 }
 
-void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
+void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
 		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset), void *cb_priv) {
   asset_desc *desc;
   std::map<obj_uuid_t,asset_desc*>::iterator iter =
-    sim->sgrp->assets.find(asset_id);
-  if(iter != sim->sgrp->assets.end()) {
+    sgrp->assets.find(asset_id);
+  if(iter != sgrp->assets.end()) {
     desc = iter->second;
   } else {
     desc = new asset_desc();
@@ -319,10 +346,10 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
     desc->status = CAJ_ASSET_PENDING;
     desc->asset.name = desc->asset.description = NULL;
     desc->asset.data.data = NULL;
-    sim->sgrp->assets[asset_id] = desc;
+    sgrp->assets[asset_id] = desc;
     
     printf("DEBUG: sending asset request via grid\n");
-    sim->gridh.get_asset(sim, &desc->asset);
+    sgrp->gridh.get_asset(sgrp, &desc->asset);
   }
   
   switch(desc->status) {
@@ -331,9 +358,9 @@ void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
     desc->cbs.insert(new asset_cb_desc(cb, cb_priv));
     break;
   case CAJ_ASSET_READY:
-    cb(sim->sgrp, cb_priv, &desc->asset); break;
+    cb(sgrp, cb_priv, &desc->asset); break;
   case CAJ_ASSET_MISSING:
-    cb(sim->sgrp, cb_priv, NULL); break;
+    cb(sgrp, cb_priv, NULL); break;
   default: assert(0);
   }
 }
@@ -420,7 +447,7 @@ struct cap_descrip* caps_new_capability_named(struct simulator_ctx *ctx,
     desc->cap[len] = '/'; desc->cap[len+1] = 0;
   }
   printf("DEBUG: Adding capability %s\n", desc->cap);
-  ctx->caps[desc->cap] = desc;
+  ctx->sgrp->caps[desc->cap] = desc;
   
   return desc;
 }
@@ -439,7 +466,7 @@ struct cap_descrip* caps_new_capability(struct simulator_ctx *ctx,
 
 void caps_remove(struct cap_descrip* desc) {
   if(desc == NULL) return;
-  desc->sim->caps.erase(desc->cap);
+  desc->sim->sgrp->caps.erase(desc->cap);
   free(desc->cap);
   delete desc;
 }
@@ -456,7 +483,7 @@ char *caps_get_uri(struct cap_descrip* desc) {
   // FIXME - iffy memory handling
   char *uri = (char*)malloc(200);
   sprintf(uri,"http://%s:%i" CAPS_PATH "/%s", desc->sim->ip_addr,
-	  (int)desc->sim->http_port,desc->cap);
+	  (int)desc->sim->sgrp->http_port,desc->cap);
   return uri;
 }
 
@@ -466,13 +493,13 @@ static void caps_handler (SoupServer *server,
 			  GHashTable *query,
 			  SoupClientContext *client,
 			  gpointer user_data) {
-  struct simulator_ctx* ctx = (struct simulator_ctx*) user_data;
+  struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
   printf("Got request: %s %s\n",msg->method, path);
   if(strncmp(path,CAPS_PATH "/",6) == 0) {
     path += 6;
     std::map<std::string,cap_descrip*>::iterator it;
-    it = ctx->caps.find(path);
-    if(it != ctx->caps.end()) {
+    it = sgrp->caps.find(path);
+    if(it != sgrp->caps.end()) {
       struct cap_descrip* desc = it->second;
       soup_message_set_status(msg,500);
       desc->callback(msg, desc->ctx, desc->user_data);
@@ -579,7 +606,7 @@ static void update_script_compiled_cb(void *priv, int success,
 				      const char* output, int output_len) {
   printf("DEBUG: in update_script_compiled_cb\n");
   update_script_desc *upd = (update_script_desc*)priv;
-  soup_server_unpause_message(upd->sim->soup, upd->msg);
+  soup_server_unpause_message(upd->sim->sgrp->soup, upd->msg);
   sim_shutdown_release(upd->sim);
   if(upd->ctx != NULL) {
     caj_llsd *resp; caj_llsd *errors;
@@ -648,7 +675,7 @@ static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_dat
 
   upd->ctx = ctx; user_add_self_pointer(&upd->ctx);
   upd->sim = ctx->sim; sim_shutdown_hold(ctx->sim);
-  upd->msg = msg; soup_server_pause_message(ctx->sim->soup, msg);
+  upd->msg = msg; soup_server_pause_message(ctx->sgrp->soup, msg);
 
   inv = prim_update_script(ctx->sim, prim, upd->item_id, upd->script_running, 
 			   (unsigned char*)msg->request_body->data, 
@@ -736,7 +763,7 @@ static void simstatus_rest_handler (SoupServer *server,
 				GHashTable *query,
 				SoupClientContext *client,
 				gpointer user_data) {
-  /* struct simulator_ctx* sim = (struct simulator_ctx*) user_data; */
+  /* struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data; */
   // For OpenSim grid protocol - should we check actual status somehow?
   soup_message_set_status(msg,200);
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
@@ -747,19 +774,10 @@ static void simstatus_rest_handler (SoupServer *server,
 static volatile int shutting_down = 0;
 
 static void shutdown_sim(simulator_ctx *sim) {
-  soup_session_abort(sim->soup_session);
 
   // FIXME - want to shutdown physics here, really.
-  sim->gridh.cleanup(sim);
-  sim->grid_priv = NULL;
-
   sim_call_shutdown_hook(sim);
 
-  soup_server_quit(sim->soup);
-  g_object_unref(sim->soup);
-
-  soup_session_abort(sim->soup_session); // yes, again!
-  g_object_unref(sim->soup_session);
 
   world_int_dump_prims(sim);
 
@@ -795,11 +813,23 @@ static gboolean shutdown_timer(gpointer data) {
     return TRUE;
   }
 
+  soup_session_abort(sgrp->soup_session);
+
   for(std::map<uint64_t, simulator_ctx*>::iterator iter = sgrp->sims.begin();
       iter != sgrp->sims.end(); iter++) {
     simulator_ctx *sim = iter->second;
     shutdown_sim(sim);
   }
+
+  soup_server_quit(sgrp->soup);
+
+  sgrp->gridh.cleanup(sgrp);
+  sgrp->grid_priv = NULL;
+
+  g_object_unref(sgrp->soup);
+
+  soup_session_abort(sgrp->soup_session); // yes, again!
+  g_object_unref(sgrp->soup_session);
 
   free(sgrp->release_notes);
 
@@ -1097,7 +1127,6 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
 
   // FIXME - better error handling needed
   sim->name = sim_config_get_value(sim,"name",NULL);
-  sim->http_port = sim_config_get_integer(sim,"http_port",NULL);
   sim->udp_port = sim_config_get_integer(sim,"udp_port",NULL);
   sim->region_x = sim_config_get_integer(sim,"region_x",NULL);
   sim->region_y = sim_config_get_integer(sim,"region_y",NULL);
@@ -1109,7 +1138,7 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
   // welcome message is optional
   sim->welcome_message = sim_config_get_value(sim,"welcome_message",NULL);
 
-  if(sim->http_port == 0 || sim->udp_port == 0 || 
+  if(sim->udp_port == 0 || 
      sim->region_x == 0 || sim->region_y == 0 ||
       sim->name == NULL || sim->ip_addr == NULL ||
      sim_uuid == NULL ||
@@ -1131,27 +1160,11 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
 
   sim->world_tree = world_octree_create();
   sim->ctxts = NULL;
-  sim->soup_session = soup_session_async_new();
   //uuid_generate_random(sim->region_secret);
   sim_int_init_udp(sim);
-
-  sim->soup = soup_server_new(SOUP_SERVER_PORT, (int)sim->http_port, NULL);
-  if(sim->soup == NULL) {
-    printf("HTTP server init failed\n"); return;
-  }
-  soup_server_add_handler(sim->soup, CAPS_PATH, caps_handler, 
-			  sim, NULL);
-  soup_server_add_handler(sim->soup, "/simstatus", simstatus_rest_handler, 
-			  sim, NULL);
-  soup_server_run_async(sim->soup);
   
   g_timeout_add(100, av_update_timer, sim);
 
-  memset(&sim->gridh, 0, sizeof(sim->gridh));
-  if(!cajeput_grid_glue_init(CAJEPUT_API_VERSION, sim, 
-			     &sim->grid_priv, &sim->gridh)) {
-    printf("Couldn't init grid glue!\n"); return;
-  }
 
   if(!cajeput_physics_init(CAJEPUT_API_VERSION, sim, 
 			     &sim->phys_priv, &sim->physh)) {
@@ -1168,7 +1181,7 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
 
   sgrp->sims[sim->region_handle] = sim;
 
-  sim->gridh.do_grid_login(sim);
+  sgrp->gridh.do_grid_login(sgrp,sim);
   
 }
 
@@ -1195,6 +1208,11 @@ int main(void) {
     return 1;
   }
 
+  sgrp->http_port = g_key_file_get_integer(sgrp->config, "simgroup","http_port",NULL);
+  if(sgrp->http_port == 0) {
+    printf("ERROR: http port not configured\n"); return 1;
+  }
+
   gsize len;
 
   char **sims = g_key_file_get_string_list(sgrp->config, "simgroup",
@@ -1206,7 +1224,14 @@ int main(void) {
   }
 
   sgrp->timer = g_timer_new();
-
+  sgrp->soup_session = soup_session_async_new();
+  sgrp->soup = soup_server_new(SOUP_SERVER_PORT, (int)sgrp->http_port, NULL);
+  if(sgrp->soup == NULL) {
+    printf("HTTP server init failed\n"); return 1;
+  }
+  
+  
+  
   load_inv_library(sgrp);
 
   sgrp->release_notes = read_text_file("sim-release-notes.html", 
@@ -1214,13 +1239,25 @@ int main(void) {
   if(sgrp->release_notes == NULL) {
     printf("WARNING: Release notes load failed\n"); 
   }
-  
+
+  memset(&sgrp->gridh, 0, sizeof(sgrp->gridh));
+  if(!cajeput_grid_glue_init(CAJEPUT_API_VERSION, sgrp, 
+			     &sgrp->grid_priv, &sgrp->gridh)) {
+    printf("Couldn't init grid glue!\n"); return 1;
+  }
+
   for(unsigned i = 0; i < len; i++) {
     printf("DEBUG: loading sim %s\n", sims[i]);
     load_sim(sgrp, sims[i]);
     
   }
   g_strfreev(sims);
+
+  soup_server_add_handler(sgrp->soup, CAPS_PATH, caps_handler, 
+			  sgrp, NULL);
+  soup_server_add_handler(sgrp->soup, "/simstatus", simstatus_rest_handler, 
+			  sgrp, NULL);
+  soup_server_run_async(sgrp->soup);
 
   g_timeout_add(1000, cleanup_timer, sgrp);
   set_sigint_handler();

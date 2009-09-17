@@ -20,6 +20,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* This is an internal header that should not be used by external modules.
+   (Yes, I know caj_omv_udp.cpp uses it, and that needs fixing.) */
+
 #ifndef CAJEPUT_INT_H
 #define CAJEPUT_INT_H
 #include <string>
@@ -33,6 +36,7 @@
 #include "cajeput_core.h"
 #include "cajeput_world.h"
 #include "cajeput_user.h"
+#include "cajeput_grid_glue.h"
 
 #define USER_CONNECTION_TIMEOUT 15
 
@@ -284,9 +288,18 @@ struct simgroup_ctx {
   int state_flags;
 
   GKeyFile *config;
+
+  SoupServer *soup;
+  SoupSession *soup_session;
+
+  void *grid_priv;
+  struct cajeput_grid_hooks gridh;
   
   int hold_off_shutdown;
 
+  uint16_t http_port;
+
+  std::map<std::string,cap_descrip*> caps;
   std::map<uint64_t, simulator_ctx*> sims;
 };
 
@@ -302,19 +315,13 @@ struct simulator_ctx {
   uint64_t region_handle;
   float *terrain;
   int state_flags;
-  uint16_t http_port, udp_port;
+  uint16_t udp_port;
   char *ip_addr;
   uuid_t region_id, owner;
   std::map<obj_uuid_t,world_obj*> uuid_map;
   std::map<uint32_t,world_obj*> localid_map;
   struct world_octree* world_tree;
-  SoupServer *soup;
-  SoupSession *soup_session;
-
   gchar *welcome_message;
-
-  void *grid_priv;
-  struct cajeput_grid_hooks gridh;
 
   void *phys_priv;
   struct cajeput_physics_hooks physh;
@@ -322,7 +329,6 @@ struct simulator_ctx {
   void *script_priv;
   struct cajeput_script_hooks scripth;
 
-  std::map<std::string,cap_descrip*> caps;
   //struct obj_bucket[8][8][32];
 
   // bunch of callbacks

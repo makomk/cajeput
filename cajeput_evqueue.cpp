@@ -41,7 +41,7 @@ static void event_queue_get_resp(SoupMessage *msg, user_ctx* ctx) {
 
 static void event_queue_do_timeout(user_ctx* ctx) {
   if(ctx->evqueue.msg != NULL) {
-    soup_server_unpause_message(ctx->sim->soup, ctx->evqueue.msg);
+    soup_server_unpause_message(ctx->sgrp->soup, ctx->evqueue.msg);
     soup_message_set_status(ctx->evqueue.msg,502); // FIXME - ????
     ctx->evqueue.msg = NULL;
   }
@@ -53,7 +53,7 @@ void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body) {
   llsd_map_append(event, "body", body);
   llsd_array_append(ctx->evqueue.queued, event);
   if(ctx->evqueue.msg != NULL) {
-    soup_server_unpause_message(ctx->sim->soup, ctx->evqueue.msg);
+    soup_server_unpause_message(ctx->sgrp->soup, ctx->evqueue.msg);
     event_queue_get_resp(ctx->evqueue.msg, ctx);
     ctx->evqueue.msg = NULL;
   }
@@ -94,7 +94,7 @@ static void event_queue_get(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   if(ctx->evqueue.queued->t.arr.count > 0) {
     event_queue_get_resp(msg, ctx);
   } else {
-    soup_server_pause_message(ctx->sim->soup, msg);
+    soup_server_pause_message(ctx->sgrp->soup, msg);
     ctx->evqueue.timeout = g_timer_elapsed(ctx->sgrp->timer, NULL) + 10.0;
     ctx->evqueue.msg = msg;
   }

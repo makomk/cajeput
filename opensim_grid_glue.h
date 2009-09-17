@@ -60,16 +60,17 @@ void user_grid_glue_ref(user_grid_glue *user_glue);
 void user_grid_glue_deref(user_grid_glue *user_glue);
 
 #define GRID_PRIV_DEF(sim) struct grid_glue_ctx* grid = (struct grid_glue_ctx*) sim_get_grid_priv(sim);
+#define GRID_PRIV_DEF_SGRP(sgrp) struct grid_glue_ctx* grid = (struct grid_glue_ctx*) caj_get_grid_priv(sgrp);
 #define USER_PRIV_DEF(priv) struct user_grid_glue* user_glue = (struct user_grid_glue*) (priv);
 #define USER_PRIV_DEF2(user) struct user_grid_glue* user_glue = (struct user_grid_glue*) user_get_grid_priv(user);
 
-void fetch_inventory_folder(simulator_ctx *sim, user_ctx *user,
+void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 			    void *user_priv, uuid_t folder_id,
 			    void(*cb)(struct inventory_contents* inv, 
 				      void* priv),
 			    void *cb_priv);
 
-void fetch_inventory_item(simulator_ctx *sim, user_ctx *user,
+void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			  void *user_priv, uuid_t item_id,
 			  void(*cb)(struct inventory_item* item, 
 				    void* priv),
@@ -83,7 +84,7 @@ void osglue_agent_rest_handler(SoupServer *server,
 			       gpointer user_data);
 
 typedef void(*validate_session_cb)(void* state, int is_ok);
-void osglue_validate_session(struct simulator_ctx* sim, const char* agent_id,
+void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
 			     const char *session_id, grid_glue_ctx* grid,
 			     validate_session_cb callback, void *priv);
 

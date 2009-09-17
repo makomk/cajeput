@@ -6,10 +6,10 @@ grid_sendkey=null
 
 [simgroup]
 sims=example
+http_port=9000
 
 [sim example]
 udp_port=9000
-http_port=9000
 region_x=1000
 region_y=1000
 uuid=01bd2887-e158-443d-ab1a-08ee45053440

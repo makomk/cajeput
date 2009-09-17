@@ -32,7 +32,7 @@
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x0010
+#define CAJEPUT_API_VERSION 0x0011
 
 struct user_ctx;
 struct simulator_ctx;
@@ -53,8 +53,11 @@ void sim_get_region_uuid(struct simulator_ctx *sim, uuid_t u);
 void sim_get_owner_uuid(struct simulator_ctx *sim, uuid_t u);
 uint16_t sim_get_http_port(struct simulator_ctx *sim);
 uint16_t sim_get_udp_port(struct simulator_ctx *sim);
+struct simulator_ctx* caj_local_sim_by_region_handle(struct simgroup_ctx *sgrp,
+						     uint64_t region_handle);
+void* caj_get_grid_priv(struct simgroup_ctx *sgrp);
+void caj_set_grid_priv(struct simgroup_ctx *sgrp, void* p);
 void* sim_get_grid_priv(struct simulator_ctx *sim);
-void sim_set_grid_priv(struct simulator_ctx *sim, void* p);
 void* sim_get_script_priv(struct simulator_ctx *sim);
 void sim_set_script_priv(struct simulator_ctx *sim, void* p);
 float* sim_get_heightfield(struct simulator_ctx *sim);
@@ -70,109 +73,15 @@ gint sim_config_get_integer(struct simulator_ctx *sim, const char* key,
 // Glue code
 void sim_queue_soup_message(struct simulator_ctx *sim, SoupMessage* msg,
 			    SoupSessionCallback callback, void* user_data);
-void sim_http_add_handler (struct simulator_ctx *sim,
+void caj_queue_soup_message(struct simgroup_ctx *sgrp, SoupMessage* msg,
+			    SoupSessionCallback callback, void* user_data);
+void caj_http_add_handler (struct simgroup_ctx *sgrp,
 			   const char            *path,
 			   SoupServerCallback     callback,
 			   gpointer               user_data,
 			   GDestroyNotify         destroy);
 
 // --- END sim query code ---
-
-
-/* ------ CAPS ----- */
-
-
-/* ------ LOGIN GLUE - FOR GRID  --------- */
-struct map_block_info {
-  uint32_t x, y; // larger size for future-proofing
-  char *name;
-  uint8_t access, water_height, num_agents;
-  uint32_t flags;
-  uuid_t map_image;
-  // TODO
-
-  // not used by MapBlockRequest, but kinda handy for other stuff
-  char *sim_ip;
-  int sim_port, http_port;
-  uuid_t region_id;  
-};
-
-  // FIXME - move this out of cajeput_core.h
-struct cajeput_grid_hooks {
-  void(*do_grid_login)(struct simulator_ctx* sim);
-  void(*user_created)(struct simulator_ctx* sim,
-		      struct user_ctx* user,
-		      void **user_priv);
-
-  /* user entered the region */
-  void(*user_entered)(simulator_ctx *sim, user_ctx *user,
-		      void *user_priv);
-
-  /* user is logging off */
-  void(*user_logoff)(struct simulator_ctx* sim,
-		     const uuid_t user_id, const caj_vector3 *pos,
-		     const caj_vector3 *look_at);
-
-  void(*cleanup)(struct simulator_ctx* sim);
-
-  /* user context is being deleted */
-  void(*user_deleted)(struct simulator_ctx* sim,
-		      struct user_ctx* user,
-		      void *user_priv);
-
-  void(*do_teleport)(struct simulator_ctx* sim, struct teleport_desc* tp);
-
-  void(*get_texture)(struct simulator_ctx *sim, struct texture_desc *texture);
-  void(*get_asset)(struct simulator_ctx *sim, struct simple_asset *asset);
-  void(*map_block_request)(struct simulator_ctx *sim, int min_x, int max_x, 
-			   int min_y, int max_y, 
-			   void(*cb)(void *priv, struct map_block_info *blocks, 
-				     int count),
-			   void *cb_priv);
-  void(*map_name_request)(struct simulator_ctx* sim, const char* name,
-			  void(*cb)(void* cb_priv, struct map_block_info* blocks, 
-				    int count),
-			  void *cb_priv);
-
-  // interesting interesting function...
-  void(*fetch_inventory_folder)(simulator_ctx *sim, user_ctx *user,
-				void *user_priv, uuid_t folder_id,
-				void(*cb)(struct inventory_contents* inv, 
-					  void* priv),
-				void *cb_priv);
-  void (*fetch_inventory_item)(simulator_ctx *sim, user_ctx *user,
-			       void *user_priv, uuid_t item_id,
-			       void(*cb)(struct inventory_item* item, 
-					 void* priv),
-			       void *cb_priv);
-
-  void(*uuid_to_name)(struct simulator_ctx *sim, uuid_t id, 
-		      void(*cb)(uuid_t uuid, const char* first, 
-				const char* last, void *priv),
-		      void *cb_priv);
-};
-
-// void do_grid_login(struct simulator_ctx* sim);
-
-int cajeput_grid_glue_init(int api_version, struct simulator_ctx *sim, 
-			   void **priv, struct cajeput_grid_hooks *hooks);
-
-struct sim_new_user {
-  char *first_name;
-  char *last_name;
-  char *seed_cap;
-  uuid_t user_id, session_id, secure_session_id;
-  int circuit_code;
-  int is_child;
-};
-
-// Caller owns the struct and any strings pointed to by it
-struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
-				      struct sim_new_user *uinfo);
-
-// ICK. For use by OpenSim glue code only.
-void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id, 
-			     uuid_t secure_session_id);
 
 
 // ----------------- SIM HOOKS --------------------------
@@ -223,6 +132,8 @@ struct inventory_item {
   void *priv; // used for scripts
 };
 
+void caj_shutdown_hold(struct simgroup_ctx *sgrp);
+void caj_shutdown_release(struct simgroup_ctx *sgrp);
 void sim_shutdown_hold(struct simulator_ctx *sim);
 void sim_shutdown_release(struct simulator_ctx *sim);
 
@@ -242,11 +153,9 @@ struct texture_desc {
 // Note: (a) you assign the UUID, (b) the sim owns and free()s the buffer
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local);
-void sim_texture_finished_load(texture_desc *desc);
-void sim_asset_finished_load(struct simulator_ctx *sim, 
-			     struct simple_asset *asset, int success);
-struct texture_desc *sim_get_texture(struct simulator_ctx *sim, uuid_t asset_id);
-void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
+struct texture_desc *caj_get_texture(struct simgroup_ctx *sgrp, uuid_t asset_id);
+void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc);
+
 
 // these should probably be in their own header, but never mind.
 #define ASSET_TEXTURE 0
@@ -302,9 +211,10 @@ void sim_request_texture(struct simulator_ctx *sim, struct texture_desc *desc);
 #define PERM_MOVE (1 << 19)
 #define PERM_DAMAGE (1 << 20)
 
-void sim_get_asset(struct simulator_ctx *sim, uuid_t asset_id,
+void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
 		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset), void *cb_priv);
+
 #ifdef __cplusplus
 }
 #endif
