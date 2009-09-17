@@ -299,6 +299,7 @@ struct simgroup_ctx {
 
   uint16_t http_port;
 
+  char *ip_addr;
   std::map<std::string,cap_descrip*> caps;
   std::map<uint64_t, simulator_ctx*> sims;
 };
@@ -316,7 +317,6 @@ struct simulator_ctx {
   float *terrain;
   int state_flags;
   uint16_t udp_port;
-  char *ip_addr;
   uuid_t region_id, owner;
   std::map<obj_uuid_t,world_obj*> uuid_map;
   std::map<uint32_t,world_obj*> localid_map;

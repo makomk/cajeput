@@ -75,7 +75,7 @@ char* sim_get_name(struct simulator_ctx *sim) {
   return sim->name;
 }
 char* sim_get_ip_addr(struct simulator_ctx *sim) {
-  return sim->ip_addr;
+  return sim->sgrp->ip_addr;
 }
 void sim_get_region_uuid(struct simulator_ctx *sim, uuid_t u) {
   uuid_copy(u, sim->region_id);
@@ -424,7 +424,7 @@ static gboolean av_update_timer(gpointer data) {
 
 
 struct cap_descrip {
-  struct simulator_ctx *sim;
+  struct simgroup_ctx *sgrp;
   char *cap;
   caps_callback callback;
   user_ctx *ctx;
@@ -432,12 +432,12 @@ struct cap_descrip {
   void *udata_2;
 };
 
-struct cap_descrip* caps_new_capability_named(struct simulator_ctx *ctx,
+struct cap_descrip* caps_new_capability_named(struct simulator_ctx *sim,
 					      caps_callback callback,
 					      user_ctx* user, void *user_data, char* name) {
   int len = strlen(name);
   struct cap_descrip *desc = new cap_descrip();
-  desc->sim = ctx; 
+  desc->sgrp = sim->sgrp; 
   desc->callback = callback;
   desc->ctx = user;
   desc->user_data = user_data;
@@ -447,7 +447,7 @@ struct cap_descrip* caps_new_capability_named(struct simulator_ctx *ctx,
     desc->cap[len] = '/'; desc->cap[len+1] = 0;
   }
   printf("DEBUG: Adding capability %s\n", desc->cap);
-  ctx->sgrp->caps[desc->cap] = desc;
+  sim->sgrp->caps[desc->cap] = desc;
   
   return desc;
 }
@@ -466,7 +466,7 @@ struct cap_descrip* caps_new_capability(struct simulator_ctx *ctx,
 
 void caps_remove(struct cap_descrip* desc) {
   if(desc == NULL) return;
-  desc->sim->sgrp->caps.erase(desc->cap);
+  desc->sgrp->caps.erase(desc->cap);
   free(desc->cap);
   delete desc;
 }
@@ -482,8 +482,8 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 char *caps_get_uri(struct cap_descrip* desc) {
   // FIXME - iffy memory handling
   char *uri = (char*)malloc(200);
-  sprintf(uri,"http://%s:%i" CAPS_PATH "/%s", desc->sim->ip_addr,
-	  (int)desc->sim->sgrp->http_port,desc->cap);
+  sprintf(uri,"http://%s:%i" CAPS_PATH "/%s", desc->sgrp->ip_addr,
+	  (int)desc->sgrp->http_port,desc->cap);
   return uri;
 }
 
@@ -799,7 +799,6 @@ static void shutdown_sim(simulator_ctx *sim) {
   
   world_octree_destroy(sim->world_tree);
   g_free(sim->name);
-  g_free(sim->ip_addr);
   g_free(sim->welcome_message);
   delete[] sim->terrain;
   delete sim;
@@ -857,6 +856,7 @@ static gboolean shutdown_timer(gpointer data) {
     delete desc;
   }
   
+  g_free(sgrp->ip_addr);
   g_timer_destroy(sgrp->timer);
   g_key_file_free(sgrp->config);
   sgrp->config = NULL;
@@ -1133,15 +1133,12 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
   sim->region_handle = (uint64_t)(sim->region_x*256)<<32 | (sim->region_y*256);
   sim_uuid = sim_config_get_value(sim,"uuid",NULL);
   sim_owner = sim_config_get_value(sim,"owner",NULL);
-  sim->ip_addr = sim_config_get_value(sim,"ip_address",NULL);
   
   // welcome message is optional
   sim->welcome_message = sim_config_get_value(sim,"welcome_message",NULL);
 
-  if(sim->udp_port == 0 || 
-     sim->region_x == 0 || sim->region_y == 0 ||
-      sim->name == NULL || sim->ip_addr == NULL ||
-     sim_uuid == NULL ||
+  if(sim->udp_port == 0 || sim->region_x == 0 || sim->region_y == 0 ||
+     sim->name == NULL || sim_uuid == NULL ||
      uuid_parse(sim_uuid,sim->region_id)) {
     // FIXME - cleanup;
     printf("Error: bad config\n"); return;
@@ -1211,6 +1208,11 @@ int main(void) {
   sgrp->http_port = g_key_file_get_integer(sgrp->config, "simgroup","http_port",NULL);
   if(sgrp->http_port == 0) {
     printf("ERROR: http port not configured\n"); return 1;
+  }
+
+  sgrp->ip_addr = g_key_file_get_value(sgrp->config, "simgroup", "ip_address", NULL);
+  if(sgrp->ip_addr == NULL) {
+    printf("ERROR: IP address not configured\n"); return 1;
   }
 
   gsize len;
