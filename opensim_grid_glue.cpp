@@ -82,10 +82,10 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
   // FIXME - check region_locx/y, sim_ip, sim_port
   if(!soup_value_hash_lookup(hash,"user_url",G_TYPE_STRING,
 			     &s)) goto bad_resp;
-  if(grid->userserver != NULL) grid->userserver = g_strdup(s);
+  if(grid->userserver == NULL) grid->userserver = g_strdup(s);
   if(!soup_value_hash_lookup(hash,"asset_url",G_TYPE_STRING,
 			     &s)) goto bad_resp;
-  if(grid->assetserver != NULL) grid->assetserver = g_strdup(s);
+  if(grid->assetserver == NULL) grid->assetserver = g_strdup(s);
 
   //printf("DEBUG: login response ~%s~\n",msg->response_body->data);
   printf("Grid login complete\n");
