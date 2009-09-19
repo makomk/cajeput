@@ -37,6 +37,7 @@ struct simulator_ctx;
 struct obj_chat_listeners;
 
 #define WORLD_HEIGHT 4096
+#define WORLD_REGION_SIZE 256
 
 // internal, intended to be usable as a mask
 #define OBJ_TYPE_PRIM 1
@@ -115,6 +116,52 @@ struct world_obj {
 #define PRIM_FLAG_TEMPORARY 0x40000000
 #define OBJ_UPD_FLAG_ZLIB_COMPRESSED 0x80000000 // ick
 
+  // even more SL constants.
+#define ATTACH_TO_LAST 0 // attach to previous location.
+
+#define ATTACH_CHEST 1
+#define ATTACH_HEAD 2
+#define ATTACH_L_SHOULDER 3
+#define ATTACH_R_SHOULDER 4
+#define ATTACH_L_HAND 5
+#define ATTACH_R_HAND 6
+#define ATTACH_L_FOOT 7
+#define ATTACH_R_FOOT 8
+#define ATTACH_BACK 9 // spine?
+#define ATTACH_PELVIS 10
+#define ATTACH_MOUTH 11
+#define ATTACH_CHIN 12
+#define ATTACH_L_EAR 13
+#define ATTACH_R_EAR 14
+#define ATTACH_L_EYE 15
+#define ATTACH_R_EYE 16
+#define ATTACH_NOSE 17
+#define ATTACH_R_UPPER_ARM 18 // is this right way around?
+#define ATTACH_R_LOWER_ARM 19
+#define ATTACH_L_UPPER_ARM 20
+#define ATTACH_L_LOWER_ARM 21
+#define ATTACH_R_HIP 22
+#define ATTACH_R_UPPER_LEG 23
+#define ATTACH_R_LOWER_LEG 24
+#define ATTACH_L_HIP 25
+#define ATTACH_L_UPPER_LEG 26
+#define ATTACH_L_LOWER_LEG 27
+#define ATTACH_BELLY 28
+#define ATTACH_R_PEC 29 // FIXME - may be backwards
+#define ATTACH_L_PEC 30
+
+#define FIRST_HUD_ATTACH_POINT 31
+#define ATTACH_HUD_CENTER_2 31
+#define ATTACH_HUD_TOP_RIGHT 32
+#define ATTACH_HUD_TOP_CENTER 33
+#define ATTACH_HUD_TOP_LEFT 34
+#define ATTACH_HUD_CENTER_1 35
+#define ATTACH_HUD_BOTTOM_LEFT 36
+#define ATTACH_HUD_BOTTOM 37
+#define ATTACH_HUD_BOTTOM_RIGHT 38
+
+#define NUM_ATTACH_POINTS 39
+
 // WARNING! If you change this structure, you must fix both the dump/restore
 // code in cajeput_dump.cpp and world_begin_new_prim/world_delete_prim in 
 // cajeput_main.cpp. Oh, and bump the ABI revision in cajeput_core.h.
@@ -130,8 +177,10 @@ struct primitive_obj {
   int8_t path_taper_x, path_taper_y;
   uint8_t path_revolutions; // slightly oddball one, this.
   int8_t path_skew;
+  uint8_t attach_point; // may be set for non-attachments
   uint16_t profile_begin, profile_end, profile_hollow;
   uuid_t creator, owner;
+  uuid_t inv_item_id;
   permission_flags perms;
   int32_t sale_price;
   uint32_t flags; // PRIM_FLAG_*
@@ -216,11 +265,13 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
 			   const caj_vector4 *footfall);
 
-// FIXME - should these be internal?
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
-void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob);
+
+void world_add_attachment(struct simulator_ctx *sim, struct avatar_obj *av, 
+			  struct primitive_obj *prim, uint8_t attach_point);
 
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim);
+void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av);
 
 // Should only be used for prims that haven't been added to the world.
 // Otherwise, use world_delete_prim which frees the prim too. Also, doesn't 

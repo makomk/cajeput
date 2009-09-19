@@ -36,7 +36,7 @@ static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 #define OCTREE_DEPTH 6
 #define OCTREE_WIDTH (1<<OCTREE_DEPTH)
 
-#if (OCTREE_WIDTH*OCTREE_HORIZ_SCALE) != 256
+#if (OCTREE_WIDTH*OCTREE_HORIZ_SCALE) != WORLD_REGION_SIZE
 #error World octree has bad horizontal size
 #endif
 
@@ -275,7 +275,7 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat) {
 
 // ---- END of octree code ---
 
-// FIXME - will need modifying to handle attachments
+// FIXME - this actually isn't quite what we want.
 static void object_compute_global_pos(struct world_obj *ob, caj_vector3 *pos_out) {
   if(ob->parent == NULL) {
     *pos_out = ob->local_pos;
@@ -284,7 +284,7 @@ static void object_compute_global_pos(struct world_obj *ob, caj_vector3 *pos_out
     caj_mult_vect3_quat(&offset, &ob->parent->rot, &ob->local_pos);
     *pos_out = ob->parent->world_pos + offset;
   } else {
-    // FIXME?
+    // probably an attachment.
     *pos_out = ob->parent->world_pos;
   }
 }
@@ -329,6 +329,33 @@ void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
   octree_add_chat(leaf, channel, ob->chat);
 }
 
+void world_add_attachment(struct simulator_ctx *sim, struct avatar_obj *av, 
+			  struct primitive_obj *prim, uint8_t attach_point) {
+  assert(attach_point < NUM_ATTACH_POINTS && attach_point != ATTACH_TO_LAST);
+
+  prim->attach_point = attach_point;
+
+  world_obj *ob = &prim->ob;
+  ob->parent = &av->ob;
+  sim->uuid_map.insert(std::pair<obj_uuid_t,world_obj*>(obj_uuid_t(ob->id),ob));
+  ob->local_id = (uint32_t)random();
+  object_compute_global_pos(ob, &ob->world_pos);
+  //FIXME - generate local ID properly.
+  sim->localid_map.insert(std::pair<uint32_t,world_obj*>(ob->local_id,ob));
+  
+  for(int i = 0; i < prim->num_children; i++) {
+    world_insert_obj(sim, &prim->children[i]->ob);
+  }
+
+  // FIXME - save old attachment back to inventory
+  if(av->attachments[attach_point] != NULL)
+    world_delete_prim(sim, av->attachments[attach_point]);
+  av->attachments[attach_point] = prim;
+
+  world_mark_object_updated(sim, &av->ob, CAJ_OBJUPD_CHILDREN);
+  world_mark_object_updated(sim, ob, CAJ_OBJUPD_CREATED);
+}
+
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   sim->uuid_map.insert(std::pair<obj_uuid_t,world_obj*>(obj_uuid_t(ob->id),ob));
   ob->local_id = (uint32_t)random();
@@ -347,7 +374,7 @@ void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   world_mark_object_updated(sim, ob, CAJ_OBJUPD_CREATED);
 }
 
-void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
+static void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   sim->localid_map.erase(ob->local_id);
   world_octree_delete(sim->world_tree, ob);
   sim->physh.del_object(sim,sim->phys_priv,ob);
@@ -391,7 +418,8 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->perms.next = prim->perms.current = prim->perms.base = 0x7fffffff;
   prim->perms.group = prim->perms.everyone = 0;
   prim->flags = 0; prim->caj_flags = 0; prim->ob.phys = NULL;
-  
+  prim->attach_point = 0;
+
   prim->ob.parent = NULL; prim->children = NULL;
   prim->num_children = 0;
 
@@ -437,6 +465,16 @@ void world_free_prim(struct primitive_obj *prim) {
   free(prim->inv.items); free(prim->children); delete prim;
 }
 
+void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av) {
+  world_remove_obj(sim, &av->ob);
+
+  for(int i = 0; i < NUM_ATTACH_POINTS; i++) {
+    if(av->attachments[i] != NULL)
+      world_delete_prim(sim, av->attachments[i]);
+  }
+  free(av);
+}
+
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   world_remove_obj(sim, &prim->ob);
 
@@ -448,14 +486,22 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   }
 
   if(prim->ob.parent != NULL) {
-    assert(prim->ob.parent->type == OBJ_TYPE_PRIM); // FIXME
-    primitive_obj *parent = (primitive_obj*) prim->ob.parent;
-    for(int i = 0; i < parent->num_children; i++) {
-      if(parent->children[i] == prim) {
-	parent->num_children--;
-	for( ; i < parent->num_children; i++)
-	  parent->children[i] = parent->children[i+1];
+    assert(prim->ob.parent->type == OBJ_TYPE_PRIM || 
+	   prim->ob.parent->type == OBJ_TYPE_AVATAR); // FIXME?
+    if(prim->ob.parent->type == OBJ_TYPE_PRIM) {
+      primitive_obj *parent = (primitive_obj*) prim->ob.parent;
+      for(int i = 0; i < parent->num_children; i++) {
+	if(parent->children[i] == prim) {
+	  parent->num_children--;
+	  for( ; i < parent->num_children; i++)
+	    parent->children[i] = parent->children[i+1];
+	}
       }
+    } else if(prim->ob.parent->type == OBJ_TYPE_AVATAR) {
+      avatar_obj *av = (avatar_obj*) prim->ob.parent;
+      assert(prim->attach_point != 0 && prim->attach_point < NUM_ATTACH_POINTS);
+      assert(av->attachments[prim->attach_point] == prim);
+      av->attachments[prim->attach_point] = NULL;
     }
   }
 

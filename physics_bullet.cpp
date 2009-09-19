@@ -1001,7 +1001,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   phys->collisionConfiguration = new btDefaultCollisionConfiguration();
   phys->dispatcher = new btCollisionDispatcher(phys->collisionConfiguration);
   btVector3 worldMin(0,0,0);
-  btVector3 worldMax(256,WORLD_HEIGHT,256);
+  btVector3 worldMax(WORLD_REGION_SIZE,WORLD_HEIGHT,WORLD_REGION_SIZE);
 
   phys->overlappingPairCache = new bt32BitAxisSweep3(worldMin,worldMax,MAX_OBJECTS);
 
@@ -1017,14 +1017,18 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   float *heightfield = sim_get_heightfield(sim);
   // WARNING: note that this does *NOT* make its own copy of the heightfield
   // FIXME - this limits max terrain height to 100 metres
-  phys->ground_shape = new btHeightfieldTerrainShape(256, 256, heightfield,
+  phys->ground_shape = new btHeightfieldTerrainShape(WORLD_REGION_SIZE, 
+						     WORLD_REGION_SIZE, 
+						     heightfield,
 						     0, 0.0f, 100.0f, 1,
 						     PHY_FLOAT, 0);
   // scaling is a HACK to avoid a "falling off the edge of the world" bug
   phys->ground_shape->setLocalScaling(btVector3(1.004,1,1.004)); 
   btTransform ground_transform;
   ground_transform.setIdentity();
-  ground_transform.setOrigin(btVector3(128,50,128));
+  ground_transform.setOrigin(btVector3(WORLD_REGION_SIZE/2.0f, 50,
+				       WORLD_REGION_SIZE/2.0f
+));
   
   btDefaultMotionState* motion = new btDefaultMotionState(ground_transform);
   btRigidBody::btRigidBodyConstructionInfo body_info(0.0,motion,phys->ground_shape,btVector3(0,0,0));
@@ -1035,9 +1039,9 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
   // Sim edges - will need to selectively remove when region
   // crossing is added
   phys->plane_0x = add_sim_boundary(phys,1.0f,0.0f,0.0f);
-  phys->plane_1x = add_sim_boundary(phys,-1.0f,0.0f,-256.0f);
+  phys->plane_1x = add_sim_boundary(phys,-1.0f,0.0f,-WORLD_REGION_SIZE);
   phys->plane_0y = add_sim_boundary(phys,0.0f,1.0f,0.0f);
-  phys->plane_1y = add_sim_boundary(phys,0.0f,-1.0f,-256.0f);
+  phys->plane_1y = add_sim_boundary(phys,0.0f,-1.0f,-WORLD_REGION_SIZE);
   // TODO - add ceiling
 
   phys->shutdown = 0;

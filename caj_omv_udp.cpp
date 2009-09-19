@@ -708,7 +708,9 @@ static void handle_FetchInventory_msg(struct omuser_ctx* lctx, struct sl_message
      SL_DECLBLK_ONLY(FetchInventory, InventoryData, inv) =
       SL_GETBLKI(FetchInventory, InventoryData, msg, i);
 
-    printf("DEBUG: Got FetchInventory, sending to inventory server!\n");
+     char buf[40]; uuid_unparse(inv->ItemID, buf);
+     printf("DEBUG: Got FetchInventory for %s, sending to inventory server!\n",
+	    buf);
   
     // FIXME - what do we do with InventoryData.OwnerID?
   
@@ -1851,9 +1853,49 @@ static void handle_RezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg
   if(ad == NULL || rezd == NULL || invd == NULL || VALIDATE_SESSION(ad))
     return;
 
+  // FIXME - do something with GroupMask/EveryoneMask/NextOwnerMask
+  // FIXME - do what with ItemFlags and RemoveItem?
+  // FIXME - bunch of other stuff
+
   user_rez_object(lctx->u, rezd->FromTaskID, invd->ItemID, rezd->RayEnd);
 
   sl_dump_packet(msg);
+}
+
+static void handle_RezSingleAttachmentFromInv_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RezSingleAttachmentFromInv, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RezSingleAttachmentFromInv, ObjectData, objd, msg);
+  if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  sl_dump_packet(msg);
+
+  // FIXME - do something with GroupMask/EveryoneMask/NextOwnerMask
+  // FIXME - do what with Name and Description?
+
+  user_rez_attachment(lctx->u, objd->ItemID, objd->AttachmentPt);
+}
+
+static void handle_ObjectDetach_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectDetach, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  int count = SL_GETBLK(ObjectDetach, ObjectData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectDetach, ObjectData, objd) =
+      SL_GETBLKI(ObjectDetach, ObjectData, msg, i);
+
+    struct world_obj* obj = world_object_by_localid(lctx->u->sim, 
+						    objd->ObjectLocalID);
+    if(obj == NULL || obj->type != OBJ_TYPE_PRIM)  {
+      printf("WARNING: bogus ObjectDetach\n");
+      return;
+    }
+    user_remove_attachment(lctx->u, (primitive_obj*)obj);
+  }
+  
 }
 
 static void uuid_name_resp(uuid_t uuid, const char* first, const char* last,
@@ -2480,6 +2522,14 @@ static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
 static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   if(obj->type != OBJ_TYPE_PRIM) return;
   primitive_obj *prim = (primitive_obj*)obj;
+
+  if(prim->attach_point >= FIRST_HUD_ATTACH_POINT &&
+     uuid_compare(prim->owner, lctx->u->user_id) != 0) {
+    printf("DEBUG: skipping %i, someone else's HUD attachment\n",
+	   obj->local_id);
+    return;
+  }
+
   unsigned char obj_data[60];
   SL_DECLMSG(ObjectUpdate,upd);
   SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
@@ -2488,7 +2538,10 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
 
   SL_DECLBLK(ObjectUpdate,ObjectData,objd,&upd);
   objd->ID = prim->ob.local_id;
-  objd->State = 0;
+  if(prim->attach_point == 0) 
+    objd->State = 0;
+  else // welcome to the Second Life protocol(!)
+    objd->State = ((prim->attach_point & 0xf) << 4) | ((prim->attach_point >> 4) & 0xf);
 
   uuid_copy(objd->FullID, prim->ob.id);
   objd->CRC = 0; // FIXME - need this for caching
@@ -2540,13 +2593,29 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   memset(objd->Sound,0,16);
   objd->Gain = 0.0f; objd->Flags = 0; objd->Radius = 0.0f; // sound-related
 
-  objd->NameValue.len = 0;
+  if(prim->attach_point != 0 &&
+     uuid_compare(prim->owner, lctx->u->user_id) == 0) {
+    char *s = (char*)malloc(26+36+1);
+    strcpy(s, "AttachItemID STRING RW SV ");
+    uuid_unparse(prim->inv_item_id, s+26);
+    caj_string_set(&objd->NameValue, s);
+  } else objd->NameValue.len = 0;
 
   upd.flags |= MSG_RELIABLE;
   sl_send_udp_throt(lctx, &upd, SL_THROTTLE_TASK);
 }
 
 static void obj_send_terse_upd(omuser_ctx* lctx, world_obj* obj) {
+  if(obj->type == OBJ_TYPE_PRIM) {
+    primitive_obj* prim = (primitive_obj*)obj;
+    if(prim->attach_point >= FIRST_HUD_ATTACH_POINT &&
+       uuid_compare(prim->owner, lctx->u->user_id) == 0) {
+      printf("DEBUG: skipping %i, someone else's HUD attachment\n",
+	     obj->local_id);
+      return;
+    }
+  }
+
   unsigned char dat[0x2C];
   SL_DECLMSG(ImprovedTerseObjectUpdate,terse);
   SL_DECLBLK(ImprovedTerseObjectUpdate,RegionData,rd,&terse);
@@ -2917,6 +2986,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(RezObject);
   ADD_HANDLER(FetchInventory);
   ADD_HANDLER(ObjectLink);
+  ADD_HANDLER(RezSingleAttachmentFromInv);
+  ADD_HANDLER(ObjectDetach);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

@@ -598,13 +598,13 @@ void user_remove_int(user_ctx **user) {
   user_ctx* ctx = *user;
   simgroup_ctx *sgrp = ctx->sgrp;
   if(ctx->av != NULL) {
-    world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       // FIXME - should set look_at correctly
       sgrp->gridh.user_logoff(sgrp, ctx->sim, ctx->user_id,
 			      &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
-    free(ctx->av); ctx->av = NULL;
+    world_delete_avatar(ctx->sim, ctx->av);
+    ctx->av = NULL;
   }
 
   printf("Removing user %s %s\n", ctx->first_name, ctx->last_name);
@@ -653,12 +653,12 @@ void user_remove_int(user_ctx **user) {
 void user_session_close(user_ctx* ctx, int slowly) {
   if(ctx->av != NULL) {
     // FIXME - code duplication
-    world_remove_obj(ctx->sim, &ctx->av->ob);
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       ctx->sgrp->gridh.user_logoff(ctx->sgrp, ctx->sim, ctx->user_id,
 			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
-    free(ctx->av); ctx->av = NULL;
+    world_delete_avatar(ctx->sim, ctx->av);
+    ctx->av = NULL;
   }
   if(slowly) {
     ctx->flags |= AGENT_FLAG_IN_SLOW_REMOVAL;
@@ -683,8 +683,16 @@ void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id,
 
 struct rez_object_desc {
   user_ctx* ctx;
+  uuid_t inv_item_id;
   caj_vector3 pos;
   permission_flags perms;
+  uint8_t is_attachment, attach_point;
+  char *name, *description;
+  
+  rez_object_desc() : name(NULL), description(NULL) { }
+  ~rez_object_desc() {
+    free(name); free(description);
+  }
 };
 
 #include "opensim_xml_glue.h"
@@ -1012,6 +1020,9 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
   } else if(asset == NULL) {
     user_send_message(desc->ctx, "ERROR: missing asset trying to rez object");
     user_del_self_pointer(&desc->ctx); delete desc;
+  } else if(desc->ctx->av == NULL) {
+    user_send_message(desc->ctx, "ERROR: you must have an avatar to attach something");
+    user_del_self_pointer(&desc->ctx); delete desc;
   } else {
     char buf[asset->data.len+1];
     memcpy(buf, asset->data.data, asset->data.len);
@@ -1019,10 +1030,25 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
     printf("DEBUG: Got object asset data: ~%s~\n", buf);
     primitive_obj *prim = prim_from_os_xml(&asset->data);
     if(prim != NULL) {
-      prim->ob.local_pos = desc->pos;
       uuid_copy(prim->owner, desc->ctx->user_id);
+      uuid_copy(prim->inv_item_id, desc->inv_item_id);
       prim->perms = desc->perms; // FIXME - incorporate info from asset?
-      world_insert_obj(desc->ctx->sim, &prim->ob);
+
+      free(prim->name); free(prim->description);
+      prim->name = desc->name; desc->name = NULL;
+      prim->description = desc->description; desc->description = NULL;
+
+      if(desc->is_attachment) {
+	if(desc->attach_point == ATTACH_TO_LAST) {
+	  if(prim->attach_point <= 0 || prim->attach_point >= NUM_ATTACH_POINTS)
+	    desc->attach_point = ATTACH_L_HAND;
+	  else desc->attach_point = prim->attach_point;
+	}
+	world_add_attachment(desc->ctx->sim, desc->ctx->av, prim, desc->attach_point);
+      } else {
+	world_insert_obj(desc->ctx->sim, &prim->ob);
+	prim->ob.local_pos = desc->pos;
+      }
     }
     user_del_self_pointer(&desc->ctx); delete desc;
   }
@@ -1035,15 +1061,17 @@ static void rez_obj_inv_callback(struct inventory_item* item, void* priv) {
   } else if(item == NULL) {
     user_del_self_pointer(&desc->ctx); delete desc;
   } else if(item->asset_type != ASSET_OBJECT) {
-    user_send_message(desc->ctx, "ERROR: RezObject on an inventory item that's not an object");
+    user_send_message(desc->ctx, "ERROR: RezObject or similar on an inventory item that's not an object");
     user_del_self_pointer(&desc->ctx); delete desc;
   } else if((item->perms.current & PERM_COPY) == 0) {
     // FIXME - what if the user isn't the inventory owner?
-    user_send_message(desc->ctx, "FIXME - we don't support rezing no-copy inventory");
+    user_send_message(desc->ctx, "FIXME - we don't support rezzing no-copy inventory");
     user_del_self_pointer(&desc->ctx); delete desc;
   } else {
     // FIXME - what if the user isn't the inventory owner? Perms would be wrong
     desc->perms = item->perms;
+    desc->name = strdup(item->name);
+    desc->description = strdup(item->description);
     caj_get_asset(desc->ctx->sgrp, item->asset_id, rez_obj_asset_callback, desc);
   }
 }
@@ -1052,6 +1080,8 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector
   if(uuid_is_null(from_prim)) {
     rez_object_desc *desc = new rez_object_desc();
     desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
+    uuid_copy(desc->inv_item_id, item_id); // FIXME - don't do this from library!
+    desc->is_attachment = FALSE;
     desc->pos = pos; // FIXME - do proper raycast
     user_fetch_inventory_item(ctx, item_id,
 			      rez_obj_inv_callback, desc);
@@ -1059,4 +1089,27 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector
     // FIXME - ????
   }
 
+}
+
+
+void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point) {
+  if(attach_point >= NUM_ATTACH_POINTS) {
+    user_send_message(ctx, "ERROR: Bad attachment point");
+  }
+
+  rez_object_desc *desc = new rez_object_desc();
+  desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
+  uuid_copy(desc->inv_item_id, item_id);
+  desc->is_attachment = TRUE; desc->attach_point = attach_point;
+  user_fetch_inventory_item(ctx, item_id,
+			    rez_obj_inv_callback, desc);
+}
+
+void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim) {
+  if(ctx->av == NULL || prim->ob.parent != &ctx->av->ob) {
+    printf("WARNING: attempt to detach non-attachment\n"); return;
+  }
+
+  // FIXME - save the attachment back to inventory.
+  world_delete_prim(ctx->sim, prim);
 }

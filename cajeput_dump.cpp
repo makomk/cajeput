@@ -624,14 +624,16 @@ static void revivify_prim_real(primitive_obj *prim,
     prim->inv.num_items = prim->inv.alloc_items = 0;
     prim->inv.items = NULL; prim->inv.serial = 0;
   case 2:
-    // FIXME - save these
     prim->sit_name = strdup(""); prim->touch_name = strdup("");
     prim->creation_date = 0;
     caj_string_set_bin(&prim->extra_params, (const unsigned char*)"", 1); 
     prim->num_children = 0;
     prim->caj_flags = 0;
   case 3:
+    // FIXME - save these
+    prim->attach_point = 0;
   default:
+    uuid_clear(prim->inv_item_id); // deliberately not saved
     prim->ob.parent = NULL; 
     prim->ob.phys = NULL; prim->ob.chat = NULL;
     prim->crc_counter = 0; 
