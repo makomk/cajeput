@@ -91,4 +91,7 @@ void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
 void osglue_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
 				os_teleport_desc *tp_priv);
 void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason);
+
+void osglue_get_texture(struct simgroup_ctx *sgrp, struct texture_desc *texture);
+void osglue_get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset);
 #endif
