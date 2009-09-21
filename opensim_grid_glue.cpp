@@ -115,7 +115,7 @@ static void do_grid_login(struct simgroup_ctx *sgrp,
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
   soup_value_hash_insert(hash,"recvkey",G_TYPE_STRING,grid->grid_recvkey);
-  soup_value_hash_insert(hash,"major_interface_version",G_TYPE_STRING,"5");
+  soup_value_hash_insert(hash,"major_interface_version",G_TYPE_STRING,"6");
   soup_value_hash_insert(hash,"maturity",G_TYPE_STRING,"1");
   uuid_unparse(zero_uuid, buf);
   soup_value_hash_insert(hash,"map-image-id",G_TYPE_STRING,buf);
