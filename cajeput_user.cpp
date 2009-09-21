@@ -982,6 +982,8 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
   if(!check_node(node, "RootPart")) goto free_fail;
   prim = prim_from_os_xml_part(doc, node->children, FALSE);
 
+  if(prim == NULL) goto free_fail;
+
   node = node->next;
   if(!check_node(node, "OtherParts")) goto free_fail;
   prim->num_children = 0;
