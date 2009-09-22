@@ -299,6 +299,9 @@ struct inventory_folder* caj_inv_make_folder(uuid_t parent_id, uuid_t folder_id,
 					     int8_t asset_type);
   void caj_inv_free_folder(struct inventory_folder* folder);
 
+void caj_inv_copy_item(struct inventory_item *dest,
+		       const struct inventory_item *src);
+
 #ifdef __cplusplus
 }
 #endif

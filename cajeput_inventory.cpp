@@ -126,6 +126,15 @@ struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv,
   return item;
 }
 
+void caj_inv_copy_item(struct inventory_item *dest,
+		       const struct inventory_item *src) {
+  *dest = *src;
+  dest->name = strdup(src->name);
+  dest->description = strdup(src->description);
+  dest->creator_id = strdup(src->creator_id);
+}
+
+
 uint32_t caj_calc_inventory_crc(struct inventory_item* item) {
   return 0; // FIXME
   // The gory details of how this should work are already implemented in 

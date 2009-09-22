@@ -1140,7 +1140,7 @@ static void rez_object_set_perms(primitive_obj *prim,
   if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_EVERYONE_PERMS))
     prim->perms.everyone = desc->inv_perms.everyone;
 
-  // finally, apply the new base perms
+  // Finally, apply the new base perms
   caj_sanitise_perms(&prim->perms);
 
   // and now we do the same with the child prims. FIXME - not quite right.

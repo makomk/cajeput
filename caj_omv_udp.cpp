@@ -1480,8 +1480,7 @@ static void  handle_DeRezObject_msg(struct omuser_ctx* lctx, struct sl_message* 
     if(obj == NULL) {
       printf("ERROR: attempt to delete non-existent object\n");
       continue;
-    } else if(!user_can_modify_object(lctx->u, obj)) {
-      // FIXME - this check isn't quite right
+    } else if(!user_can_delete_object(lctx->u, obj)) {
       printf("ERROR: attempt to delete non-permitted object\n");
       continue; // FIXME - send error to originating client.
     } else if(obj->type != OBJ_TYPE_PRIM) {
@@ -1972,8 +1971,28 @@ static void handle_UpdateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_me
 
   int count = SL_GETBLK(UpdateInventoryItem,InventoryData,msg).count;
   for(int i = 0; i < count; i++) {
-    SL_DECLBLK_ONLY(UpdateInventoryItem,InventoryData,req) =
+    SL_DECLBLK_ONLY(UpdateInventoryItem,InventoryData,invd) =
       SL_GETBLKI(UpdateInventoryItem,InventoryData,msg,i);
+
+    inventory_item inv;
+    uuid_copy(inv.item_id, invd->ItemID);
+    uuid_copy(inv.folder_id, invd->FolderID);
+    // FIXME - do something with CallbackID
+    // we don't bother using CreatorID/OwnerID - FIXME?
+    uuid_copy(inv.group_id, invd->GroupID);
+    inv.perms.base = invd->BaseMask;
+    inv.perms.current = invd->OwnerMask;
+    inv.perms.group = invd->GroupMask;
+    inv.perms.everyone = invd->EveryoneMask;
+    inv.perms.next = invd->NextOwnerMask;
+    inv.group_owned = invd->GroupOwned;
+    // we don't use Type/InvType either.
+    inv.flags = invd->Flags;
+    inv.sale_type = invd->SaleType;
+    inv.sale_price = invd->SalePrice;
+    inv.name = (char*)invd->Name.data;
+    inv.description = (char*)invd->Description.data;
+    // the creation date and CRC also aren't used.
   }
 }
 

@@ -874,6 +874,14 @@ int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj) {
   return (user_calc_prim_perms(ctx,(primitive_obj*)obj) & PERM_MODIFY) != 0;
 }
 
+int user_can_delete_object(struct user_ctx* ctx, struct world_obj *obj) {
+  if(obj->type != OBJ_TYPE_PRIM) return false;
+  // FIXME - probably not quite right
+  // FIXME - handle locked objects here?
+  return uuid_compare(((primitive_obj*)obj)->owner, ctx->user_id) == 0;
+}
+
+
 int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim) {
   uint32_t perms = user_calc_prim_perms(ctx, prim);
   // FIXME - should allow other people to copy prims too
