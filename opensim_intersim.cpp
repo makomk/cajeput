@@ -674,7 +674,7 @@ int helper_parse_json_resp(JsonParser *parser, const char* data, gsize len, cons
   JsonNode *node = json_parser_get_root(parser); // reused later
   JsonObject *object; int success;
 
-  if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
+  if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
     printf("parse json resp: Root JSON node not object?!\n");
     *reason_out = "[LOCAL] bad json response";
     return false;
@@ -893,7 +893,7 @@ static void do_teleport_send_agent_resp(SoupSession *session, SoupMessage *msg, 
     // FIXME - the OpenSim code seems to think this should send a reason...
     osglue_teleport_failed(tp_priv, "Error. Destination not accepting teleports?");
   } else {
-    printf("DEBUG: Got agent POST response: ~%s~", msg->response_body->data);
+    printf("DEBUG: Got agent POST response: ~%s~\n", msg->response_body->data);
     JsonParser *parser = json_parser_new();
     const char *reason = "[NO REASON - FIXME!]";
     int success = helper_parse_json_resp(parser, msg->response_body->data,
