@@ -568,7 +568,9 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->circuit_code = uinfo->circuit_code;
   ctx->tp_out = NULL;
 
+  ctx->texture_entry.len = 0;
   ctx->texture_entry.data = NULL;
+  ctx->visual_params.len = 0;
   ctx->visual_params.data = NULL;
   ctx->appearance_serial = ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
@@ -763,7 +765,8 @@ struct rez_object_desc {
   user_ctx* ctx;
   uuid_t inv_item_id;
   caj_vector3 pos;
-  permission_flags perms;
+  permission_flags inv_perms;
+  uint32_t inv_flags;
   uint8_t is_attachment, attach_point;
   char *name, *description;
   
@@ -834,6 +837,8 @@ struct os_object_part {
   int creation_date; // should be uint32_t or long, I think.
   int category, sale_price, sale_type, ownership_cost;
   uuid_t group_id, owner_id, last_owner_id;
+  int base_perms, current_perms, group_perms;
+  int everyone_perms, next_perms;
 };
 
 
@@ -954,7 +959,11 @@ static xml_serialisation_desc deserialise_object_part[] = {
   { "OwnerID", XML_STYPE_UUID, offsetof(os_object_part, owner_id) },
   { "LastOwnerID", XML_STYPE_UUID, offsetof(os_object_part, last_owner_id) },
 
-  // TODO - unpack the permission flags.
+  { "BaseMask", XML_STYPE_INT, offsetof(os_object_part, base_perms) },
+  { "OwnerMask", XML_STYPE_INT, offsetof(os_object_part, current_perms) },
+  { "GroupMask", XML_STYPE_INT, offsetof(os_object_part, group_perms) },
+  { "EveryoneMask", XML_STYPE_INT, offsetof(os_object_part, everyone_perms) },
+  { "NextOwnerMask", XML_STYPE_INT, offsetof(os_object_part, next_perms) },
   
   { NULL }
 };
@@ -1026,6 +1035,12 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node, int 
   prim->ob.scale = objpart.shape.scale;
   // FIXME - do something with objpart.shape.state?
   // handle ProfileShape and HollowShape? They duplicate ProfileCurve
+
+  prim->perms.base = objpart.base_perms;
+  prim->perms.current = objpart.current_perms;
+  prim->perms.group = objpart.group_perms;
+  prim->perms.everyone = objpart.everyone_perms;
+  prim->perms.next = objpart.next_perms;
   
   prim->creation_date = objpart.creation_date;
   // prim->category = objpart.category;
@@ -1093,6 +1108,52 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
   xmlFreeDoc(doc); return NULL;
 }
 
+// yes, this is messy enough that it gets its own function...
+// and it's still not quite correct. FIXME!
+// In particular, handling of linksets isn't sane!
+static void rez_object_set_perms(primitive_obj *prim,
+				 rez_object_desc *desc) {
+  // OK, first we do permission propagation on owner change.
+  // We don't want to do this after applying the inventory permissions,
+  // because the new owner may have edited the next owner perms.
+  // This relies on various code in OpenSim behaving itself and updating 
+  // inventory permissions, which it doesn't seem to - FIXME!
+  if(uuid_compare(prim->owner, desc->ctx->user_id) != 0) {
+    prim->perms.base &= prim->perms.next;
+  }
+  uuid_copy(prim->owner, desc->ctx->user_id);
+
+  // Now we apply the inventory permissions, based on the flags set.
+  // Base perms are ANDed, the rest are just plain set
+  if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_BASE_PERMS))
+    prim->perms.base &= desc->inv_perms.base;
+  
+  if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_CURRENT_PERMS))
+    prim->perms.current = desc->inv_perms.current;
+  
+  if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_NEXT_PERMS))
+    prim->perms.next = desc->inv_perms.next;
+
+  if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_GROUP_PERMS))
+    prim->perms.group = desc->inv_perms.group;
+
+  if(desc->inv_flags & (INV_OBJECT_SET_PERMS|INV_OBJECT_SET_EVERYONE_PERMS))
+    prim->perms.everyone = desc->inv_perms.everyone;
+
+  // finally, apply the new base perms
+  caj_sanitise_perms(&prim->perms);
+
+  // and now we do the same with the child prims. FIXME - not quite right.
+  for(int i = 0; i < prim->num_children; i++)
+    rez_object_set_perms(prim->children[i], desc);
+
+  // Sane handling of linksets is hard. We don't want users to be able to
+  // screw permissions up by linking objects, but we also need them to be able
+  // to set perms sanely for the entire linkset by editing the root. The client
+  // doesn't even permit editing of child permissions.
+}
+				       
+
 static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset *asset) {
   rez_object_desc *desc = (rez_object_desc*)priv;
   if(desc->ctx == NULL) {
@@ -1110,9 +1171,8 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
     printf("DEBUG: Got object asset data: ~%s~\n", buf);
     primitive_obj *prim = prim_from_os_xml(&asset->data);
     if(prim != NULL) {
-      uuid_copy(prim->owner, desc->ctx->user_id);
       uuid_copy(prim->inv_item_id, desc->inv_item_id);
-      prim->perms = desc->perms; // FIXME - incorporate info from asset?
+      rez_object_set_perms(prim, desc);
 
       free(prim->name); free(prim->description);
       prim->name = desc->name; desc->name = NULL;
@@ -1148,8 +1208,8 @@ static void rez_obj_inv_callback(struct inventory_item* item, void* priv) {
     user_send_message(desc->ctx, "FIXME - we don't support rezzing no-copy inventory");
     user_del_self_pointer(&desc->ctx); delete desc;
   } else {
-    // FIXME - what if the user isn't the inventory owner? Perms would be wrong
-    desc->perms = item->perms;
+    // FIXME - what if the user isn't the inventory owner? Perms could be wrong
+    desc->inv_perms = item->perms; desc->inv_flags = item->flags;
     desc->name = strdup(item->name);
     desc->description = strdup(item->description);
     caj_get_asset(desc->ctx->sgrp, item->asset_id, rez_obj_asset_callback, desc);

@@ -437,6 +437,8 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 				       const char* name, caps_callback callback,
 				       user_ctx* user, void *user_data);
 
+void caj_int_caps_init(simgroup_ctx *sgrp);
+
 // ------------ SL constants --------------
 #define CHAT_AUDIBLE_FULLY 1
 #define CHAT_AUDIBLE_BARELY 0

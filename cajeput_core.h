@@ -202,6 +202,7 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc);
 
 
   // another bunch of SL flags, this time permissions
+  // FIXME - what do we do with the low 4 or 5 bits?
 #define PERM_TRANSFER (1 << 13)
 #define PERM_MODIFY (1 << 14)
 #define PERM_COPY (1 << 15)
@@ -213,9 +214,33 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc);
 
 #define PERM_FULL_PERMS 0x7fffffff
 
+  // yet more SL flags, this time for inventory items
+  // FIXME - move to cajeput_user.h?
+#define INV_LANDMARK_IS_VISITED 0x1
+
+#define INV_OBJECT_SET_PERMS 0x100 // set perms from inv item
+#define INV_OBJECT_SET_SALE 0x1000
+#define INV_OBJECT_SET_BASE_PERMS 0x10000
+#define INV_OBJECT_SET_CURRENT_PERMS 0x20000
+#define INV_OBJECT_SET_GROUP_PERMS 0x40000
+#define INV_OBJECT_SET_EVERYONE_PERMS 0x80000
+#define INV_OBJECT_SET_NEXT_PERMS 0x100000
+
+  // flags that can't be cleared.
+  // FIXME - this could probably be made less strict
+#define INV_OBJECT_STICKY_FLAGS (INV_OBJECT_SET_PERMS| \
+				 INV_OBJECT_SET_BASE_PERMS| \
+				 INV_OBJECT_SET_CURRENT_PERMS|	\
+				 INV_OBJECT_SET_GROUP_PERMS| \
+				 INV_OBJECT_SET_EVERYONE_PERMS	\
+				 INV_OBJECT_SET_NEXT_PERMS)
+
 void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
 		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset), void *cb_priv);
+
+  // forces all other permissions to be a subset of the base ones
+void caj_sanitise_perms(struct permission_flags *perms);
 
 #ifdef __cplusplus
 }

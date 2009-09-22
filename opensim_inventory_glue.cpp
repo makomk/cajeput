@@ -218,6 +218,8 @@ static void parse_inv_items(xmlDocPtr doc, xmlNodePtr node,
 						   item.description,
 						   item.creator_id);
     fill_inv_item_from_opensim(citem, item);
+    if(citem != NULL)
+      printf("  DEBUG: item flags 0x%x\n",(unsigned)citem->flags);
   }
 }
 
