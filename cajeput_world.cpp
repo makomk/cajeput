@@ -415,7 +415,7 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   prim->path_scale_x = 100; prim->path_scale_y = 100;  
   prim->name = strdup("Object");
   prim->description = strdup("");
-  prim->perms.next = prim->perms.current = prim->perms.base = 0x7fffffff;
+  prim->perms.next = prim->perms.current = prim->perms.base = PERM_FULL_PERMS;
   prim->perms.group = prim->perms.everyone = 0;
   prim->flags = 0; prim->caj_flags = 0; prim->ob.phys = NULL;
   prim->attach_point = 0;

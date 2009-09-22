@@ -1292,8 +1292,8 @@ static void load_inv_items(struct simgroup_ctx *sgrp, const char* filename) {
        uuid_parse(LIBRARY_OWNER, item->owner_id);
        item->asset_type = atoi(asset_type);
        item->inv_type = atoi(inv_type);
-       item->perms.base = item->perms.current = 0x7fffffff;
-       item->perms.next = item->perms.everyone = 0x7fffffff;
+       item->perms.base = item->perms.current = PERM_FULL_PERMS;
+       item->perms.next = item->perms.everyone = PERM_FULL_PERMS;
        item->perms.group = 0;
        item->sale_type = 0; item->group_owned = 0;
        uuid_clear(item->group_id);
