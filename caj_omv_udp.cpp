@@ -29,6 +29,7 @@
 #include "cajeput_prim.h"
 #include "caj_helpers.h"
 #include "caj_omv.h"
+#include "caj_version.h"
 #include "terrain_compress.h"
 #include <stdlib.h>
 #include <cassert>
@@ -533,6 +534,35 @@ static void handle_ViewerEffect_msg(struct omuser_ctx* lctx, struct sl_message* 
     printf("\nFIXME: need to handle ViewerEffect message\n\n");
     done_warning = 1;
   }
+}
+
+static void handle_AgentPause_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  sl_dump_packet(msg);
+  SL_DECLBLK_GET1(AgentPause, AgentData, ad, msg);
+  if(ad == NULL ||  VALIDATE_SESSION(ad)) 
+    return;
+  if(ad->SerialNum < lctx->pause_serial) {
+    printf("WARNING: ignoring AgentPause with outdated serial\n");
+    return;
+  }
+  
+  printf("\nDEBUG: pausing agent %s\n\n", lctx->u->name);
+  lctx->pause_serial = ad->SerialNum;
+  user_set_paused(lctx->u);
+}
+
+static void handle_AgentResume_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AgentResume, AgentData, ad, msg);
+  if(ad == NULL ||  VALIDATE_SESSION(ad)) 
+    return;
+  if(ad->SerialNum < lctx->pause_serial) {
+    printf("WARNING: ignoring AgentResume with outdated serial\n");
+    return;
+  }
+
+  printf("\nDEBUG: resuming agent %s\n\n", lctx->u->name);
+  lctx->pause_serial = ad->SerialNum;
+  user_set_unpaused(lctx->u);
 }
 
 static void send_agent_data_update(struct omuser_ctx* lctx) {
@@ -1933,6 +1963,20 @@ static void handle_UUIDNameRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   }
 }
 
+static void handle_UpdateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(UpdateInventoryItem, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+
+  // FIXME - TODO!
+  sl_dump_packet(msg);
+
+  int count = SL_GETBLK(UpdateInventoryItem,InventoryData,msg).count;
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(UpdateInventoryItem,InventoryData,req) =
+      SL_GETBLKI(UpdateInventoryItem,InventoryData,msg,i);
+  }
+}
+
 struct asset_xfer {
   uint64_t id;
   uint32_t ctr;
@@ -1971,6 +2015,13 @@ static asset_xfer* init_asset_upload(struct omuser_ctx* lctx, int is_local,
   return xfer;
 }
 
+static void asset_save_cb(uuid_t asset_id, void *user_data) {
+  // FIXME - handle this right, etc. Horribly broken.
+  if(uuid_is_null(asset_id)) {
+    printf("ERROR: asset uploaded failed\n");
+  }
+}
+
 static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
 				  int success) {
   lctx->xfers.erase(xfer->id);
@@ -1983,8 +2034,21 @@ static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
   sl_send_udp(lctx, &complete);
 
   if(success) {
-    sim_add_local_texture(lctx->u->sim, xfer->asset_id, xfer->data,
-			  xfer->len, true);
+    if(xfer->asset_type == ASSET_TEXTURE) {
+      sim_add_local_texture(lctx->u->sim, xfer->asset_id, xfer->data,
+			    xfer->len, true);
+    } else {
+      user_send_message(lctx->u, "FIXME: support for asset uploads not finished yet");
+      struct simple_asset asset;
+      asset.data.data = xfer->data;
+      asset.data.len = xfer->len;
+      asset.type = xfer->asset_type;
+      uuid_copy(asset.id, xfer->asset_id);
+      asset.name = "no name"; // can't see *any* way to fill these out
+      asset.description = "no description";
+      lctx->u->sgrp->gridh.put_asset(lctx->u->sgrp, &asset, 
+				     asset_save_cb, NULL);
+    }
   } else {
     free(xfer->data); // note: sim_add_local_texture take ownership of buffer
   }
@@ -2066,12 +2130,19 @@ static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_mes
   if(asset == NULL) return;
   sl_dump_packet(msg);
   switch(asset->Type) {
-  case 0: // texture
+  case ASSET_TEXTURE:
     if(!asset->StoreLocal) {
       user_send_message(lctx->u, "Sorry, AssetUploadRequest is now only for local texture uploads.\n");
       return;
     }
     printf("DEBUG: got local AssetUploadRequest for texture\n");
+    break;
+  case ASSET_SOUND:
+  case ASSET_ANIMATION:
+    user_send_message(lctx->u, "Sorry, AssetUploadRequest doesn't allow sound/animation uploads anymore.\n");
+    return;
+  case ASSET_BODY_PART:
+  case ASSET_CLOTHING:
     break;
   default:
     user_send_message(lctx->u, "ERROR: AssetUploadRequest for unsupported type\n");
@@ -2671,7 +2742,8 @@ static gboolean obj_update_timer(gpointer data) {
   omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {
     user_ctx *ctx = lctx->u;
-    if((ctx->flags & AGENT_FLAG_RHR) == 0) continue;
+    if((ctx->flags & AGENT_FLAG_RHR) == 0 || (ctx->flags & AGENT_FLAG_PAUSED)) 
+      continue;
     user_update_throttles(ctx);
     std::vector<uint32_t>::iterator diter = ctx->deleted_objs.begin();
     while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
@@ -2850,6 +2922,7 @@ static gboolean got_packet(GIOChannel *source,
       ctx->user_priv = lctx;
       lctx->addr = addr;
       lctx->sock = lsim->sock; lctx->counter = 0;
+      lctx->pause_serial = 0;
 
       lctx->next = lsim->ctxts; lsim->ctxts = lctx;
 
@@ -2988,6 +3061,9 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectLink);
   ADD_HANDLER(RezSingleAttachmentFromInv);
   ADD_HANDLER(ObjectDetach);
+  ADD_HANDLER(AgentPause);
+  ADD_HANDLER(AgentResume);
+  ADD_HANDLER(UpdateInventoryItem);
 
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   addr.sin_family= AF_INET;

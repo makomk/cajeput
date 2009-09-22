@@ -1291,10 +1291,14 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   hooks->do_teleport = do_teleport;
   hooks->fetch_inventory_folder = fetch_inventory_folder;
   hooks->fetch_inventory_item = fetch_inventory_item;
+  hooks->fetch_system_folders = fetch_system_folders;
   hooks->uuid_to_name = uuid_to_name;
+
+  hooks->add_inventory_item = add_inventory_item;
 
   hooks->get_texture = osglue_get_texture;
   hooks->get_asset = osglue_get_asset;
+  hooks->put_asset = osglue_put_asset;
   hooks->cleanup = cleanup;
 
   grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","gridserver");

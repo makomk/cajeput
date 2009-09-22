@@ -32,7 +32,7 @@
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x0011
+#define CAJEPUT_API_VERSION 0x0013
 
 struct user_ctx;
 struct simulator_ctx;
@@ -210,6 +210,8 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc);
   // #define PERM_OWNER_DEBT (1 << 18)
 #define PERM_MOVE (1 << 19)
 #define PERM_DAMAGE (1 << 20)
+
+#define PERM_FULL_PERMS 0x7fffffff
 
 void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
 		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,

@@ -200,6 +200,17 @@ int osglue_serialise_xml(xmlTextWriterPtr writer,
 					    "%f",*(float*)(inbuf+serial[i].offset)) < 0) 
 	   return 0;
       break;
+    case XML_STYPE_BASE64:
+      {
+	caj_string *str = (caj_string*)(inbuf+serial[i].offset);
+	gchar *b64 = g_base64_encode(str->data, str->len);
+	if(xmlTextWriterWriteFormatElement(writer,BAD_CAST serial[i].name,
+					   "%s", b64) < 0) {
+	  g_free(b64); return 0;
+	}
+	g_free(b64);
+      }
+      break;
     case XML_STYPE_SKIP:
     default:
       printf("ERROR: bad type passed to deserialise_xml");

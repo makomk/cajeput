@@ -48,6 +48,8 @@ struct map_block_info {
   uuid_t region_id;  
 };
 
+typedef void (*caj_put_asset_cb)(uuid_t asset_id, void *priv);
+
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simgroup_ctx *sgrp, 
 		       struct simulator_ctx* sim);
@@ -80,6 +82,8 @@ struct cajeput_grid_hooks {
 
   void(*get_texture)(struct simgroup_ctx *sgrp, struct texture_desc *texture);
   void(*get_asset)(struct simgroup_ctx *sgrp, struct simple_asset *asset);
+  void(*put_asset)(struct simgroup_ctx *sgrp, struct simple_asset *asset,
+		   caj_put_asset_cb cb, void *cb_priv);
   void(*map_block_request)(struct simgroup_ctx *sgrp, int min_x, int max_x, 
 			   int min_y, int max_y, 
 			   void(*cb)(void *priv, struct map_block_info *blocks, 
@@ -101,6 +105,13 @@ struct cajeput_grid_hooks {
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);
+  void (*fetch_system_folders)(simgroup_ctx *sgrp, user_ctx *user,
+			       void *user_priv);
+
+  void(*add_inventory_item)(simgroup_ctx *sgrp, user_ctx *user,
+			    void *user_priv, inventory_item *inv,
+			    void(*cb)(void* priv, int success, uuid_t item_id),
+			    void *cb_priv);
 
   void(*uuid_to_name)(struct simgroup_ctx *sgrp, uuid_t id, 
 		      void(*cb)(uuid_t uuid, const char* first, 
@@ -134,6 +145,11 @@ void caj_texture_finished_load(texture_desc *desc);
 void caj_asset_finished_load(struct simgroup_ctx *sgrp, 
 			     struct simple_asset *asset, int success);
 
+// This is a bit odd in that it gives up ownership of the inventory_contents
+// struct and data referenced to it to the OpenSim core code. The other
+// inventory stuff doesn't work this way.
+void user_set_system_folders(struct user_ctx *ctx, 
+			     struct inventory_contents* inv);
 
 #ifdef __cplusplus
 }

@@ -84,6 +84,9 @@ extern const char *sl_wearable_names[]; // don't forget to update this!
 
 #define AGENT_FLAG_TELEPORT_COMPLETE 0x400
 #define AGENT_FLAG_IN_SLOW_REMOVAL 0x800 // for teleports
+#define AGENT_FLAG_PAUSED 0x1000 // FIXME - actually pause stuff!!!
+
+typedef void(*user_generic_cb)(user_ctx* user, void* priv);
 
 void *user_get_grid_priv(struct user_ctx *user);
 struct simulator_ctx* user_get_sim(struct user_ctx *user);
@@ -144,6 +147,8 @@ user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 void user_send_message(struct user_ctx *user, const char* msg);
 void user_session_close(user_ctx* ctx, int slowly);
 void user_reset_timeout(struct user_ctx* ctx);
+void user_set_paused(user_ctx *ctx);
+void user_set_unpaused(user_ctx *ctx);
 
 // used to ensure pointers to the user_ctx are NULLed correctly on removal
 void user_add_self_pointer(struct user_ctx** pctx);
@@ -164,6 +169,23 @@ void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
 					 void* priv),
 			       void *cb_priv);
 
+// This fills in the item ID and owner ID (but nothing else). It's guaranteed 
+// to not access the inventory_item you pass it after it returns.
+void user_add_inventory_item(user_ctx *ctx, struct inventory_item* item,
+			     void(*cb)(void* priv, int success, uuid_t item_id), 
+			     void *cb_priv);
+
+typedef void (*system_folders_cb)(user_ctx *user, void *priv);
+
+void user_fetch_system_folders(user_ctx *ctx, user_generic_cb cb,
+			       void *cb_priv);
+
+// WARNING: this must ONLY be called from the user_fetch_system_folders
+// callback. Failure to obey this rule will result in crashes!
+// Also, don't free the returned data structure, and don't store pointers
+// to it.
+struct inventory_folder* user_find_system_folder(user_ctx *ctx,
+						 int8_t asset_type);
 
 #define CAJ_TOUCH_START 0
 #define CAJ_TOUCH_CONT 1
@@ -229,8 +251,6 @@ void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
 
 // ----------------- USER HOOKS --------------------------
 
-typedef void(*user_generic_cb)(user_ctx* user, void* priv);
-
   // notification that this user context is going away
 void user_add_delete_hook(struct user_ctx *ctx,
 			   user_generic_cb cb, void *priv);
@@ -245,7 +265,7 @@ void user_remove_delete_hook(struct user_ctx *ctx,
 struct inventory_folder {
   char *name;
   uuid_t folder_id, owner_id, parent_id;
-  int8_t inv_type;
+  int8_t asset_type;
 };
 
   // struct inventory_item is in cajeput_core.h (used by objects)
@@ -266,12 +286,18 @@ struct inventory_contents {
 struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id);
 struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
 					    uuid_t folder_id, uuid_t owner_id,
-					    const char* name, int8_t inv_type);
+					    const char* name, 
+					    int8_t asset_type);
 struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv, 
 					      const char* name, const char* desc,
 					      const char* creator);
 void caj_inv_free_contents_desc(struct inventory_contents* inv);
 uint32_t caj_calc_inventory_crc(struct inventory_item* item);
+
+struct inventory_folder* caj_inv_make_folder(uuid_t parent_id, uuid_t folder_id,
+					     uuid_t owner_id, const char* name,
+					     int8_t asset_type);
+  void caj_inv_free_folder(struct inventory_folder* folder);
 
 #ifdef __cplusplus
 }

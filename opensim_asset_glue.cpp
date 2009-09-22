@@ -29,12 +29,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <glib.h>
-#include <json-glib/json-glib.h>
 #include "opensim_grid_glue.h"
 #include "opensim_xml_glue.h" // for asset parsing
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <cassert>
+#include "caj_llsd.h" // for a dubious hack
 
 struct asset_req_desc {
   struct simgroup_ctx *sgrp;
@@ -236,4 +236,128 @@ void osglue_get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
   caj_shutdown_hold(sgrp); // not sure we want to do this
   caj_queue_soup_message(sgrp, msg, get_asset_resp, req);
   
+}
+
+struct put_asset_req_desc {
+  struct simgroup_ctx *sgrp;
+  uuid_t asset_id;
+  caj_put_asset_cb cb; 
+  void *cb_priv;
+};
+
+
+static void put_asset_resp(SoupSession *session, SoupMessage *msg, 
+			   gpointer user_data) {
+  uuid_t asset_id;
+  put_asset_req_desc* req = (put_asset_req_desc*)user_data;
+  /* const char* content_type = 
+     soup_message_headers_get_content_type(msg->response_headers, NULL); */
+  caj_shutdown_release(req->sgrp);
+
+  printf("Upload asset resp: got %i %s (len %i)\n",
+	 (int)msg->status_code, msg->reason_phrase, 
+	 (int)msg->response_body->length);
+  printf("{%s}\n", msg->response_body->data);
+
+  if(msg->status_code == 200) {
+    uuid_copy(asset_id, req->asset_id);
+    xmlDocPtr doc = xmlReadMemory(msg->response_body->data,
+				  msg->response_body->length,"asset_resp.xml",
+				  NULL,0);
+    if(doc != NULL) {
+      xmlNodePtr node = xmlDocGetRootElement(doc);
+      if(strcmp((char*)node->name, "string") != 0) {
+	printf("ERROR: unexpected XML response from asset upload\n");
+	uuid_clear(asset_id);
+      } else {
+	xmlChar *text = xmlNodeListGetString(doc, node->children, 1);
+	if(text == NULL || uuid_parse((char*)text, asset_id)) {
+	  printf("ERROR: bad XML response from asset upload\n");
+	  uuid_clear(asset_id);
+	}
+	xmlFree(text);
+      }
+      xmlFreeDoc(doc);
+    }
+    req->cb(asset_id, req->cb_priv);
+  } else {
+    printf("ERROR: asset upload failed\n");
+    uuid_clear(asset_id);
+    req->cb(asset_id, req->cb_priv);
+  }
+  delete req;
+}
+
+void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
+		      caj_put_asset_cb cb, void *cb_priv) {
+  GRID_PRIV_DEF_SGRP(sgrp);
+  // FIXME - should allocate proper buffer
+  xmlTextWriterPtr writer;
+  xmlBufferPtr buf;
+  SoupMessage *msg; put_asset_req_desc *req;
+  os_asset oasset;
+  char url[255], asset_id[40];
+  assert(grid->assetserver != NULL);
+  assert(asset != NULL && asset->data.data != NULL);
+
+  buf = xmlBufferCreate();
+  if(buf == NULL) return;
+  writer = xmlNewTextWriterMemory(buf, 0);
+  if(writer == NULL) {
+    xmlBufferFree(buf);
+    return;
+  }
+
+  uuid_unparse(asset->id, asset_id);
+  snprintf(url, 255, "%sassets/", grid->assetserver);
+  printf("DEBUG: uploading asset %s\n", asset_id);
+  
+  if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0) {
+    printf("DEBUG: couldn't start XML document\n"); goto fail;
+  }
+  
+  if(xmlTextWriterStartElement(writer, BAD_CAST "AssetBase") < 0) goto fail;  
+
+  oasset.data = asset->data;
+  uuid_copy(oasset.full_id, asset->id);
+  oasset.id = asset_id;
+  oasset.name = asset->name; oasset.description = asset->description;
+  oasset.type = asset->type;
+  oasset.local = FALSE; oasset.temporary = FALSE;
+  if(!osglue_serialise_xml(writer, deserialise_asset, &oasset)) {
+
+    printf("DEBUG: error serialising asset\n"); goto fail;
+  }
+    
+  if(xmlTextWriterEndElement(writer) < 0) {
+    printf("DEBUG: error writing end element\n"); goto fail;
+  }
+  
+  if(xmlTextWriterEndDocument(writer) < 0) {
+    printf("DEBUG: couldn't end XML document\n"); goto fail;
+    
+  }
+
+  msg = soup_message_new ("POST", url);
+  req = new put_asset_req_desc;
+  req->sgrp = sgrp;
+  uuid_copy(req->asset_id, asset->id);
+  req->cb = cb; req->cb_priv = cb_priv;
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg, put_asset_resp, req);
+  
+  soup_message_set_request (msg, "text/xml",
+			    SOUP_MEMORY_COPY, (char*)buf->content, 
+			    buf->use);
+
+  xmlFreeTextWriter(writer);
+  xmlBufferFree(buf);
+  return;
+
+
+ fail:
+  xmlFreeTextWriter(writer);
+  xmlBufferFree(buf);
+  printf("ERROR: couldn't format asset store request\n");
+  return;
 }

@@ -75,7 +75,8 @@ void caj_inv_free_contents_desc(struct inventory_contents* inv) {
 
 struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
 					    uuid_t folder_id, uuid_t owner_id,
-					    const char* name, int8_t inv_type) {
+					    const char* name, 
+					    int8_t asset_type) {
   if(inv->num_subfolder >= MAX_INVENTORY_DESC) {
     printf("!!! ERROR: too many subfolders in one inventory folder\n");
     return NULL;
@@ -87,8 +88,24 @@ struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
   uuid_copy(folder->folder_id, folder_id);
   uuid_copy(folder->owner_id, owner_id); 
   uuid_copy(folder->parent_id, inv->folder_id); // FIXME - remove this?
-  folder->inv_type=  inv_type;
+  folder->asset_type = asset_type;
   return folder;
+}
+
+struct inventory_folder* caj_inv_make_folder(uuid_t parent_id, uuid_t folder_id,
+					     uuid_t owner_id, const char* name,
+					     int8_t asset_type) {
+  inventory_folder* folder = new inventory_folder();
+  folder->name = strdup(name);
+  uuid_copy(folder->folder_id, folder_id);
+  uuid_copy(folder->owner_id, owner_id); 
+  uuid_copy(folder->parent_id, parent_id);
+  folder->asset_type = asset_type;
+  return folder;
+}
+
+void caj_inv_free_folder(struct inventory_folder* folder) {
+  free(folder->name); delete folder;
 }
 						 
 struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv, 

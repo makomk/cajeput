@@ -24,6 +24,7 @@
 #define OPENSIM_GRID_GLUE_H
 #include <map>
 #include <string>
+#include "cajeput_grid_glue.h"
 
 struct user_name {
   char *first, *last;
@@ -75,6 +76,12 @@ void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			  void(*cb)(struct inventory_item* item, 
 				    void* priv),
 			  void *cb_priv);
+void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
+			  void *user_priv);
+void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
+			void *user_priv, inventory_item *inv,
+			void(*cb)(void* priv, int success, uuid_t item_id),
+			void *cb_priv);
 
 void osglue_agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,
@@ -94,4 +101,6 @@ void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason);
 
 void osglue_get_texture(struct simgroup_ctx *sgrp, struct texture_desc *texture);
 void osglue_get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset);
+void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
+		      caj_put_asset_cb cb, void *cb_priv);
 #endif

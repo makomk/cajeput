@@ -6,3 +6,5 @@
 
 #define CAJ_VERSION_FOR_OS_SCRIPT "Cajeput " CAJ_VERSION_STR "\n" \
   CAJ_GIT_REVISION "\n" CAJ_GIT_DATE
+
+#define CAJ_VERSION_STRING "Cajeput 0.1 ALPHA"

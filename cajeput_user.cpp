@@ -35,6 +35,13 @@ const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
 					  "gloves","undershirt","underpants",
 					  "skirt"};
 
+// possible states of sys_folders requests:
+#define SYS_FOLDERS_NOT_REQUESTED 0
+#define SYS_FOLDERS_PENDING 1
+#define SYS_FOLDERS_LOADED 2
+#define SYS_FOLDERS_IN_CALLBACK 3
+#define SYS_FOLDERS_BAD_STATE 4 
+
 void user_reset_timeout(struct user_ctx* ctx) {
   ctx->last_activity = g_timer_elapsed(ctx->sgrp->timer, NULL);
 }
@@ -347,6 +354,71 @@ void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
 					 item_id,cb,cb_priv);
 }
 
+void user_add_inventory_item(user_ctx *ctx, struct inventory_item* item,
+			     void(*cb)(void* priv, int success, uuid_t item_id), 
+			     void *cb_priv) {
+  uuid_generate(item->item_id);
+  uuid_copy(item->owner_id, ctx->user_id);
+  ctx->sgrp->gridh.add_inventory_item(ctx->sgrp, ctx, ctx->grid_priv,
+				      item, cb, cb_priv);
+}
+
+void user_set_system_folders(struct user_ctx *ctx, 
+			     struct inventory_contents* inv) {
+  if(ctx->sys_folders != NULL) 
+    caj_inv_free_contents_desc(ctx->sys_folders);
+
+  ctx->sys_folders = inv;
+  ctx->sys_folders_state = SYS_FOLDERS_IN_CALLBACK;
+
+  for(caj_callback<user_generic_cb>::cb_set::iterator iter = 
+	ctx->sys_folders_cbs.callbacks.begin(); 
+      iter != ctx->sys_folders_cbs.callbacks.end(); iter++) {
+    iter->cb(ctx, iter->priv);
+  }
+  ctx->sys_folders_cbs.callbacks.clear();
+  ctx->sys_folders_state = SYS_FOLDERS_LOADED;
+}
+
+struct inventory_folder* user_find_system_folder(user_ctx *ctx,
+						 int8_t asset_type) {
+  assert(ctx->sys_folders_state == SYS_FOLDERS_IN_CALLBACK);
+
+  if(ctx->sys_folders == NULL) return NULL;
+
+  for(unsigned int i = 0; i < ctx->sys_folders->num_subfolder; i++) {
+    if(ctx->sys_folders->subfolders[i].asset_type == asset_type)
+      return &ctx->sys_folders->subfolders[i];
+  }
+  return NULL;
+}
+
+// don't rely on the cb == NULL behaviour; it may change in future.
+void user_fetch_system_folders(user_ctx *ctx, user_generic_cb cb,
+			       void *cb_priv) {
+  if(ctx->sys_folders_state == SYS_FOLDERS_NOT_REQUESTED) {
+    ctx->sys_folders_state = SYS_FOLDERS_PENDING;
+    ctx->sgrp->gridh.fetch_system_folders(ctx->sgrp, ctx, ctx->grid_priv);
+  }
+
+  if(ctx->sys_folders_state == SYS_FOLDERS_LOADED) {
+    ctx->sys_folders_state = SYS_FOLDERS_IN_CALLBACK;
+    if(cb != NULL) cb(ctx, cb_priv);
+    ctx->sys_folders_state = SYS_FOLDERS_LOADED;
+  } else if(ctx->sys_folders_state == SYS_FOLDERS_IN_CALLBACK) {
+    // this is permitted, so I suppose we should handle it...
+    if(cb != NULL) cb(ctx, cb_priv);
+  } else {
+    assert(ctx->sys_folders_state == SYS_FOLDERS_PENDING);
+    if(cb != NULL) ctx->sys_folders_cbs.add_callback(cb, cb_priv);
+  }
+}
+
+static void free_system_folders(user_ctx *ctx) {
+  // this is a valid (if undocumented) use of user_set_system_folders
+  user_set_system_folders(ctx, NULL);
+  ctx->sys_folders_state = SYS_FOLDERS_BAD_STATE;
+}
 
 static teleport_desc* begin_teleport(struct user_ctx* ctx) {
   if(ctx->tp_out != NULL) {
@@ -526,6 +598,8 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   sprintf(ctx->name, "%s %s", ctx->first_name, ctx->last_name);
   ctx->group_title = strdup(""); // strdup("Very Foolish Tester");
   user_reset_timeout(ctx);
+  ctx->sys_folders = NULL;
+  ctx->sys_folders_state = SYS_FOLDERS_NOT_REQUESTED;
 
   user_set_throttles(ctx,throttle_init);
 
@@ -589,6 +663,7 @@ int user_complete_movement(user_ctx *ctx) {
     world_obj_add_channel(ctx->sim,&ctx->av->ob,DEBUG_CHANNEL);
 
     ctx->sgrp->gridh.user_entered(ctx->sgrp, ctx->sim, ctx, ctx->grid_priv);
+    user_fetch_system_folders(ctx, NULL, NULL);
   }
 
   return true;
@@ -615,6 +690,9 @@ void user_remove_int(user_ctx **user) {
     // HACK HACK HACK - should be in main hook?
     ctx->userh->disable_sim(ctx->user_priv); // FIXME
   } 
+
+  // probably want to do this before the delete hook
+  free_system_folders(ctx);
 
   user_call_delete_hook(ctx);
 
@@ -1115,3 +1193,55 @@ void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim) {
   // FIXME - save the attachment back to inventory.
   world_delete_prim(ctx->sim, prim);
 }
+
+#if 0 // TODO - finish this
+static int prim_part_to_osxml(xmlTextWriterPtr writer,
+			      primitive_obj *prim) {
+  os_object_part objpart;
+
+  return osglue_serialise_xml(writer, deserialise_object_part,
+			      &objpart);
+}
+
+static void prim_to_osxml(primitive_obj *prim, caj_string *out) {
+  out->data = NULL; out->len = 0;
+
+  xmlTextWriterPtr writer;
+  xmlBufferPtr buf;
+  buf = xmlBufferCreate();
+  if(buf == NULL) goto out_fail;
+  writer = xmlNewTextWriterMemory(buf, 0);
+  if(writer == NULL) goto out_freebuf;
+
+  if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0)
+    goto out_freewriter;
+
+  if(xmlTextWriterStartElement(writer, BAD_CAST "SceneObjectGroup") < 0) 
+    goto out_freewriter;
+
+  if(xmlTextWriterStartElement(writer, BAD_CAST "RootPart") < 0) 
+    goto out_freewriter;
+  
+  if(!prim_part_to_osxml(writer, prim)) goto out_freewriter;
+
+  if(xmlTextWriterEndElement(writer) < 0) goto out_freewriter;
+
+  if(xmlTextWriterStartElement(writer, BAD_CAST "OtherParts") < 0) 
+    goto out_freewriter;
+
+  // TODO - write child prims
+
+  if(xmlTextWriterEndElement(writer) < 0) goto out_freewriter;
+  if(xmlTextWriterEndElement(writer) < 0) goto out_freewriter;
+  if(xmlTextWriterEndDocument(writer) < 0) {
+    printf("DEBUG: couldn't end XML document\n"); goto out_freewriter;
+  }
+
+ out_freewriter:
+  xmlFreeTextWriter(writer);
+ out_freebuf:
+  xmlBufferFree(buf);
+ out_fail:
+  return;
+}
+#endif

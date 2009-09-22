@@ -63,6 +63,8 @@ struct omuser_ctx {
   int sock;
   uint32_t counter;
 
+  uint32_t pause_serial;
+
   std::vector<uint32_t> pending_acks;
   std::set<uint32_t> seen_packets; // FIXME - clean this up
 

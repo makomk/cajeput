@@ -39,8 +39,7 @@
 #include "cajeput_grid_glue.h"
 
 #define USER_CONNECTION_TIMEOUT 15
-
-#define CAJ_VERSION_STRING "Cajeput 0.001"
+#define USER_CONNECTION_TIMEOUT_PAUSED 90
 
 struct cap_descrip;
 
@@ -220,6 +219,10 @@ struct user_ctx {
 
   // FIXME - move this out of struct to save l KB of space per child agent
   struct wearable_desc wearables[SL_NUM_WEARABLES];
+
+  inventory_contents* sys_folders;
+  int sys_folders_state; // SYS_FOLDERS_*
+  caj_callback<user_generic_cb> sys_folders_cbs;
 
   void *grid_priv; 
 

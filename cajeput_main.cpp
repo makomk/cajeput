@@ -735,6 +735,234 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   
 }
 
+struct file_agent_inv {
+  int8_t asset_type, inv_type;
+  char *name, *description;
+  uuid_t folder_id, asset_id, item_id;
+  cap_descrip* cap;
+  user_ctx *ctx; simulator_ctx *sim; SoupMessage *msg; // for second stage only
+};
+
+// used to free the capability etc if the session ends before the client
+// actually sends the script. 
+static void free_file_agent_inv_desc(user_ctx* ctx, void *priv) {
+   file_agent_inv *st = (file_agent_inv*)priv;
+   if(st->cap != NULL) caps_remove(st->cap);
+   free(st->name); free(st->description); delete st;
+}
+
+
+static void finish_file_agent_inv_stage2(file_agent_inv *st) {
+  if(st->ctx != NULL) user_del_self_pointer(&st->ctx);
+  soup_server_unpause_message(st->sim->sgrp->soup, st->msg);
+  sim_shutdown_release(st->sim);
+  free(st->name); free(st->description); delete st;
+}
+
+#if 0
+static void new_file_inv_sys_folders_cb(user_ctx *ctx, void *user_data) {
+  file_agent_inv *st = (file_agent_inv*)user_data;
+  inventory_folder *folder;
+  assert(st->ctx != NULL); // guaranteed not to happen!
+  
+  folder = user_find_system_folder(ctx, st->asset_type);
+  if(folder == NULL) {
+    caj_llsd *resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("Couldn't find suitable category"));
+    llsd_soup_set_response(st->msg, resp);
+    llsd_free(resp);
+    finish_file_agent_inv_stage2(st);
+  } else {
+    
+
+    caj_llsd *resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("FIXME: upload code unfinished"));
+    llsd_soup_set_response(st->msg, resp);
+    llsd_free(resp);
+    finish_file_agent_inv_stage2(st);
+  }
+}
+#endif
+
+static void new_file_inv_add_item_cb(void *cb_priv, int success, 
+				     uuid_t item_id) {
+  file_agent_inv *st = (file_agent_inv*)cb_priv;
+  caj_llsd *resp = llsd_new_map();
+  if(success) {
+    // FIXME - send new_everyone_mask/new_group_mask/new_next_owner_mask?
+    llsd_map_append(resp,"state",llsd_new_string("complete"));
+    llsd_map_append(resp,"new_inventory_item",llsd_new_uuid(item_id));
+    llsd_map_append(resp,"new_asset",llsd_new_uuid(st->asset_id));
+  } else {
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("Couldn't save inventory item"));
+  }
+  llsd_soup_set_response(st->msg, resp);
+  llsd_free(resp);
+  finish_file_agent_inv_stage2(st);
+}
+
+static void new_file_inv_to_folder(file_agent_inv *st) {
+  char creator_id[40]; uuid_unparse(st->ctx->user_id, creator_id);
+  inventory_item item;
+  item.name = st->name; item.description = st->description;
+  uuid_copy(item.folder_id, st->folder_id);
+  item.creator_id = creator_id;
+  uuid_copy(item.creator_as_uuid, st->ctx->user_id);
+
+  item.perms.base = item.perms.current = PERM_FULL_PERMS;
+  item.perms.group = item.perms.everyone = 0;
+  item.perms.next = PERM_FULL_PERMS; // FIXME - not right.
+  
+  item.inv_type = st->inv_type; item.asset_type = st->asset_type;
+  item.sale_type = 0; // FIXME - magic constant!
+  item.group_owned = FALSE; uuid_clear(item.group_id);
+  uuid_copy(item.asset_id, st->asset_id);
+  item.flags = 0; // FIXME - ???
+  item.sale_price = 0;
+  item.creation_date = time(NULL);
+  
+  user_add_inventory_item(st->ctx, &item, new_file_inv_add_item_cb, st);
+  
+}
+
+static void new_file_inv_asset_cb(uuid_t asset_id, void *user_data) {
+  file_agent_inv *st = (file_agent_inv*)user_data;
+
+  if(st->ctx == NULL) {
+    soup_message_set_status(st->msg,500);
+    finish_file_agent_inv_stage2(st);
+  } else if(uuid_is_null(asset_id)) {
+    caj_llsd *resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("Couldn't save asset"));
+    llsd_soup_set_response(st->msg, resp);
+    llsd_free(resp);
+    finish_file_agent_inv_stage2(st);
+  } else if(uuid_is_null(st->folder_id)) {
+    caj_llsd *resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("FIXME: was sent null folder ID"));
+    llsd_soup_set_response(st->msg, resp);
+    llsd_free(resp);
+    finish_file_agent_inv_stage2(st);
+    //user_fetch_system_folders(st->ctx, new_file_inv_sys_folders_cb, st);
+  } else {
+    uuid_copy(st->asset_id, asset_id);
+    new_file_inv_to_folder(st);
+  }
+}
+
+static void new_file_inv_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  file_agent_inv *st = (file_agent_inv*)user_data;
+  // now we've got the upload, the capability isn't needed anymore, and we
+  // delete the user removal hook because our lifetime rules change!
+  caps_remove(st->cap); st->cap = NULL;
+  user_remove_delete_hook(ctx, free_file_agent_inv_desc, st);
+
+  // FIXME - TODO
+  struct simple_asset asset;
+  asset.data.data = (unsigned char*)msg->request_body->data;
+  asset.data.len = msg->request_body->length;
+  asset.type = st->asset_type;
+  asset.name = st->name;
+  asset.description = st->description;
+  uuid_generate(asset.id);
+
+  st->ctx = ctx; user_add_self_pointer(&st->ctx);
+  st->sim = ctx->sim; sim_shutdown_hold(ctx->sim);
+  st->msg = msg; soup_server_pause_message(ctx->sgrp->soup, msg);
+
+  ctx->sgrp->gridh.put_asset(ctx->sgrp, &asset, new_file_inv_asset_cb, st);
+}
+
+void new_file_agent_inventory(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  if (msg->method != SOUP_METHOD_POST) {
+    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    return;
+  }
+
+  int8_t asset_type, inv_type;
+  caj_llsd *llsd, *resp; 
+  caj_llsd *asset_type_str, *inv_type_str;
+  caj_llsd *name, *description, *folder_id;
+  file_agent_inv *st;
+  
+  if(msg->request_body->length > 65536) goto fail;
+  llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
+  if(llsd == NULL) goto fail;
+  if(!LLSD_IS(llsd, LLSD_MAP)) goto free_fail;
+  
+  printf("Got NewFileAgentInventory:\n");
+  llsd_pretty_print(llsd, 1);
+
+  asset_type_str = llsd_map_lookup(llsd, "asset_type");
+  inv_type_str = llsd_map_lookup(llsd, "inventory_type");
+  name = llsd_map_lookup(llsd, "name");
+  description = llsd_map_lookup(llsd, "description");
+  folder_id = llsd_map_lookup(llsd, "folder_id");
+
+  // FIXME - client can optionally request permissions via
+  // optional everyone_mask/group_mask/next_owner_mask
+  
+  if(!(LLSD_IS(asset_type_str, LLSD_STRING) && LLSD_IS(inv_type_str, LLSD_STRING) && 
+       LLSD_IS(name, LLSD_STRING) &&  LLSD_IS(description, LLSD_STRING) &&
+       LLSD_IS(folder_id, LLSD_UUID))) goto free_fail;
+
+  // FIXME - use the list currently in caj_omv_udp.cpp
+  if(strcmp(asset_type_str->t.str, "texture") == 0) asset_type = ASSET_TEXTURE;
+  else if(strcmp(asset_type_str->t.str, "animation") == 0) asset_type = ASSET_ANIMATION;
+  /* else if(strcmp(asset_type_str, "sound") == 0) asset_type = ASSET_TYPE_SOUND; */
+  else {
+    resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("Unsupported asset type."));
+
+    llsd_free(llsd);
+    llsd_soup_set_response(msg, resp);
+    llsd_free(resp);
+    return;
+  }
+
+  // FIXME - use the list currently in caj_omv_udp.cpp
+  if(strcmp(inv_type_str->t.str, "texture") == 0) inv_type = INV_TYPE_TEXTURE;
+  else if(strcmp(inv_type_str->t.str, "animation") == 0) inv_type = INV_TYPE_ANIMATION;
+  else {
+    resp = llsd_new_map();
+    llsd_map_append(resp,"state",llsd_new_string("error"));
+    llsd_map_append(resp,"message",llsd_new_string("Unsupported inventory type."));
+
+    llsd_free(llsd);
+    llsd_soup_set_response(msg, resp);
+    llsd_free(resp);
+    return;
+  }
+
+  st = new file_agent_inv();
+  uuid_copy(st->folder_id, folder_id->t.uuid);
+  st->asset_type = asset_type; st->inv_type = inv_type;
+  st->cap = caps_new_capability(ctx->sim, new_file_inv_stage2, ctx, st);
+  st->name = strdup(name->t.str); 
+  st->description = strdup(description->t.str);
+  user_add_delete_hook(ctx, free_file_agent_inv_desc, st);
+  
+  resp = llsd_new_map();
+  llsd_map_append(resp,"state",llsd_new_string("upload"));
+  llsd_map_append(resp,"uploader",llsd_new_string_take(caps_get_uri(st->cap)));
+
+  llsd_free(llsd);
+  llsd_soup_set_response(msg, resp);
+  llsd_free(resp);
+  return;
+  
+ free_fail:
+  llsd_free(llsd);
+ fail:
+  soup_message_set_status(msg,400);  
+}
+  
 void user_int_caps_init(simulator_ctx *sim, user_ctx *ctx, 
 			struct sim_new_user *uinfo) {
   ctx->seed_cap = caps_new_capability_named(sim, seed_caps_callback, 
@@ -744,6 +972,7 @@ void user_int_caps_init(simulator_ctx *sim, user_ctx *ctx,
 
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
   user_add_named_cap(sim,"UpdateScriptTask",update_script_task,ctx,NULL);  
+  user_add_named_cap(sim,"NewFileAgentInventory",new_file_agent_inventory,ctx,NULL);  
 }
 
 void user_int_caps_cleanup(user_ctx *ctx) {
@@ -864,6 +1093,20 @@ static gboolean shutdown_timer(gpointer data) {
   return FALSE;
 }
 
+static int user_connection_timeout(user_ctx *ctx) {
+  return ctx->flags & AGENT_FLAG_PAUSED ?
+    USER_CONNECTION_TIMEOUT_PAUSED : USER_CONNECTION_TIMEOUT;
+}
+
+void user_set_paused(user_ctx *ctx) {
+  ctx->flags |= AGENT_FLAG_PAUSED;
+}
+
+void user_set_unpaused(user_ctx *ctx) {
+  ctx->flags &= ~AGENT_FLAG_PAUSED;
+}
+
+
 static gboolean cleanup_timer(gpointer data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) data;
   double time_now = g_timer_elapsed(sgrp->timer,NULL);
@@ -892,8 +1135,8 @@ static gboolean cleanup_timer(gpointer data) {
 	    (*user)->flags |= AGENT_FLAG_PURGE;
 	}
 
-	if(time_now - (*user)->last_activity > USER_CONNECTION_TIMEOUT ||
-	   (*user)->flags & AGENT_FLAG_PURGE)
+	if(time_now - (*user)->last_activity > user_connection_timeout(*user) 
+	   || (*user)->flags & AGENT_FLAG_PURGE)
 	  user_remove_int(user);
 	else {
 	  user_ctx *ctx = *user;
