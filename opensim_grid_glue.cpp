@@ -1696,7 +1696,8 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;
   grid->sgrp = sgrp;
-  grid->old_xmlrpc_grid_proto = FALSE;
+  grid->old_xmlrpc_grid_proto = 
+    sgrp_config_get_bool(grid->sgrp,"grid","grid_server_is_xmlrpc",NULL);
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 

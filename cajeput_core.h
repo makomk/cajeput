@@ -65,6 +65,8 @@ float* sim_get_heightfield(struct simulator_ctx *sim);
 // These, on the other hand, require you to g_free the returned string
 char *sgrp_config_get_value(struct simgroup_ctx *sim, const char* section,
 			    const char* key);
+gboolean sgrp_config_get_bool(struct simgroup_ctx *sgrp, const char* section,
+			      const char* key, GError **error);
 char *sim_config_get_value(struct simulator_ctx *sim, const char* key,
 			   GError **error);
 gint sim_config_get_integer(struct simulator_ctx *sim, const char* key,

@@ -118,6 +118,11 @@ char *sgrp_config_get_value(struct simgroup_ctx *sgrp, const char* section,
   return g_key_file_get_value(sgrp->config,section,key,NULL);
 }
 
+gboolean sgrp_config_get_bool(struct simgroup_ctx *sgrp, const char* section,
+			      const char* key, GError **error) {
+  return g_key_file_get_boolean(sgrp->config,section,key,error);
+}
+
 char *sim_config_get_value(struct simulator_ctx *sim, const char* key,
 			   GError **error) {
   return g_key_file_get_value(sim->sgrp->config,sim->cfg_sect,key,error);
