@@ -32,8 +32,13 @@
 #include "opensim_grid_glue.h"
 #include <cassert>
 #include <netinet/ip.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
-static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+#define MIN_V2_PROTO_VERSION "0"
+#define MAX_V2_PROTO_VERSION "0"
+
+static void got_grid_login_response_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
   GRID_PRIV_DEF(sim);
   GHashTable *hash = NULL;
@@ -73,6 +78,7 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
     printf("DEBUG: simname mismatch; we're \"%s\", server says \"%s\"\n",
 	   sim_get_name(sim),s);
   }
+#if 0
   // FIXME - use user_recvkey, asset_recvkey, user_sendkey, asset_sendkey
   // FIXME - check region_locx/y, sim_ip, sim_port
   if(!soup_value_hash_lookup(hash,"user_url",G_TYPE_STRING,
@@ -81,6 +87,7 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
   if(!soup_value_hash_lookup(hash,"asset_url",G_TYPE_STRING,
 			     &s)) goto bad_resp;
   if(grid->assetserver == NULL) grid->assetserver = g_strdup(s);
+#endif
 
   //printf("DEBUG: login response ~%s~\n",msg->response_body->data);
   printf("Grid login complete\n");
@@ -99,7 +106,7 @@ static void got_grid_login_response(SoupSession *session, SoupMessage *msg, gpoi
   // plus a bunch of info we sent ourselves.
 }
 
-static void do_grid_login(struct simgroup_ctx *sgrp,
+static void do_grid_login_v1(struct simgroup_ctx *sgrp,
 			  struct simulator_ctx* sim) {
   char buf[40];
   uuid_t zero_uuid, u;
@@ -158,10 +165,113 @@ static void do_grid_login(struct simgroup_ctx *sgrp,
 
 
   caj_queue_soup_message(sgrp, msg,
-			 got_grid_login_response, sim);
+			 got_grid_login_response_v1, sim);
   
   // TODO
 }
+
+static bool check_grid_success_response(SoupMessage *msg) {
+  xmlDocPtr doc; xmlNodePtr node;
+  if(msg->status_code != 200) return false;
+  doc = xmlReadMemory(msg->response_body->data,
+		      msg->response_body->length,
+		      "grid_resp.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: couldn't parse gridserver XML response\n");
+    return false;
+  }
+
+  bool retval = false; char *status;
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "ServerResponse") != 0) {
+    printf("ERROR: unexpected root node %s\n",(char*)node->name);
+    goto out;
+  }
+  node = node->children; 
+  while(node != NULL && (node->type == XML_TEXT_NODE || 
+			 node->type == XML_COMMENT_NODE))
+    node = node->next;
+  if(node == NULL || strcmp((char*)node->name, "Result") != 0) {
+    printf("ERROR: bad success response from grid server\n");
+    goto out;
+  }
+  status = (char*)xmlNodeListGetString(doc, node->children, 1);
+  retval = (status != NULL && strcasecmp(status, "Success") == 0);
+  xmlFree(status);
+  
+ out:
+  xmlFreeDoc(doc); return retval;
+}
+
+
+
+static void got_grid_login_response_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
+  GRID_PRIV_DEF(sim);
+  if(msg->status_code != 200) {
+    printf("Grid login failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    exit(1);
+  }
+  printf("DEBUG: grid login response ~%s~\n", msg->response_body->data);
+  if(!check_grid_success_response(msg)) {
+    printf("ERROR: grid denied registration\n"); exit(1);
+  }
+}
+
+static void do_grid_login_v2(struct simgroup_ctx *sgrp,
+			     struct simulator_ctx* sim) {
+  char grid_uri[256]; char *req_body;
+  char region_id[40], map_texture[40], zero_uuid_str[40];
+  char loc_x[20], loc_y[20], region_uri[256];
+  char http_port[10], udp_port[10]; 
+  uuid_t zero_uuid, u;
+  uuid_clear(zero_uuid);
+  // GError *error = NULL;
+  SoupMessage *msg;
+  char *ip_addr = sim_get_ip_addr(sim);
+  GRID_PRIV_DEF(sim);
+
+  uuid_clear(zero_uuid);
+  uuid_unparse(zero_uuid, zero_uuid_str);
+
+  printf("Logging into grid...\n");
+  sim_get_region_uuid(sim, u);
+  uuid_unparse(u, region_id);
+  snprintf(loc_x, 20, "%u", (unsigned)sim_get_region_x(sim)*256);
+  snprintf(loc_y, 20, "%u", (unsigned)sim_get_region_y(sim)*256);
+  sprintf(http_port,"%i",(int)sim_get_http_port(sim));
+  sprintf(udp_port,"%i",(int)sim_get_udp_port(sim));
+  uuid_unparse(zero_uuid, map_texture);
+
+  // no, this isn't a mistake, we have to put the *UDP* port here and not the 
+  // HTTP one. Otherwise, stuff breaks. *glares at OpenSim*
+  snprintf(region_uri,256,"http://%s:%i",ip_addr, (int)sim_get_udp_port(sim));
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("uuid", region_id,
+			      "locX", loc_x, "locY", loc_y,
+			      "regionName", sim_get_name(sim),
+			      "serverIP", ip_addr,
+			      "serverHttpPort", http_port,
+			      "serverURI", region_uri,
+			      "serverPort", udp_port, // FIXME - is this right?
+			      "regionMapTexture", map_texture,
+			      "access", "21", // FIXME ???
+			      "VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "SCOPEID", zero_uuid_str, // FIXME - what the hell?
+			      "METHOD", "register",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_queue_soup_message(sgrp, msg,
+			 got_grid_login_response_v2, sim);
+}
+
 
 // -------- Login-related glue --------------
 
@@ -676,7 +786,7 @@ struct map_block_state {
     sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
 };
 
-static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct map_block_state *st = (map_block_state*)user_data;
   //GRID_PRIV_DEF(st->sim);
   struct map_block_info *blocks;
@@ -782,7 +892,7 @@ static void got_map_block_resp(SoupSession *session, SoupMessage *msg, gpointer 
   delete st;
 }
 
-static void map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x, 
+static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x, 
 			      int min_y, int max_y, 
 			      void(*cb)(void *priv, struct map_block_info *blocks, 
 					int count),
@@ -815,7 +925,189 @@ static void map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x,
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, msg,
-			 got_map_block_resp, new map_block_state(sgrp,cb,cb_priv));
+			 got_map_block_resp_v1, new map_block_state(sgrp,cb,cb_priv));
+}
+
+static bool unpack_v2_region_entry(xmlDocPtr doc, xmlNodePtr node, 
+				map_block_info *block) {
+  int got_flags = 0;
+  block->name = NULL; block->sim_ip = NULL;
+  for(xmlNodePtr child = node->children; child != NULL; child = child->next) {
+    if(child->type != XML_ELEMENT_NODE) continue;
+    if(strcmp((char*)child->name, "uuid") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL && uuid_parse(val, block->region_id) == 0)
+	got_flags |= 0x1;
+      free(val);
+    } else if(strcmp((char*)child->name,"locX") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL) {
+	block->x = atoi(val)/256; got_flags |= 0x2;
+      }
+      free(val);
+    } else if(strcmp((char*)child->name,"locY") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL) {
+	block->y = atoi(val)/256; got_flags |= 0x4;
+      }
+      free(val);
+    } else if(strcmp((char*)child->name,"regionName") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(block->name == NULL) block->name = val; 
+      else xmlFree(val);
+      got_flags |= 0x8;
+    } else if(strcmp((char*)child->name,"serverIP") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(block->sim_ip == NULL) block->sim_ip = val;
+      else xmlFree(val);
+      got_flags |= 0x10;
+    } else if(strcmp((char*)child->name,"serverHttpPort") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL) {
+	block->http_port = atoi(val); got_flags |= 0x20;
+      }
+      free(val);
+    } else if(strcmp((char*)child->name,"serverPort") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL) {
+	block->sim_port = atoi(val); got_flags |= 0x40;
+      }
+      free(val);
+    } else if(strcmp((char*)child->name, "regionMapTexture") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL && uuid_parse(val, block->map_image) == 0)
+	got_flags |= 0x80;
+      free(val);
+    } else if(strcmp((char*)child->name,"access") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(val != NULL) {
+	block->access = atoi(val); got_flags |= 0x100;
+      }
+      free(val);
+    } 
+    // we ignore serverURI, regionSecret
+  }
+  if(got_flags == 0) {
+    // sometimes we get handed a block with nothing in.
+    // FIXME - should check block has the type="List" attribute to avoid this.
+    xmlFree(block->name); xmlFree(block->sim_ip); return false;
+  } else if(got_flags != 0x1ff || block->name == NULL || block->sim_ip == NULL) {
+    printf("ERROR: incomplete map block from server, flags 0x%x\n", got_flags);
+    xmlFree(block->name); xmlFree(block->sim_ip); return false;
+  } else {
+    printf("DEBUG: processed map block data\n");
+    // not sent, legacy info
+    block->water_height = 20; block->num_agents = 0;
+    block->flags = 0; // should this be sent?
+    return true;
+  }
+}
+
+static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  xmlDocPtr doc; xmlNodePtr node;
+  struct map_block_state *st = (map_block_state*)user_data;
+  //GRID_PRIV_DEF(st->sim);
+  struct map_block_info *blocks;
+  size_t num_blocks = 0, alloc_blocks = 4;
+
+  caj_shutdown_release(st->sgrp);
+
+  if(msg->status_code != 200) {
+    printf("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+
+  printf("DEBUG: got map block response: ~%s~\n", msg->response_body->data);
+  
+  doc = xmlReadMemory(msg->response_body->data,
+		      msg->response_body->length,
+		      "grid_resp.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: couldn't parse gridserver XML response\n");
+    goto out_fail;
+  }
+
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "ServerResponse") != 0) {
+    printf("ERROR: bad gridserver XML response\n");
+    goto out_xmlfree_fail;
+  }
+
+  blocks = (map_block_info*)calloc(alloc_blocks, sizeof(map_block_info));
+  for(node = node->children; node != NULL; node = node->next) {
+    if(node->type != XML_ELEMENT_NODE) continue;
+    // FIXME - should check if it has the type="List" attribute.
+
+    printf("DEBUG: processing map block data\n");
+
+    if(num_blocks >= alloc_blocks) {
+      size_t new_alloc_blocks = alloc_blocks * 2;
+      size_t new_size = new_alloc_blocks*sizeof(map_block_info);
+      if(new_size / sizeof(map_block_info) < new_alloc_blocks) continue;
+      void* new_blocks = realloc(blocks, new_size);
+      if(new_blocks == NULL) continue;
+      alloc_blocks = new_alloc_blocks; blocks = (map_block_info*)new_blocks;
+    }
+
+    printf("DEBUG: still processing map block data\n");
+
+    map_block_info *block = &blocks[num_blocks]; 
+    if(unpack_v2_region_entry(doc, node, block)) num_blocks++;
+     
+  }
+
+  xmlFreeDoc(doc);
+  printf("DEBUG: got %i map blocks\n", num_blocks);
+  st->cb(st->cb_priv, blocks, num_blocks);
+  for(size_t i = 0; i < num_blocks; i++) {
+    free(blocks[i].name); free(blocks[i].sim_ip);
+  }
+  free(blocks); delete st; 
+  return;
+
+ out_xmlfree_fail:
+  xmlFreeDoc(doc);
+ out_fail:
+  st->cb(st->cb_priv, NULL, 0);
+  delete st;
+}
+
+static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x, 
+			      int min_y, int max_y, 
+			      void(*cb)(void *priv, struct map_block_info *blocks, 
+					int count),
+			      void *cb_priv) {
+  char grid_uri[256]; char *req_body;
+  char xmin_s[20], xmax_s[20], ymin_s[20], ymax_s[20];
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  printf("DEBUG: map block request (%i,%i)-(%i,%i)\n",
+	 min_x, min_y, max_x, max_y);
+
+  snprintf(xmin_s, 20, "%i", min_x*256);
+  snprintf(xmax_s, 20, "%i", max_x*256);
+  snprintf(ymin_s, 20, "%i", min_y*256);
+  snprintf(ymax_s, 20, "%i", max_y*256);
+
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
+			      "SCOPEID", zero_uuid_str,
+			      "XMIN", xmin_s, "XMAX", xmax_s,
+			      "YMIN", ymin_s, "YMAX", ymax_s,
+			      "METHOD", "get_region_range",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
+			 got_map_multi_resp_v2, new map_block_state(sgrp,cb,cb_priv));
 }
 
 
@@ -826,7 +1118,7 @@ struct region_info_state {
 };
 
 
-static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct region_info_state *st = (region_info_state*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
@@ -895,7 +1187,7 @@ static void got_region_info(SoupSession *session, SoupMessage *msg, gpointer use
 // WARNING: while superficially, this looks like a map block request-type
 // function, it does NOT return enough information for such a purpose, and is
 // for INTERNAL USE ONLY.
-static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
+static void req_region_info_v1(struct simulator_ctx* sim, uint64_t handle,
 			    void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
 			    void *cb_priv) {
   GRID_PRIV_DEF(sim);
@@ -925,10 +1217,104 @@ static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
 
   sim_shutdown_hold(sim);
   sim_queue_soup_message(sim, msg,
-			 got_region_info, st);
+			 got_region_info_v1, st);
 
 }
 
+static void got_region_info_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  xmlDocPtr doc; xmlNodePtr node;
+  struct region_info_state *st = (region_info_state*)user_data;
+  struct map_block_info info;
+  //GRID_PRIV_DEF(st->sim);
+  char *s; //uuid_t u;
+
+  sim_shutdown_release(st->sim);
+
+  if(msg->status_code != 200) {
+    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+
+  // FIXME - TODO
+  printf("DEBUG: got region info response ~%s~\n", msg->response_body->data);
+
+  doc = xmlReadMemory(msg->response_body->data,
+		      msg->response_body->length,
+		      "grid_resp.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: couldn't parse gridserver XML response\n");
+    goto out_fail;
+  }
+
+  
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "ServerResponse") != 0) {
+    printf("ERROR: bad get_region_by_position XML response\n");
+    goto out_xmlfree_fail;
+  }
+  node = node->children;
+  if(strcmp((char*)node->name, "result") != 0) {
+    printf("ERROR: bad get_region_by_position XML response\n");
+    goto out_xmlfree_fail;
+  }
+
+  if(unpack_v2_region_entry(doc, node, &info)) {
+    st->cb(st->sim, st->cb_priv, &info);
+    xmlFree(info.name); xmlFree(info.sim_ip);
+    xmlFreeDoc(doc); delete st; return;
+  }
+
+ out_xmlfree_fail:
+  xmlFreeDoc(doc);
+ out_fail:
+  st->cb(st->sim, st->cb_priv, NULL);
+  delete st;
+}
+
+static void req_region_info_v2(struct simulator_ctx* sim, uint64_t handle,
+			       void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
+			       void *cb_priv) {
+  char grid_uri[256]; char *req_body;
+  char x_s[20], y_s[20];
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF(sim);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  snprintf(x_s, 20, "%i", (unsigned)(handle>>32));
+  snprintf(y_s, 20, "%i", (unsigned)(handle & 0xffffffff));
+
+  printf("DEBUG: region info request (%s,%s)\n",
+	 x_s, y_s);
+
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
+			      "SCOPEID", zero_uuid_str,
+			      "X", x_s, "Y", y_s,
+			      "METHOD", "get_region_by_position",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  region_info_state *st = new region_info_state();
+  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+
+  sim_shutdown_hold(sim);
+  sim_queue_soup_message(sim, msg, got_region_info_v2, st);
+  
+}
+
+static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
+			    void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
+			    void *cb_priv) {
+  GRID_PRIV_DEF(sim);
+  if(grid->old_xmlrpc_grid_proto)
+    req_region_info_v1(sim, handle, cb, cb_priv);
+  else req_region_info_v2(sim, handle, cb, cb_priv);
+}
 
 struct region_by_name_state {
   simgroup_ctx* sgrp;
@@ -936,7 +1322,7 @@ struct region_by_name_state {
   void *cb_priv;
 };
 
-static void got_region_by_name(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+static void got_region_by_name_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct region_by_name_state *st = (region_by_name_state*)user_data;
   struct map_block_info *info; int count;
   //GRID_PRIV_DEF(st->sim);
@@ -1034,7 +1420,7 @@ static void got_region_by_name(SoupSession *session, SoupMessage *msg, gpointer 
   delete st;
 }
 
-static void map_name_request(struct simgroup_ctx* sgrp, const char* name,
+static void map_name_request_v1(struct simgroup_ctx* sgrp, const char* name,
 			    void(*cb)(void* cb_priv, map_block_info* info, int count),
 			    void *cb_priv) {
   GRID_PRIV_DEF_SGRP(sgrp);
@@ -1062,8 +1448,40 @@ static void map_name_request(struct simgroup_ctx* sgrp, const char* name,
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, msg,
-			 got_region_by_name, st);
+			 got_region_by_name_v1, st);
 
+}
+
+static void map_name_request_v2(struct simgroup_ctx* sgrp, const char* name,
+			    void(*cb)(void* cb_priv, map_block_info* info, int count),
+				void *cb_priv) {
+
+  char grid_uri[256]; char *req_body;
+  char max_results[20];
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  printf("DEBUG: map name request %s\n", name);
+
+  snprintf(max_results, 20, "%i", 20); // FIXME!
+
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
+			      "SCOPEID", zero_uuid_str,
+			      "NAME", name, "MAX", max_results,
+			      "METHOD", "get_regions_by_name",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
+			 got_map_multi_resp_v2, new map_block_state(sgrp,cb,cb_priv));
 }
 
 void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason) {
@@ -1278,16 +1696,23 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;
   grid->sgrp = sgrp;
+  grid->old_xmlrpc_grid_proto = FALSE;
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 
-  hooks->do_grid_login = do_grid_login;
+  if(grid->old_xmlrpc_grid_proto) {
+    hooks->do_grid_login = do_grid_login_v1;
+    hooks->map_block_request = map_block_request_v1;
+    hooks->map_name_request = map_name_request_v1;
+  } else {
+    hooks->do_grid_login = do_grid_login_v2;
+    hooks->map_block_request = map_block_request_v2;
+    hooks->map_name_request = map_name_request_v2;
+  }
   hooks->user_created = user_created;
   hooks->user_logoff = user_logoff;
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
-  hooks->map_block_request = map_block_request;
-  hooks->map_name_request = map_name_request;
   hooks->do_teleport = do_teleport;
   hooks->fetch_inventory_folder = fetch_inventory_folder;
   hooks->fetch_inventory_item = fetch_inventory_item;
@@ -1301,13 +1726,18 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   hooks->put_asset = osglue_put_asset;
   hooks->cleanup = cleanup;
 
-  grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","gridserver");
+  grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","grid_server");
   grid->inventoryserver = sgrp_config_get_value(grid->sgrp,"grid","inventory_server");
-  grid->userserver = grid->assetserver = NULL;
+  grid->userserver =  sgrp_config_get_value(grid->sgrp,"grid","user_server");
+  grid->assetserver = sgrp_config_get_value(grid->sgrp,"grid","asset_server");
+  // FIXME - remove send/recv keys (not used anymore)
   grid->grid_recvkey = sgrp_config_get_value(grid->sgrp,"grid","grid_recvkey");
   grid->grid_sendkey = sgrp_config_get_value(grid->sgrp,"grid","grid_sendkey");
-  grid->user_recvkey = grid->user_sendkey = NULL;
-  grid->asset_recvkey = grid->asset_sendkey = NULL;
+
+  if(grid->gridserver == NULL || grid->inventoryserver == NULL ||
+     grid->userserver == NULL || grid->assetserver == NULL) {
+    printf("ERROR: grid not configured properly\n"); exit(1);
+  }
 
   caj_http_add_handler(sgrp, "/", xmlrpc_handler, 
 		       sgrp, NULL);

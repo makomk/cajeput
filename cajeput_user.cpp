@@ -1116,8 +1116,6 @@ static void rez_object_set_perms(primitive_obj *prim,
   // OK, first we do permission propagation on owner change.
   // We don't want to do this after applying the inventory permissions,
   // because the new owner may have edited the next owner perms.
-  // This relies on various code in OpenSim behaving itself and updating 
-  // inventory permissions, which it doesn't seem to - FIXME!
   if(uuid_compare(prim->owner, desc->ctx->user_id) != 0) {
     prim->perms.base &= prim->perms.next;
   }

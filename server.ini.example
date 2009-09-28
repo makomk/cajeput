@@ -1,6 +1,8 @@
 [grid]
-gridserver=http://127.0.0.1:8001/
+grid_server=http://127.0.0.1:8001/
+user_server=http://127.0.0.1:8002/
 inventory_server=http://127.0.0.1:8003/
+asset_server=http://127.0.0.1:8003/
 grid_recvkey=null
 grid_sendkey=null
 

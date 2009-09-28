@@ -31,11 +31,11 @@ struct user_name {
 };
 
 struct grid_glue_ctx {
+  int old_xmlrpc_grid_proto;
   simgroup_ctx *sgrp;
   gchar *userserver, *gridserver, *assetserver;
   gchar *inventoryserver;
-  gchar *user_recvkey, *asset_recvkey, *grid_recvkey;
-  gchar *user_sendkey, *asset_sendkey, *grid_sendkey;
+  gchar *grid_recvkey, *grid_sendkey;
   uuid_t region_secret;
 
   // std::map<obj_uuid_t,user_name> uuid_name_cache; // TODO
