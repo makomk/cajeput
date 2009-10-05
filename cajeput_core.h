@@ -32,7 +32,7 @@
 extern "C" {
 #endif
 
-#define CAJEPUT_API_VERSION 0x0013
+#define CAJEPUT_API_VERSION 0x0014
 
 struct user_ctx;
 struct simulator_ctx;

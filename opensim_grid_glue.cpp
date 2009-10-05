@@ -1553,25 +1553,21 @@ static void do_teleport(struct simgroup_ctx* sgrp,
   req_region_info(sim, tp->region_handle, do_teleport_rinfo_cb, tp);
 }
 
-struct user_profile {
-  uuid_t uuid;
-  char *first, *last;
-};
-
 struct user_by_id_state {
   struct simgroup_ctx *sgrp;
-  void(*cb)(user_profile* profile, void *priv);
+  caj_user_profile_cb cb;
   void *cb_priv;
   
-  user_by_id_state(simgroup_ctx *sgrp_, void(*cb_)(user_profile* profile, void *priv),
+  user_by_id_state(simgroup_ctx *sgrp_, void(*cb_)(caj_user_profile* profile, void *priv),
 		   void *cb_priv_) : sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
 };
 
 static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct user_by_id_state *st = (user_by_id_state*)user_data;
   //GRID_PRIV_DEF(st->sim);
-  user_profile profile;
+  caj_user_profile profile;
   GHashTable *hash = NULL;
+  char *s;
 
   caj_shutdown_release(st->sgrp);
 
@@ -1597,9 +1593,43 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
     goto bad_data;
   if(!soup_value_hash_lookup(hash, "lastname", G_TYPE_STRING, &profile.last))
     goto bad_data;
-  
-  // FIXME - TODO parse rest of response
+  if(!soup_value_hash_lookup(hash, "profile_created", G_TYPE_STRING, &s))
+    goto bad_data;
+  profile.creation_time = atol(s);
+  if(!soup_value_hash_lookup(hash, "email", G_TYPE_STRING, &profile.email))
+    profile.email = NULL;
+  // FIXME - use server_inventory/server_asset
+  if(!soup_value_hash_lookup(hash, "profile_about", G_TYPE_STRING,
+			     &profile.about_text))
+    goto bad_data;
+  if(helper_soup_hash_get_uuid(hash, "profile_image",
+			       profile.profile_image))
+    goto bad_data;
+  if(helper_soup_hash_get_uuid(hash, "partner",
+			       profile.partner))
+    uuid_clear(profile.partner);
+  if(!soup_value_hash_lookup(hash, "profile_firstlife_about", G_TYPE_STRING,
+			     &profile.first_life_text))
+    goto bad_data;
+  if(helper_soup_hash_get_uuid(hash, "profile_firstlife_image",
+			       profile.first_life_image))
+    goto bad_data;
+  if(!soup_value_hash_lookup(hash, "home_region", G_TYPE_STRING, &s))
+    goto bad_data;
+  profile.home_region = atoll(s);
+  if(soup_value_hash_lookup(hash, "user_flags", G_TYPE_STRING, &s))
+    profile.user_flags = atoi(s) & 0xff; // yes, really!
+  else profile.user_flags = 0;
+  // FIXME - use home_region_id, home_coordinates_x/y/z, and
+  // home_look_x/y/z, and perhaps profile_lastlogin?
+  // TODO - use profile_can_do/profile_want_do, god_level, custom_type?
 
+  // It appears custom_type is actually the CharterMember data, if it exists.
+  // However, OpenSim also has some horrid alternative method of encoding 
+  // CharterMember data in the user_flags value. Ewwwww.
+  
+  profile.web_url = (char*)""; // OpenSim doesn't support this yet!
+  
   // FIXME - cache ID to username mapping!
   
   st->cb(&profile, st->cb_priv);
@@ -1618,8 +1648,7 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
 
 
 static void user_profile_by_id(struct simgroup_ctx *sgrp, uuid_t id, 
-			       void(*cb)(user_profile* profile, void *priv),
-			       void *cb_priv) {
+			       caj_user_profile_cb cb, void *cb_priv) {
   char buf[40];
   GHashTable *hash;
   //GError *error = NULL;
@@ -1658,7 +1687,7 @@ struct uuid_to_name_state {
   };
 };
 
-static void uuid_to_name_cb(user_profile* profile, void *priv) {
+static void uuid_to_name_cb(caj_user_profile* profile, void *priv) {
   uuid_to_name_state* st = (uuid_to_name_state*)priv;
   if(profile == NULL) {
     st->cb(st->uuid,NULL,NULL,st->cb_priv);
@@ -1719,6 +1748,7 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   hooks->fetch_inventory_item = fetch_inventory_item;
   hooks->fetch_system_folders = fetch_system_folders;
   hooks->uuid_to_name = uuid_to_name;
+  hooks->user_profile_by_id = user_profile_by_id;
 
   hooks->add_inventory_item = add_inventory_item;
 

@@ -761,6 +761,11 @@ void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id,
   }
 }
 
+void caj_get_user_profile(struct simgroup_ctx *sgrp,  uuid_t id, 
+			  caj_user_profile_cb cb, void *cb_priv) {
+  sgrp->gridh.user_profile_by_id(sgrp, id, cb, cb_priv);
+}
+
 struct rez_object_desc {
   user_ctx* ctx;
   uuid_t inv_item_id;

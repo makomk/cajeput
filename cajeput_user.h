@@ -249,6 +249,27 @@ void user_teleport_add_temp_child(struct user_ctx* ctx, uint64_t region,
 				  uint32_t sim_ip, uint16_t sim_port,
 				  const char* seed_cap);
 
+struct caj_user_profile {
+  uuid_t uuid;
+  char *first, *last;
+  char *email; char *web_url;
+
+  char *about_text;
+  uuid_t profile_image;
+  uuid_t partner;
+
+  char *first_life_text;
+  uuid_t first_life_image;
+
+  uint64_t home_region; // FIXME - OpenSim-ism, remove?
+  uint32_t user_flags;
+  uint32_t creation_time; // FIXME - too small?
+};
+
+typedef void(*caj_user_profile_cb)(caj_user_profile* profile, void *priv);
+void caj_get_user_profile(struct simgroup_ctx *sgrp,  uuid_t id, 
+			  caj_user_profile_cb cb, void *cb_priv);
+
 // ----------------- USER HOOKS --------------------------
 
   // notification that this user context is going away
@@ -281,7 +302,6 @@ struct inventory_contents {
   unsigned int num_items, alloc_items;
   struct inventory_item* items;
 };
-
 
 struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id);
 struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,

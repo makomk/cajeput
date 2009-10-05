@@ -117,6 +117,8 @@ struct cajeput_grid_hooks {
 		      void(*cb)(uuid_t uuid, const char* first, 
 				const char* last, void *priv),
 		      void *cb_priv);
+  void (*user_profile_by_id)(struct simgroup_ctx *sgrp, uuid_t id, 
+			     caj_user_profile_cb cb, void *cb_priv);
 };
 
 // void do_grid_login(struct simulator_ctx* sim);

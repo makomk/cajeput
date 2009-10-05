@@ -1962,6 +1962,53 @@ static void handle_UUIDNameRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   }
 }
 
+static void avatar_prop_resp(caj_user_profile* profile, void *priv) {
+  user_ctx **pctx = (user_ctx**)priv;
+  if(*pctx) {
+    user_ctx *ctx = *pctx; omuser_ctx *lctx = (omuser_ctx*)ctx->user_priv;
+    user_del_self_pointer(pctx);
+    
+    if(profile != NULL) {
+      char buf[40]; struct tm tm; time_t birth_time;
+
+      printf("DEBUG: Sending AvatarPropertiesReply for %s %s\n", 
+	     profile->first, profile->last);
+      SL_DECLMSG(AvatarPropertiesReply, reply);
+      SL_DECLBLK(AvatarPropertiesReply, AgentData, ad, &reply);
+      uuid_copy(ad->AgentID, ctx->user_id);
+      uuid_copy(ad->AvatarID, profile->uuid);
+
+      SL_DECLBLK(AvatarPropertiesReply, PropertiesData, props, &reply);
+      uuid_copy(props->ImageID, profile->profile_image);
+      uuid_copy(props->FLImageID, profile->first_life_image);
+      caj_string_set(&props->AboutText, profile->about_text);
+      caj_string_set(&props->FLAboutText, profile->first_life_text);
+      birth_time = profile->creation_time;
+      gmtime_r(&birth_time, &tm); // FIXME - time zone?
+      strftime(buf, 40, "%Y-%m-%d", &tm);
+      caj_string_set(&props->BornOn, buf);
+      caj_string_set(&props->ProfileURL, profile->web_url);
+      caj_string_set(&props->CharterMember, ""); // FIXME!!!
+      props->Flags = profile->user_flags;
+      reply.flags |= MSG_RELIABLE;
+      sl_send_udp(lctx, &reply);
+    } else {
+      printf("DEBUG: avatar profile request FAILED!\n");
+    }
+  }
+  delete pctx;
+  
+}
+
+static void handle_AvatarPropertiesRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AvatarPropertiesRequest, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+
+   user_ctx **pctx = new user_ctx*(); *pctx = lctx->u;
+   user_add_self_pointer(pctx);
+   caj_get_user_profile(lctx->u->sgrp, ad->AvatarID, avatar_prop_resp, pctx);
+}
+
 static void handle_UpdateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(UpdateInventoryItem, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
@@ -3057,6 +3104,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectAdd);
   ADD_HANDLER(RequestObjectPropertiesFamily);
   ADD_HANDLER(UUIDNameRequest);
+  ADD_HANDLER(AvatarPropertiesRequest);
   ADD_HANDLER(ObjectSelect);
   ADD_HANDLER(MultipleObjectUpdate);
   ADD_HANDLER(ObjectImage);
