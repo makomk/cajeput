@@ -2714,7 +2714,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
 
   if(prim->attach_point != 0 &&
      uuid_compare(prim->owner, lctx->u->user_id) == 0) {
-    char s = (char*)malloc(26+36+1);
+    char s[26+36+1];
     strcpy(s, "AttachItemID STRING RW SV ");
     uuid_unparse(prim->inv_item_id, s+26);
     caj_string_set(&objd->NameValue, s);
