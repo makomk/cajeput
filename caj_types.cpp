@@ -35,37 +35,19 @@ void caj_mult_quat_quat(struct caj_quat *out, const struct caj_quat* q1,
 
 void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
 			 const struct caj_vector3 *vec) {
-  // FIXME - blind copy and paste from OpenSim code
   caj_vector3 ret;
-  ret.x =
-    rot->w * rot->w * vec->x +
-    2.f * rot->y * rot->w * vec->z -
-    2.f * rot->z * rot->w * vec->y +
-    rot->x * rot->x * vec->x +
-    2.f * rot->y * rot->x * vec->y +
-    2.f * rot->z * rot->x * vec->z -
-    rot->z * rot->z * vec->x -
-    rot->y * rot->y * vec->x;
 
-  ret.y =
-    2.f * rot->x * rot->y * vec->x +
-    rot->y * rot->y * vec->y +
-    2.f * rot->z * rot->y * vec->z +
-    2.f * rot->w * rot->z * vec->x -
-    rot->z * rot->z * vec->y +
-    rot->w * rot->w * vec->y -
-    2.f * rot->x * rot->w * vec->z -
-    rot->x * rot->x * vec->y;
-  
-  ret.z =
-    2.f * rot->x * rot->z * vec->x +
-    2.f * rot->y * rot->z * vec->y +
-    rot->z * rot->z * vec->z -
-    2.f * rot->w * rot->y * vec->x -
-    rot->y * rot->y * vec->z +
-    2.f * rot->w * rot->x * vec->y -
-    rot->x * rot->x * vec->z +
-    rot->w * rot->w * vec->z;
+  ret.x = (rot->w*rot->w + rot->x*rot->x - rot->y*rot->y - rot->z*rot->z)*vec->x +
+    2.0*(rot->x*rot->y - rot->w*rot->z)*vec->y +
+    2.0*(rot->x*rot->z + rot->w*rot->y)*vec->z;
+
+  ret.y = 2.0*(rot->x*rot->y + rot->w*rot->z)*vec->x +
+    (rot->w*rot->w - rot->x*rot->x + rot->y*rot->y - rot->z*rot->z)*vec->y +
+    2.0*(rot->y*rot->z - rot->w*rot->x)*vec->z;
+
+  ret.z = 2.0*(rot->x*rot->z - rot->w*rot->y)*vec->x +
+    2.0*(rot->y*rot->z + rot->w*rot->x)*vec->y +
+    (rot->w*rot->w - rot->x*rot->x - rot->y*rot->y + rot->z*rot->z)*vec->z;
   
   *out = ret;
 }
