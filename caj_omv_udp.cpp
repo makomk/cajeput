@@ -2527,10 +2527,10 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   caj_string_set_bin(&objd->ObjectData, obj_data, 76);
 
   objd->ParentID = 0;
-  objd->UpdateFlags = 0; // TODO
+  objd->UpdateFlags = PRIM_FLAG_PHYSICAL|PRIM_FLAG_ANY_OWNER|
+    PRIM_FLAG_INVENTORY_EMPTY|PRIM_FLAG_CAST_SHADOWS;
 
   caj_string_copy(&objd->TextureEntry, &ctx->texture_entry);
-  //objd->TextureEntry.len = 0;
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
   objd->Text.len = 0;
@@ -2542,14 +2542,11 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   memset(objd->OwnerID,0,16);
   memset(objd->Sound,0,16);
 
-  // FIXME - copied from OpenSim
-  objd->UpdateFlags = 61 + (9 << 8) + (130 << 16) + (16 << 24);
+  // not convinced this is really needed, but...
   objd->PathCurve = PATH_CURVE_STRAIGHT;
   objd->ProfileCurve = PROFILE_SHAPE_SQUARE;
-  objd->PathScaleX = 100;
-  objd->PathScaleY = 100;
-  // END FIXME
-  
+  objd->PathScaleX = 100; objd->PathScaleY = 100;
+
   name[0] = 0;
   snprintf(name,0xff,"FirstName STRING RW SV %s\nLastName STRING RW SV %s\nTitle STRING RW SV %s",
 	   av_user->first_name,av_user->last_name,av_user->group_title); // FIXME
