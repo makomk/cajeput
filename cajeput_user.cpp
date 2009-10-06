@@ -238,6 +238,75 @@ void user_update_throttles(struct user_ctx *ctx) {
   }  
 }
 
+// FIXME - move this somewhere saner!
+static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
+  if(uuid_compare(ctx->default_anim.anim, anim) != 0) {
+    uuid_copy(ctx->default_anim.anim, anim);
+    ctx->default_anim.sequence = ctx->anim_seq++; // FIXME
+    ctx->default_anim.caj_type = CAJ_ANIM_TYPE_DEFAULT;
+    uuid_copy(ctx->default_anim.obj, ctx->user_id);
+    ctx->flags |= AGENT_FLAG_ANIM_UPDATE;
+  }
+}
+
+// FIXME - move these to a header.
+#define AGENT_CONTROL_AT_POS (1<<0)
+#define AGENT_CONTROL_AT_NEG (1<<1)
+#define AGENT_CONTROL_LEFT_POS (1<<2)
+#define AGENT_CONTROL_LEFT_NEG (1<<3)
+#define AGENT_CONTROL_UP_POS (1<<4)
+#define AGENT_CONTROL_UP_NEG (1<<5)
+#define AGENT_CONTROL_FLY (1<<13)
+
+void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
+  if(ctx->av != NULL) {
+    int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
+    int is_running = (ctx->flags & AGENT_FLAG_ALWAYS_RUN) != 0;
+    caj_vector3 velocity; 
+    velocity.x = 0.0f; velocity.y = 0.0f; velocity.z = 0.0f;
+    if(control_flags & AGENT_CONTROL_AT_POS)
+      velocity.x = is_flying ? 6.0 : (is_running ? 4.0 : 2.0);
+    if(control_flags & AGENT_CONTROL_AT_NEG)
+      velocity.x =  is_flying ? 4.0 : -1.5;
+    if(control_flags & AGENT_CONTROL_LEFT_POS)
+      velocity.y = 1.5;
+    if(control_flags & AGENT_CONTROL_LEFT_NEG)
+      velocity.y = -1.5;
+    if(control_flags & AGENT_CONTROL_UP_POS)
+      velocity.z = 4.0;
+    if(control_flags & AGENT_CONTROL_UP_NEG)
+      velocity.z = -4.0;
+    caj_mult_vect3_quat(&velocity,&ctx->av->ob.rot,&velocity);
+    ctx->sim->physh.set_avatar_flying(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,is_flying);
+    ctx->sim->physh.set_target_velocity(ctx->sim,ctx->sim->phys_priv,&ctx->av->ob,velocity);
+
+    // FIXME - iffy
+    if(is_flying) {
+      // we don't have any auto-land code here. Since we send the right
+      // foot plane, the viewer takes care of it for us. I eventually managed
+      // to figure out why the OpenSim code works, though, and it's screwy.
+
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
+	set_default_anim(ctx, fly_anim);
+      } else if(control_flags & AGENT_CONTROL_UP_POS) {
+	set_default_anim(ctx, hover_up_anim);
+      } else if(control_flags & AGENT_CONTROL_UP_NEG) {
+	set_default_anim(ctx, hover_down_anim);
+      } else {
+	set_default_anim(ctx, hover_anim);
+      }
+    } else if(is_running && (control_flags & AGENT_CONTROL_AT_POS)) {
+ 	set_default_anim(ctx, run_anim);
+    } else {
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG|
+			  AGENT_CONTROL_LEFT_POS|AGENT_CONTROL_LEFT_NEG)) {
+	set_default_anim(ctx, walk_anim);
+      } else {
+	set_default_anim(ctx, stand_anim);
+      }
+    }
+  }  
+}
 
 // FIXME - optimise this
 void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,

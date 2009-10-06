@@ -208,6 +208,8 @@ uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim);
 void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector3 pos);
 void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point);
 void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim);
+
+void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much
