@@ -4,6 +4,7 @@
 
 extern uuid_t stand_anim;
 extern uuid_t walk_anim;
+extern uuid_t run_anim;
 extern uuid_t hover_anim;
 extern uuid_t fly_anim;
 extern uuid_t hover_down_anim;

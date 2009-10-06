@@ -435,6 +435,14 @@ static void agent_PUT_handler(SoupServer *server,
       set_wearables_from_json(user, node);
     }
 
+    {
+      int always_run;
+      if(helper_json_get_boolean(object,"always_run", &always_run) == 0) {
+	if(always_run) user_set_flag(user, AGENT_FLAG_ALWAYS_RUN);
+	else user_clear_flag(user, AGENT_FLAG_ALWAYS_RUN);
+      }
+    }
+
     // FIXME - TODO: pos, etc...
     
   } else {
@@ -829,7 +837,8 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_string(obj,"control_flags","0"); // FIXME - ???
   helper_json_add_double(obj,"energy_level",0.0); // not really used anymore?
   helper_json_add_string(obj,"god_level","0"); // FIXME - ???
-  helper_json_add_bool(obj,"always_run",false); // FIXME - once we store this, set it.
+  helper_json_add_bool(obj,"always_run",
+		       (user_get_flags(tp->ctx) & AGENT_FLAG_ALWAYS_RUN) != 0);
   helper_json_add_string(obj,"prey_agent","00000000-0000-0000-0000-000000000000"); // FIXME
   helper_json_add_string(obj,"active_group_id","00000000-0000-0000-0000-000000000000"); // FIXME
 

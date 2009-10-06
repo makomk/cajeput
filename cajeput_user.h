@@ -85,6 +85,7 @@ extern const char *sl_wearable_names[]; // don't forget to update this!
 #define AGENT_FLAG_TELEPORT_COMPLETE 0x400
 #define AGENT_FLAG_IN_SLOW_REMOVAL 0x800 // for teleports
 #define AGENT_FLAG_PAUSED 0x1000 // FIXME - actually pause stuff!!!
+#define AGENT_FLAG_ALWAYS_RUN 0x2000
 
 typedef void(*user_generic_cb)(user_ctx* user, void* priv);
 

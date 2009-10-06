@@ -228,16 +228,17 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
     // FIXME - this is a horrid hack
     uint32_t control_flags = ad->ControlFlags;
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
+    int is_running = (lctx->u->flags & AGENT_FLAG_ALWAYS_RUN) != 0;
     caj_vector3 velocity; 
     velocity.x = 0.0f; velocity.y = 0.0f; velocity.z = 0.0f;
     if(control_flags & AGENT_CONTROL_AT_POS)
-      velocity.x = is_flying ? 6.0 : 2.0;
+      velocity.x = is_flying ? 6.0 : (is_running ? 4.0 : 2.0);
     if(control_flags & AGENT_CONTROL_AT_NEG)
       velocity.x =  is_flying ? 4.0 : -1.5;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
-      velocity.y = -1.5;
-    if(control_flags & AGENT_CONTROL_LEFT_NEG)
       velocity.y = 1.5;
+    if(control_flags & AGENT_CONTROL_LEFT_NEG)
+      velocity.y = -1.5;
     if(control_flags & AGENT_CONTROL_UP_POS)
       velocity.z = 4.0;
     if(control_flags & AGENT_CONTROL_UP_NEG)
@@ -261,6 +262,8 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
       } else {
 	set_default_anim(ctx, hover_anim);
       }
+    } else if(is_running && (control_flags & AGENT_CONTROL_AT_POS)) {
+ 	set_default_anim(ctx, run_anim);
     } else {
       if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG|
 			  AGENT_CONTROL_LEFT_POS|AGENT_CONTROL_LEFT_NEG)) {
@@ -270,6 +273,14 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
       }
     }
   }
+}
+
+static void handle_SetAlwaysRun_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(SetAlwaysRun, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  if(ad->AlwaysRun)
+    user_set_flag(lctx->u, AGENT_FLAG_ALWAYS_RUN);
+  else user_clear_flag(lctx->u, AGENT_FLAG_ALWAYS_RUN);
 }
 
 static void handle_AgentAnimation_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -3118,6 +3129,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   sim_add_shutdown_hook(sim, shutdown_handler, lsim);
 
   ADD_HANDLER(AgentUpdate);
+  ADD_HANDLER(SetAlwaysRun);
   ADD_HANDLER(StartPingCheck);
   ADD_HANDLER(CompleteAgentMovement);
   ADD_HANDLER(EconomyDataRequest);
