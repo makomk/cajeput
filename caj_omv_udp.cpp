@@ -307,6 +307,49 @@ static void handle_StartPingCheck_msg(struct omuser_ctx* lctx, struct sl_message
   sl_send_udp(lctx,&pong);
 }
 
+static void handle_EconomyDataRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLMSG(EconomyData, resp);
+  SL_DECLBLK(EconomyData, Info, info, &resp);
+  info->ObjectCapacity = 0; // FIXME?
+  info->ObjectCount = 0; // FIXME?
+  info->PriceEnergyUnit = 0;
+  info->PriceObjectClaim = 0;
+  info->PricePublicObjectDecay = 0;
+  info->PricePublicObjectDelete = 0;
+  info->PriceParcelClaim = 0;
+  info->PriceParcelClaimFactor = 0.0f;
+  info->PriceUpload = 0; // FIXME.
+  info->PriceRentLight = 0;
+  info->TeleportMinPrice = 0;
+  info->TeleportPriceExponent = 0.0f; // should be legal, touch wood.
+  info->EnergyEfficiency = 1.0f; // FIXME - use 0.0f for better zerocoding?
+  info->PriceObjectRent = 0.0f;
+  info->PriceObjectScaleFactor = 0.0f;
+  info->PriceParcelRent = 0;
+  info->PriceGroupCreate = 0; // FIXME
+  resp.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &resp);
+}
+
+static void handle_MoneyBalanceRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(MoneyBalanceRequest, AgentData, ad, msg);
+  SL_DECLBLK_GET1(MoneyBalanceRequest, MoneyData, md, msg);
+  if(ad == NULL || md == NULL || VALIDATE_SESSION(ad)) return;
+
+  SL_DECLMSG(MoneyBalanceReply, reply);
+  SL_DECLBLK(MoneyBalanceReply, MoneyData, rmd, &reply);
+  uuid_copy(rmd->AgentID, lctx->u->user_id);
+  uuid_copy(rmd->TransactionID, md->TransactionID);
+  rmd->TransactionSuccess = TRUE;
+  rmd->MoneyBalance = 0;
+  rmd->SquareMetersCredit = 0;
+  rmd->SquareMetersCommitted = 0;
+  caj_string_set(&rmd->Description, "");
+
+  reply.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &reply);
+}
+
 static void chat_callback(void *user_priv, const struct chat_message *msg) {
   omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(ChatFromSimulator, chat);
@@ -3077,6 +3120,8 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(AgentUpdate);
   ADD_HANDLER(StartPingCheck);
   ADD_HANDLER(CompleteAgentMovement);
+  ADD_HANDLER(EconomyDataRequest);
+  ADD_HANDLER(MoneyBalanceRequest);
   ADD_HANDLER(LogoutRequest);
   ADD_HANDLER(ChatFromViewer);
   ADD_HANDLER(AgentThrottle);
