@@ -161,11 +161,11 @@ void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
 		      void *cb_priv);
 
 void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
-				 uuid_t folder_id,
+				 uuid_t folder_id,  uuid_t owner_id,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
-void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
+void user_fetch_inventory_item(user_ctx *user, uuid_t item_id, uuid_t owner_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);
@@ -205,7 +205,8 @@ int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 // calculate the permissions part of the ObjectUpdate UpdateFlags
 uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim);
 
-void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector3 pos);
+void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, 
+		     uuid_t owner_id, caj_vector3 pos);
 void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point);
 void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim);
 

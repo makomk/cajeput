@@ -391,36 +391,44 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
 }
 
 void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
-				 uuid_t folder_id,
+				 uuid_t folder_id, uuid_t owner_id,
 				  void(*cb)(struct inventory_contents* inv, 
 					    void* priv),
 				  void *cb_priv) {
-  std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
-       sgrp->inv_lib.find(folder_id);
-  if(iter == sgrp->inv_lib.end()) {
+  if(uuid_compare(owner_id, user->user_id) == 0) {
     sgrp->gridh.fetch_inventory_folder(sgrp,user,user->grid_priv,
-				      folder_id,cb,cb_priv);
+				       folder_id,cb,cb_priv);
   } else {
-    cb(iter->second, cb_priv);
+    std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+      sgrp->inv_lib.find(folder_id);
+    if(iter == sgrp->inv_lib.end()) {
+      cb(NULL, cb_priv);
+    } else {
+      cb(iter->second, cb_priv);
+    }
   }
 }
 
-void user_fetch_inventory_item(user_ctx *user, uuid_t item_id,
+void user_fetch_inventory_item(user_ctx *user, uuid_t item_id, uuid_t owner_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv) {
-#if 0 // FIXME - handle library right!
-  std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
-       sim->inv_lib.find(folder_id);
-  if(iter == sim->inv_lib.end()) {
-    sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
-				      folder_id,cb,cb_priv);
+  if(uuid_compare(owner_id, user->user_id) == 0) {
+    user->sgrp->gridh.fetch_inventory_item(user->sgrp,user,user->grid_priv,
+					   item_id,cb,cb_priv);
   } else {
-    cb(iter->second, cb_priv);
-  }
+#if 0 // FIXME - handle library right!
+    std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+      sim->inv_lib.find(folder_id);
+    if(iter == sim->inv_lib.end()) {
+      sim->gridh.fetch_inventory_folder(sim,user,user->grid_priv,
+					folder_id,cb,cb_priv);
+    } else {
+      cb(iter->second, cb_priv);
+    }
 #endif
-  user->sgrp->gridh.fetch_inventory_item(user->sgrp,user,user->grid_priv,
-					 item_id,cb,cb_priv);
+    cb(NULL, cb_priv);
+  }
 }
 
 void user_add_inventory_item(user_ctx *ctx, struct inventory_item* item,
@@ -1288,14 +1296,15 @@ static void rez_obj_inv_callback(struct inventory_item* item, void* priv) {
   }
 }
 
-void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, caj_vector3 pos) {
+void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id, 
+		     uuid_t owner_id, caj_vector3 pos) {
   if(uuid_is_null(from_prim)) {
     rez_object_desc *desc = new rez_object_desc();
     desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
     uuid_copy(desc->inv_item_id, item_id); // FIXME - don't do this from library!
     desc->is_attachment = FALSE;
     desc->pos = pos; // FIXME - do proper raycast
-    user_fetch_inventory_item(ctx, item_id,
+    user_fetch_inventory_item(ctx, item_id, owner_id,
 			      rez_obj_inv_callback, desc);
   } else {
     // FIXME - ????
@@ -1313,7 +1322,8 @@ void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point) {
   desc->ctx = ctx; user_add_self_pointer(&desc->ctx);
   uuid_copy(desc->inv_item_id, item_id);
   desc->is_attachment = TRUE; desc->attach_point = attach_point;
-  user_fetch_inventory_item(ctx, item_id,
+  // FIXME - handle attaching library items (fun!)
+  user_fetch_inventory_item(ctx, item_id, ctx->user_id,
 			    rez_obj_inv_callback, desc);
 }
 

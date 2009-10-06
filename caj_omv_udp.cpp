@@ -49,7 +49,6 @@
 #define PCODE_PARTSYS 143 /* ??? */
 #define PCODE_TREE 255
 
-// FIXME - resend lost packets
 void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int throt_id) {
   // sends packet and updates throttle, but doesn't queue
   unsigned char buf[BUF_SIZE]; int len, ret;
@@ -233,7 +232,6 @@ static void handle_AgentAnimation_msg(struct omuser_ctx* lctx, struct sl_message
       anim.caj_type = CAJ_ANIM_TYPE_NORMAL;
       uuid_copy(anim.obj, lctx->u->user_id);
       user_add_animation(lctx->u, &anim, false);
-      // TODO - (FIXME implement this!)
     } else {
       // FIXME - handle clearing default animation
       user_clear_animation_by_id(lctx->u, aitem->AnimID);
@@ -671,7 +669,7 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
   req->fetch_items = inv->FetchItems;
   
   user_fetch_inventory_folder(lctx->u->sgrp, lctx->u, inv->FolderID,
-			      inventory_descendents_cb, req);
+			      inv->OwnerID, inventory_descendents_cb, req);
 }
 
 static void inventory_item_cb(struct inventory_item* inv, void* priv) {
@@ -730,12 +728,10 @@ static void handle_FetchInventory_msg(struct omuser_ctx* lctx, struct sl_message
      printf("DEBUG: Got FetchInventory for %s, sending to inventory server!\n",
 	    buf);
   
-    // FIXME - what do we do with InventoryData.OwnerID?
-  
     user_ctx **pctx = new user_ctx*();
     *pctx = lctx->u;  user_add_self_pointer(pctx);
     
-    user_fetch_inventory_item(lctx->u, inv->ItemID,
+    user_fetch_inventory_item(lctx->u, inv->ItemID, inv->OwnerID,
 			      inventory_item_cb, pctx);
   }
 }
@@ -1874,7 +1870,8 @@ static void handle_RezObject_msg(struct omuser_ctx* lctx, struct sl_message* msg
   // FIXME - do what with ItemFlags and RemoveItem?
   // FIXME - bunch of other stuff
 
-  user_rez_object(lctx->u, rezd->FromTaskID, invd->ItemID, rezd->RayEnd);
+  user_rez_object(lctx->u, rezd->FromTaskID, invd->ItemID, invd->OwnerID,
+		  rezd->RayEnd);
 
   sl_dump_packet(msg);
 }
@@ -2717,7 +2714,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
 
   if(prim->attach_point != 0 &&
      uuid_compare(prim->owner, lctx->u->user_id) == 0) {
-    char *s = (char*)malloc(26+36+1);
+    char s = (char*)malloc(26+36+1);
     strcpy(s, "AttachItemID STRING RW SV ");
     uuid_unparse(prim->inv_item_id, s+26);
     caj_string_set(&objd->NameValue, s);
