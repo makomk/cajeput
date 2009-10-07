@@ -405,24 +405,6 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 void world_int_init_obj_updates(user_ctx *ctx); // ick - HACK.
 
 
-// --- this is messy --------------------
-
-#define CAJ_MULTI_UPD_POS 1
-#define CAJ_MULTI_UPD_ROT 2
-#define CAJ_MULTI_UPD_SCALE 4
-#define CAJ_MULTI_UPD_LINKSET 8
-
-struct caj_multi_upd {
-  int flags;
-  caj_vector3 pos;
-  caj_quat rot;
-  caj_vector3 scale;
-};
-
-void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
-			    const struct caj_multi_upd *upd);
-
-
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 
 void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);

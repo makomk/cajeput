@@ -18,6 +18,7 @@ float llGetTime( ) { }
 float llGetAndResetTime( ) { }
 
 string llGetTimestamp( ) { } // TODO
+integer llGetUnixTime( ) { }
 
 // float llFabs(float val) { }
 
@@ -36,6 +37,10 @@ vector llDetectedVel( integer number ) { }
 // bunch of stuff I need to implement
 vector llGetPos() { }
 rotation llGetRot() { }
+vector llGetLocalPos() { }
+rotation llGetLocalRot() { }
+vector llGetRootPosition() { }
+rotation llGetRootRotation() { }
 key llGetKey() { }
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
@@ -48,4 +53,6 @@ llRemoteLoadScriptPin(key target, string name, integer pin, integer running, int
 llSetTimerEvent(float interval) { }
 llSetText(string text, vector color, float alpha) { }
 llApplyImpulse( vector force, integer local ) { }
+llSetPos(vector pos) { }
+llSetRot(rotation rot) { }
 string osGetSimulatorVersion() { }

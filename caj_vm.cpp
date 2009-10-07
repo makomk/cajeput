@@ -1584,6 +1584,15 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
 	vect->x = *(float*)(frame_ptr--);
 	break;
       }
+    case VM_TYPE_ROT:
+      {
+	caj_quat * vect = va_arg(args, caj_quat*);
+	vect->w = *(float*)(frame_ptr--);
+	vect->z = *(float*)(frame_ptr--);
+	vect->y = *(float*)(frame_ptr--);
+	vect->x = *(float*)(frame_ptr--);
+	break;
+      }
     case VM_TYPE_STR:
       { 
 	frame_ptr -= ptr_stack_sz();

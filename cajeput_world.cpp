@@ -397,6 +397,13 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
   return iter->second;
 }
 
+struct primitive_obj* world_get_root_prim(struct primitive_obj *prim) {
+  while(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM) {
+    prim = (primitive_obj*)prim->ob.parent;
+  }
+  return prim;
+}
+
 // NOTE: if you're adding new fields to prims and want them to be initialised
 // properly, you *must* edit cajeput_dump.cpp as well as here, since it doesn't
 // use world_begin_new_prim when revivifying loaded prims.

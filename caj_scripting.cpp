@@ -245,6 +245,11 @@ static void do_rpc(script_state *st, sim_script *scr, int func_id,
   send_to_mt(scr->simscr, smsg);
 }
 
+#define RPC_TO_MAIN(name) static void name##_cb(script_state *st, void *sc_priv, int func_id) { \
+  sim_script *scr = (sim_script*)sc_priv; \
+  do_rpc(st, scr, func_id, name##_rpc); \
+}
+
 static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   int chan; char* message;
@@ -285,6 +290,13 @@ static void llGetTime_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llGetUnixTime_cb(script_state *st, void *sc_priv, int func_id) {
+  // sim_script *scr = (sim_script*)sc_priv;
+  time_t unix_time = time(NULL);
+  vm_func_set_int_ret(st, func_id, unix_time);
+  vm_func_return(st, func_id);
+}
+
 #define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
 
 // actually called from main thread
@@ -301,10 +313,7 @@ static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-static void llSetText_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
-  do_rpc(st, scr, func_id, llSetText_rpc);
-}
+RPC_TO_MAIN(llSetText)
 
 static void llApplyImpulse_rpc(script_state *st, sim_script *scr, int func_id) {
   caj_vector3 impulse; int is_local;
@@ -313,30 +322,75 @@ static void llApplyImpulse_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
+RPC_TO_MAIN(llApplyImpulse)
 
-static void llApplyImpulse_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
-  do_rpc(st, scr, func_id, llApplyImpulse_rpc);
+static void llSetPos_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_multi_upd upd; upd.flags = CAJ_MULTI_UPD_POS;
+  vm_func_get_args(st, func_id, &upd.pos);
+  if(caj_vect3_dist(&upd.pos, &scr->prim->ob.local_pos) > 10.0f) {
+    // FIXME - TODO!
+  }
+  world_multi_update_obj(scr->simscr->sim, &scr->prim->ob, &upd);
+  rpc_func_return(st, scr, func_id);
 }
+
+RPC_TO_MAIN(llSetPos)
+
+static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_multi_upd upd; upd.flags = CAJ_MULTI_UPD_ROT;
+  vm_func_get_args(st, func_id, &upd.rot);
+  // FIXME - normalise quaternion
+  world_multi_update_obj(scr->simscr->sim, &scr->prim->ob, &upd);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llSetRot)
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
   rpc_func_return(st, scr, func_id);
 }
 
-static void llGetPos_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
-  do_rpc(st, scr, func_id, llGetPos_rpc);
-}
+RPC_TO_MAIN(llGetPos)
+
 static void llGetRot_rpc(script_state *st, sim_script *scr, int func_id) {
+  // FIXME - should be global rotation
   vm_func_set_rot_ret(st, func_id, &scr->prim->ob.rot);
   rpc_func_return(st, scr, func_id);
 }
 
-static void llGetRot_cb(script_state *st, void *sc_priv, int func_id) {
-  sim_script *scr = (sim_script*)sc_priv;
-  do_rpc(st, scr, func_id, llGetRot_rpc);
+RPC_TO_MAIN(llGetRot)
+
+static void llGetLocalPos_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_vect_ret(st, func_id, &scr->prim->ob.local_pos);
+  rpc_func_return(st, scr, func_id);
 }
+
+RPC_TO_MAIN(llGetLocalPos)
+
+static void llGetLocalRot_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_rot_ret(st, func_id, &scr->prim->ob.rot);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetLocalRot)
+
+static void llGetRootPosition_rpc(script_state *st, sim_script *scr, int func_id) {
+  primitive_obj *root = world_get_root_prim(scr->prim);
+  vm_func_set_vect_ret(st, func_id, &root->ob.world_pos);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetRootPosition)
+
+static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id) {
+  primitive_obj *root = world_get_root_prim(scr->prim);
+  // FIXME - should be global rotation. Does this matter?
+  vm_func_set_rot_ret(st, func_id, &root->ob.rot);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetRootRotation)
 
 
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
@@ -870,12 +924,22 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
+  vm_world_add_func(simscr->vmw, "llGetUnixTime", VM_TYPE_INT, llGetUnixTime_cb, 0);
+  
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
-  
-  vm_world_add_func(simscr->vmw, "llGetPos", VM_TYPE_VECT, llGetPos_cb, 0);
-  vm_world_add_func(simscr->vmw, "llGetRot", VM_TYPE_VECT, llGetRot_cb, 0);
 
+  vm_world_add_func(simscr->vmw, "llGetPos", VM_TYPE_VECT, llGetPos_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetRot", VM_TYPE_ROT, llGetRot_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetLocalPos", VM_TYPE_VECT, llGetLocalPos_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetLocalRot", VM_TYPE_ROT, llGetLocalRot_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetRootPosition", VM_TYPE_VECT, llGetRootPosition_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetRootRotation", VM_TYPE_ROT, llGetRootRotation_cb, 0);
+
+  vm_world_add_func(simscr->vmw, "llSetPos", VM_TYPE_NONE, llSetPos_cb, 
+		    1, VM_TYPE_VECT);
+  vm_world_add_func(simscr->vmw, "llSetRot", VM_TYPE_NONE, llSetRot_cb, 
+		    1, VM_TYPE_ROT);
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 

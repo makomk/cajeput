@@ -280,6 +280,9 @@ void world_free_prim(struct primitive_obj *prim);
 
 struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
+
+struct primitive_obj* world_get_root_prim(struct primitive_obj *prim);
+
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
@@ -314,6 +317,23 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
 		     struct primitive_obj* child);
+
+// --- this is messy --------------------
+
+#define CAJ_MULTI_UPD_POS 1
+#define CAJ_MULTI_UPD_ROT 2
+#define CAJ_MULTI_UPD_SCALE 4
+#define CAJ_MULTI_UPD_LINKSET 8
+
+struct caj_multi_upd {
+  int flags;
+  caj_vector3 pos;
+  caj_quat rot;
+  caj_vector3 scale;
+};
+
+void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
+			    const struct caj_multi_upd *upd);
 
 #ifdef __cplusplus
 }
