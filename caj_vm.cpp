@@ -1117,8 +1117,12 @@ static void step_script(script_state* st, int num_steps) {
 	  uuid_t u; char buf[40];
 	  heap_header *p = get_stk_ptr(stack_top+1);
 	  stack_top += ptr_stack_sz() - 1;
-	  strncpy(buf, (char*)script_getptr(p), 40); buf[39] = 0;
-	  stack_top[1] = (uuid_parse(buf, u) == 0 && !uuid_is_null(u));
+	  if(p->len == 36) {
+	    strncpy(buf, (char*)script_getptr(p), 36); buf[36] = 0;
+	    stack_top[1] = (uuid_parse(buf, u) == 0 && !uuid_is_null(u));
+	  } else {
+	    stack_top[1] = 0;
+	  }
 	  heap_ref_decr(p, st); 
 	  break;
 	}
