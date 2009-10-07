@@ -131,7 +131,7 @@ struct inventory_item {
   // ...
 
   simple_asset *asset_hack; // evil HACK for prim scripts
-  void *priv; // used for scripts
+  void *spriv; // used for scripts
 };
 
 void caj_shutdown_hold(struct simgroup_ctx *sgrp);

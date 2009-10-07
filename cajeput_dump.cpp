@@ -89,6 +89,8 @@ static int dump_read_float(int fd, float *val) {
 
 #define ASSET_MAGIC_V1 0x2e3b6501
 
+#define SCRIPT_MAGIC_V1 0x5c915701
+
 // 0 is reserved as an end marker;
 #define DUMP_TYPE_INT 1
 #define DUMP_TYPE_FLOAT 2
@@ -306,6 +308,10 @@ static dump_desc asset_dump_v1[] = {
   { 0, 0 }  
 };
 
+static dump_desc caj_str_dump[] = {
+  { DUMP_TYPE_CAJ_STR, 0 },
+  { 0, 0 }  
+};
 
 static int dump_object(int fd, dump_desc *dump, void *obj) {
   char *data = (char*)obj;
@@ -453,12 +459,24 @@ static int undump_object(int fd, dump_desc *dump, void *obj) {
   return 0;
 }
 
-static int dump_prim_inv(int fd, inventory_item *inv) {
+static int dump_prim_inv(int fd, simulator_ctx *sim, inventory_item *inv) {
   if(dump_write_u32(fd, INV_MAGIC_V1)) return 1;
   if(dump_object(fd, inv_dump_v1, inv)) return 1;
   if(inv->asset_hack != NULL) {
     if(dump_write_u32(fd, ASSET_MAGIC_V1)) return 1;
     if(dump_object(fd, asset_dump_v1, inv->asset_hack)) return 1;
+  }
+  
+  if(inv->inv_type == INV_TYPE_LSL) {
+    caj_string script_st; script_st.data = (unsigned char*)0x7fffffff;
+    world_save_script_state(sim, inv, &script_st);
+    if(script_st.len != 0 && script_st.data != NULL) {
+      if(dump_write_u32(fd, SCRIPT_MAGIC_V1) ||
+	 dump_object(fd, caj_str_dump, &script_st)) {
+	caj_string_free(&script_st); return 1;      
+      }
+    }
+    caj_string_free(&script_st);
   }
   if(dump_write_u32(fd, 0)) return 1; // terminating 0
   return 0;
@@ -472,7 +490,7 @@ static int load_prim_inv_v1(int fd, inventory_item **inv_out) {
     free(inv->creator_id); delete inv;
     return 1;
   }
-  inv->asset_hack = NULL; inv->priv = NULL; 
+  inv->asset_hack = NULL; inv->spriv = NULL; 
   *inv_out = inv; return 0;
 }
 
@@ -516,6 +534,18 @@ static int load_prim_inv(int fd, primitive_obj *prim) {
 	}
 	if(load_prim_asset_v1(fd, prim->inv.items[i])) return 1;
 	break;
+      case SCRIPT_MAGIC_V1:
+	if(prim->inv.items[i] == NULL || 
+	   prim->inv.items[i]->spriv != NULL) {
+	  printf("ERROR: bad prim inventory item\n");
+	  return 1;
+	}
+	{
+	  caj_string data;
+	  if(undump_object(fd, caj_str_dump, &data)) return 1;
+	  world_load_script_state(prim->inv.items[i], &data);
+	}
+	break;
       default:
 	printf("ERROR: bad/unsupported prim inventory magic\n");
 	return 1;
@@ -526,14 +556,14 @@ static int load_prim_inv(int fd, primitive_obj *prim) {
   return 0;
 }
 
-static int dump_prim(int fd, primitive_obj *prim) {
+static int dump_prim(int fd, simulator_ctx *sim, primitive_obj *prim) {
   if(dump_write_u32(fd, PRIM_MAGIC_V3)) return 1;
   if(dump_object(fd, prim_dump_v3, prim)) return 1;
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
-    if(dump_prim_inv(fd, prim->inv.items[i])) return 1;
+    if(dump_prim_inv(fd, sim, prim->inv.items[i])) return 1;
   }
   for(int i = 0; i < prim->num_children; i++) {
-      if(dump_prim(fd, (primitive_obj*)prim->children[i])) return 1;
+    if(dump_prim(fd, sim, (primitive_obj*)prim->children[i])) return 1;
   }
   return 0;
 }
@@ -667,7 +697,7 @@ void world_int_dump_prims(simulator_ctx *sim) {
     if(iter->second->type == OBJ_TYPE_PRIM) {
       primitive_obj *prim = (primitive_obj*) iter->second;
       if(prim->ob.parent == NULL) {
-	if(dump_prim(fd, prim)) {
+	if(dump_prim(fd, sim, prim)) {
 	  printf("ERROR: dump_prims failed saving %lu\n", (unsigned long)prim->ob.local_id);
 	  close(fd); return;
 	}

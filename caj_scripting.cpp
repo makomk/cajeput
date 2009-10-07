@@ -79,6 +79,10 @@ struct sim_scripts {
   GAsyncQueue *to_st;
   GAsyncQueue *to_mt;
   vm_world *vmw;
+
+  // this is evil. It allows the main thread to access the VM data structures.
+  // However, it's intentionally *not* used for RPC calls in the main thread.
+  GStaticMutex vm_mutex;
 };
 
 struct list_head {
@@ -151,6 +155,14 @@ struct sim_script {
   uint32_t magic;
   sim_scripts *simscr;
   char *cvm_file; // basically the script executable
+
+  sim_script(primitive_obj *prim, sim_scripts *simscr) {
+    this->prim = prim; mt_state = 0; evmask = 0;
+    is_running = 0; this->simscr = simscr; magic = SCRIPT_MAGIC;
+    detected = NULL; in_rpc = 0;
+    timer_interval = 0.0f; next_timer_event = 0.0;
+    cvm_file = NULL; vm = NULL; comp_out = NULL;
+  }
 };
 
 // FIXME - really want this to be static!
@@ -166,6 +178,7 @@ timer_sched::timer_sched(sim_script *scr_) : time(scr_->next_timer_event), scr(s
 #define CAJ_SMSG_RPC_RETURN 7
 #define CAJ_SMSG_EVMASK 8
 #define CAJ_SMSG_DETECTED 9
+#define CAJ_SMSG_RESTORE_SCRIPT 10
 
 typedef void(*script_rpc_func)(script_state *st, sim_script *sc, int func_id);
 
@@ -182,6 +195,7 @@ struct script_msg {
     } rpc;
     int evmask;
     detected_event *detected;
+    caj_string cstr;
   } u;
 };
 
@@ -236,6 +250,13 @@ static void st_load_script(sim_script *scr) {
   if(dat == NULL) { printf("ERROR: can't read script file?!\n"); return; }
 
   scr->vm = vm_load_script(dat, len); free(dat);
+  if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
+
+  vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
+}
+
+static void st_restore_script(sim_script *scr, caj_string *str) {
+  scr->vm = vm_load_script(str->data, str->len);
   if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
 
   vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
@@ -545,6 +566,7 @@ static gpointer script_thread(gpointer data) {
   list_head_init(&running); list_head_init(&waiting);
   simscr->timer = g_timer_new();
   for(;;) {
+    g_static_mutex_lock(&simscr->vm_mutex);
     double time_now = g_timer_elapsed(simscr->timer, NULL);
     while(!simscr->timers.empty() && simscr->timers.begin()->time < time_now) {
       sim_script *scr = simscr->timers.begin()->scr;
@@ -607,6 +629,7 @@ static gpointer script_thread(gpointer data) {
 	list_insert_after(&scr->list, &waiting);
       }
     }
+    g_static_mutex_unlock(&simscr->vm_mutex);
 
     script_msg *msg;
     for(;;) {
@@ -634,8 +657,29 @@ static gpointer script_thread(gpointer data) {
 	return NULL;
       case CAJ_SMSG_ADD_SCRIPT:
 	printf("DEBUG: handling ADD_SCRIPT\n");
+	g_static_mutex_lock(&simscr->vm_mutex);
 	msg->scr->time = g_timer_elapsed(simscr->timer, NULL);
 	st_load_script(msg->scr);
+	g_static_mutex_unlock(&simscr->vm_mutex);
+	if(msg->scr->vm != NULL) {
+	  printf("DEBUG: adding to run queue\n");
+	  msg->scr->is_running = 1;
+	  list_insert_before(&msg->scr->list, &running);
+	  script_upd_evmask(msg->scr);
+	} else {
+	  printf("DEBUG: failed to load script\n");
+	  // FIXME - what to do?
+	  msg->scr->is_running = 0;
+	  list_insert_after(&msg->scr->list, &waiting);
+	}
+	break;
+      case CAJ_SMSG_RESTORE_SCRIPT:
+	printf("DEBUG: handling RESTORE_SCRIPT\n");
+	g_static_mutex_lock(&simscr->vm_mutex);
+	msg->scr->time = g_timer_elapsed(simscr->timer, NULL);
+	st_restore_script(msg->scr, &msg->u.cstr);
+	g_static_mutex_unlock(&simscr->vm_mutex);
+	caj_string_free(&msg->u.cstr);
 	if(msg->scr->vm != NULL) {
 	  printf("DEBUG: adding to run queue\n");
 	  msg->scr->is_running = 1;
@@ -857,11 +901,8 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
     printf("ERROR: couldn't launch script compiler\n"); return NULL;
   }
 
-  sim_script *scr = new sim_script();
-  scr->prim = prim; scr->mt_state = SCR_MT_COMPILING; scr->evmask = 0;
-  scr->is_running = 0; scr->simscr = simscr; scr->magic = SCRIPT_MAGIC;
-  scr->detected = NULL; scr->in_rpc = 0; 
-  scr->timer_interval = 0.0f; scr->next_timer_event = 0.0;
+  sim_script *scr = new sim_script(prim, simscr);
+  scr->mt_state = SCR_MT_COMPILING;
   scr->cvm_file = strdup(binname);
   scr->comp_out = listen_compiler_output(stdout_compile, stderr_compile);
   scr->comp_out->cb = cb; scr->comp_out->cb_priv = cb_priv;
@@ -870,6 +911,39 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
 
   g_child_watch_add(pid, compile_done, scr);
   return scr;
+}
+
+static void* restore_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
+			    inventory_item *inv, caj_string *out) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = new sim_script(prim, simscr);
+  scr->mt_state = SCR_MT_RUNNING;
+
+  scr->state_entry = 0;
+  scr->timer_fired = 0;
+  script_msg *msg = new script_msg();
+  msg->msg_type = CAJ_SMSG_RESTORE_SCRIPT;
+  msg->scr = scr;
+  caj_string_steal(&msg->u.cstr, out);
+  g_async_queue_push(scr->simscr->to_st, msg);
+  
+  return scr;
+}
+
+static void save_script(simulator_ctx *sim, void *priv, void *script,
+			caj_string *out) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  assert(scr->magic == SCRIPT_MAGIC);
+  g_static_mutex_lock(&simscr->vm_mutex);
+  if(scr->vm == NULL) {
+    out->data = NULL; out->len = 0;
+  } else {
+    size_t len;
+    out->data = vm_serialise_script(scr->vm, &len);
+    out->len = out->data != NULL ? len : 0;
+  }
+  g_static_mutex_unlock(&simscr->vm_mutex);
 }
 
 static void kill_script(simulator_ctx *sim, void *priv, void *script) {
@@ -972,6 +1046,7 @@ static gboolean script_poll_timer(gpointer data) {
 int caj_scripting_init(int api_version, struct simulator_ctx* sim, 
 		       void **priv, struct cajeput_script_hooks *hooks) {
   sim_scripts *simscr = new sim_scripts(); *priv = simscr;
+  g_static_mutex_init(&simscr->vm_mutex);
 
   // FIXME - need to check api version!
   
@@ -1042,6 +1117,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 
   hooks->shutdown = shutdown_scripting;
   hooks->add_script = add_script;
+  hooks->restore_script = restore_script;
+  hooks->save_script = save_script;
   hooks->kill_script = kill_script;
   hooks->get_evmask = get_evmask;
   hooks->touch_event = handle_touch;

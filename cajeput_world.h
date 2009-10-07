@@ -226,6 +226,10 @@ struct primitive_obj {
     void* (*add_script)(simulator_ctx *sim, void *priv, primitive_obj *prim, 
 			inventory_item *inv, simple_asset *asset, 
 			compile_done_cb cb, void *cb_priv);
+    void (*save_script)(simulator_ctx *sim, void *priv, void *script,
+			caj_string *out);
+    void* (*restore_script)(simulator_ctx *sim, void *priv, primitive_obj *prim,
+			    inventory_item *inv, caj_string *out);
     void (*kill_script)(simulator_ctx *sim, void *priv, void *script);
 
     int (*get_evmask)(simulator_ctx *sim, void *priv, void *script);

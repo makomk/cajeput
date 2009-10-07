@@ -469,6 +469,38 @@ script_state* vm_load_script(void* data, int data_len) {
   return loader.load((unsigned char*)data, data_len);
 }
 
+// FIXME - really need to serialise stack too...
+unsigned char* vm_serialise_script(script_state *st, size_t *len) {
+  if(st->scram_flag != 0) {
+    *len = 0; return NULL;
+  }
+  vm_serialiser serial; 
+  std::map<heap_header*,uint32_t> heap_map;
+  uint32_t *gptrs = new uint32_t[st->num_gptrs];
+  for(unsigned i = 0; i < st->num_gptrs; i++) {
+    std::map<heap_header*,uint32_t>::iterator iter = 
+      heap_map.find(st->gptrs[i]);
+    if(iter == heap_map.end()) {
+      heap_header* hptr = st->gptrs[i];
+      uint32_t hidx = serial.add_heap_entry(heap_entry_vtype(hptr),
+					    hptr->len,
+					    script_getptr(hptr));
+      gptrs[i] = hidx; heap_map[hptr] = hidx;
+    } else {
+      gptrs[i] = iter->second;
+    }
+  }
+
+  serial.set_bytecode(st->bytecode, st->bytecode_len);
+  serial.set_gvals(st->gvals, st->num_gvals);
+  serial.set_gptrs(gptrs, st->num_gptrs);
+  for(unsigned i = 0; i < st->num_funcs; i++) {
+    serial.add_func(&st->funcs[i]);
+  }
+  unsigned char *ret = serial.serialise(len);
+  delete[] gptrs; return ret;
+}
+
 static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function *func) {
   std::vector<uint32_t> pending;
   pending.push_back(func->insn_ptr);

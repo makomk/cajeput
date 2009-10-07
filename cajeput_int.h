@@ -404,6 +404,12 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 				   compile_done_cb cb, void *cb_priv);
 void world_int_init_obj_updates(user_ctx *ctx); // ick - HACK.
 
+void world_save_script_state(simulator_ctx *sim, inventory_item *inv,
+			     caj_string *out);
+
+// note - takes ownership of the passed-in buffer
+void world_load_script_state(inventory_item *inv, caj_string *state);
+
 
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 

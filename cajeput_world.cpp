@@ -27,6 +27,19 @@
 #include "caj_script.h"
 #include <cassert>
 
+struct script_info {
+  void *priv;
+  caj_string state;
+
+  script_info() : priv(NULL) {
+    state.len = 0; state.data = NULL;
+  }
+
+  ~script_info() {
+    caj_string_free(&state);
+  }
+};
+
 static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 
 // --- START octree code ---
@@ -369,6 +382,17 @@ void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob) {
     for(int i = 0; i < prim->num_children; i++) {
       world_insert_obj(sim, &prim->children[i]->ob);
     }
+
+    for(unsigned i = 0; i < prim->inv.num_items; i++) {
+      inventory_item *inv = prim->inv.items[i];
+      
+      if(inv->inv_type == INV_TYPE_LSL && inv->spriv != NULL) {
+	script_info *sinfo = (script_info*)inv->spriv;
+	if(sinfo->state.len > 0 && sim->scripth.restore_script != NULL)
+	  sinfo->priv = sim->scripth.restore_script(sim, sim->script_priv,
+						    prim, inv, &sinfo->state);
+      }
+    }
   }
 
   world_mark_object_updated(sim, ob, CAJ_OBJUPD_CREATED);
@@ -515,9 +539,11 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
 
-    if(inv->priv != NULL) {
-      sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
-      inv->priv = NULL;
+    if(inv->spriv != NULL) {
+      script_info *sinfo = (script_info*)inv->spriv;
+      if(sinfo->priv != NULL)
+	sim->scripth.kill_script(sim, sim->script_priv, sinfo->priv);
+      delete sinfo; inv->spriv = NULL;
     }
   }
   
@@ -577,8 +603,10 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
     if(inv->inv_type == INV_TYPE_LSL && inv->asset_type == ASSET_LSL_TEXT 
-       && inv->priv != NULL) {
-      prim_evmask |= sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
+       && inv->spriv != NULL) {
+      script_info *sinfo = (script_info*)inv->spriv;
+      if(sinfo->priv != NULL)
+	prim_evmask |= sim->scripth.get_evmask(sim, sim->script_priv, sinfo->priv);
     }
   }
   
@@ -600,15 +628,18 @@ void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
 
-    if(inv->asset_type == ASSET_LSL_TEXT && inv->priv != NULL) {
-      int evmask = sim->scripth.get_evmask(sim, sim->script_priv, inv->priv);
+    if(inv->asset_type == ASSET_LSL_TEXT && inv->spriv != NULL &&
+       ((script_info*)inv->spriv)->priv != NULL) {
+      script_info* sinfo = (script_info*)inv->spriv;
+      int evmask = sim->scripth.get_evmask(sim, sim->script_priv,
+					   sinfo->priv);
 
       if(evmask & (CAJ_EVMASK_TOUCH_CONT | CAJ_EVMASK_TOUCH)) {
 	handled = 1; // any touch handler will do for this
 
 	// we leave finer-grained filtering to the script engine
 	printf("DEBUG: sending touch event %i to script\n", touch_type);
-	sim->scripth.touch_event(sim, sim->script_priv, inv->priv,
+	sim->scripth.touch_event(sim, sim->script_priv, sinfo->priv,
 				 ctx, &ctx->av->ob, touch_type);
       } else {
 	 printf("DEBUG: ignoring script not interested in touch event\n");
@@ -652,9 +683,11 @@ int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim,
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
     if(uuid_compare(inv->item_id, item_id) == 0) {
-      if(inv->priv != NULL) {
-	sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
-	inv->priv = NULL;
+      if(inv->spriv != NULL) {
+	script_info* sinfo = (script_info*)inv->spriv;
+	if(sinfo->priv != NULL)
+	  sim->scripth.kill_script(sim, sim->script_priv, sinfo->priv);
+	delete sinfo; inv->spriv = NULL;
       }
 
       prim_free_inv_item(inv);
@@ -694,9 +727,14 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 	printf("ERROR: attempt to update a script, but item isn't a script!\n");
 	return NULL;
       }
-      if(inv->priv != NULL) {
-	sim->scripth.kill_script(sim, sim->script_priv, inv->priv);
-	inv->priv = NULL;
+      script_info* sinfo = (script_info*)inv->spriv;
+      if(sinfo == NULL) {
+	sinfo = new script_info(); sinfo->priv = NULL;
+	inv->spriv = sinfo;
+      }
+      if(sinfo->priv != NULL) {
+	sim->scripth.kill_script(sim, sim->script_priv, sinfo->priv);
+	sinfo->priv = NULL;
       }
 
       uuid_generate(inv->asset_id); // changed by update
@@ -705,9 +743,10 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
       uuid_copy(inv->asset_hack->id, inv->asset_id);
       caj_string_free(&inv->asset_hack->data);
       caj_string_set_bin(&inv->asset_hack->data, data, data_len);
+
       if(sim->scripth.add_script != NULL) {
-	inv->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv, 
-					    inv->asset_hack, cb, cb_priv);
+	sinfo->priv = sim->scripth.add_script(sim, sim->script_priv, prim, inv,
+					      inv->asset_hack, cb, cb_priv);
       } else {
 	// we need to call the callback somehow, but there's an 
 	// ordering issue - the caller has to fill in the asset ID first
@@ -773,15 +812,37 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   caj_string_set(&asset->data, "default\n{\n  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
   inv->asset_hack = asset;
 
+  script_info* sinfo = new script_info();
+  sinfo->priv = NULL; inv->spriv = sinfo;
+
   prim_add_inventory(prim, inv);
   
   // FIXME - check whether it should be created running...
   if(ctx->sim->scripth.add_script != NULL) {
-    inv->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, 
+    sinfo->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, 
 					     prim, inv, asset, NULL, NULL);
   } else {
-    inv->priv = NULL;
+    sinfo->priv = NULL;
   }
+}
+
+void world_save_script_state(simulator_ctx *sim, inventory_item *inv,
+			     caj_string *out) {
+  script_info* sinfo = (script_info*)inv->spriv;
+  if(sinfo == NULL || sinfo->priv == NULL || 
+     sim->scripth.save_script == NULL) {
+    out->data = NULL; out->len = 0; return;
+  }
+
+  sim->scripth.save_script(sim, sim->script_priv, sinfo->priv, out);
+}
+
+void world_load_script_state(inventory_item *inv, caj_string *state) {
+  assert(inv->spriv == NULL);
+  assert(inv->inv_type == INV_TYPE_LSL);
+  script_info *sinfo = new script_info();
+  caj_string_steal(&sinfo->state, state);
+  inv->spriv = sinfo;
 }
 
 static void world_move_root_obj_int(struct simulator_ctx *sim, struct world_obj *ob,

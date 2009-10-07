@@ -357,7 +357,8 @@ class vm_serialiser {
       int slen = strlen(funcs[i]->name);
       write_u8(slen);
       write_data((unsigned char*)funcs[i]->name, slen);
-      write_u32(funcs[i]->insn_ptr);
+      if(funcs[i]->insn_ptr & 0x80000000) write_u32(0);
+      else write_u32(funcs[i]->insn_ptr);
     }
     end_sect();
 

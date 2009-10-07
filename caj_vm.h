@@ -145,6 +145,7 @@ int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type,
 void vm_world_free(vm_world *w);
 
 script_state* vm_load_script(void* data, int data_len);
+unsigned char* vm_serialise_script(script_state *st, size_t *len);
 void vm_free_script(script_state * st);
 
 int vm_script_is_idle(script_state *st);
