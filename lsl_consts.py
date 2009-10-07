@@ -23,6 +23,8 @@ lsl_consts = {
     "ZERO_VECTOR": lsl_vect(0,0,0),
     "ZERO_ROTATION": lsl_rot(0,0,0,1),
     "NULL_KEY": "00000000-0000-0000-0000-000000000000", # yes, a string.
+    # FIXME - load these from caj_script.h
+    "CHANGED_REGION_START": 0x400
     # TODO
 }
 

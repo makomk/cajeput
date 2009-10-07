@@ -97,6 +97,7 @@ struct list_head {
 #define EVENT_TOUCH 2
 #define EVENT_TOUCH_END 3
 #define EVENT_TIMER 4
+#define EVENT_CHANGED 5
 
 // internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
@@ -144,6 +145,7 @@ struct sim_script {
   detected_event *detected;
   std::deque<detected_event*> pending_detect;
   float timer_interval;
+  uint32_t changed;
 
   // section used by main thread
   int mt_state; // state as far as main thread is concerned
@@ -159,7 +161,7 @@ struct sim_script {
   sim_script(primitive_obj *prim, sim_scripts *simscr) {
     this->prim = prim; mt_state = 0; evmask = 0;
     is_running = 0; this->simscr = simscr; magic = SCRIPT_MAGIC;
-    detected = NULL; in_rpc = 0;
+    detected = NULL; in_rpc = 0; changed = 0;
     timer_interval = 0.0f; next_timer_event = 0.0;
     cvm_file = NULL; vm = NULL; comp_out = NULL;
   }
@@ -595,6 +597,9 @@ static gpointer script_thread(gpointer data) {
 	  printf("DEBUG: calling state_entry\n");
 	  scr->state_entry = 0;
 	  vm_call_event(scr->vm,EVENT_STATE_ENTRY);
+	} else if(scr->changed != 0) {
+	  vm_call_event(scr->vm, EVENT_CHANGED, scr->changed);
+	  scr->changed = 0;
 	} else if(scr->timer_fired) {
 	  scr->timer_fired = 0;
 	  vm_call_event(scr->vm,EVENT_TIMER);
@@ -919,6 +924,7 @@ static void* restore_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   sim_script *scr = new sim_script(prim, simscr);
   scr->mt_state = SCR_MT_RUNNING;
 
+  scr->changed = CHANGED_REGION_START; // FIXME - HACK!
   scr->state_entry = 0;
   scr->timer_fired = 0;
   script_msg *msg = new script_msg();
@@ -1061,6 +1067,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		     1, VM_TYPE_INT);
 
   vm_world_add_event(simscr->vmw, "timer", VM_TYPE_NONE, EVENT_TIMER, 0);
+  vm_world_add_event(simscr->vmw, "changed", VM_TYPE_NONE, EVENT_CHANGED,
+		     1, VM_TYPE_INT);
 
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
