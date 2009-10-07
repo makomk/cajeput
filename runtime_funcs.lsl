@@ -20,6 +20,7 @@ llSetTimerEvent(float interval) { }
 
 string llGetTimestamp( ) { } // TODO
 integer llGetUnixTime( ) { }
+float llGetGMTclock( ) { }
 
 // float llFabs(float val) { }
 

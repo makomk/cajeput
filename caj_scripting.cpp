@@ -367,6 +367,16 @@ static void llGetUnixTime_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llGetGMTclock_cb(script_state *st, void *sc_priv, int func_id) {
+  // sim_script *scr = (sim_script*)sc_priv;
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  vm_func_set_float_ret(st, func_id, (tv.tv_sec % 86400) +
+			(float)tv.tv_usec/1000000.0f);
+  vm_func_return(st, func_id);
+}
+
+
 #define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
 
 // actually called from main thread
@@ -1078,6 +1088,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetUnixTime", VM_TYPE_INT, llGetUnixTime_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetGMTclock", VM_TYPE_FLOAT, llGetGMTclock_cb, 0);
   
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
