@@ -28,6 +28,7 @@
 #include "caj_script.h"
 #include <fcntl.h>
 #include <deque>
+#include <set>
 
 /* This code is reasonably robust, but a tad interesting internally.
    A few rules for dealing with the message-passing stuff:
@@ -38,10 +39,10 @@
      script, nor should it handle any messages from the script thread
      regarding it.
    - After the scripting thread receives the KILL_SCRIPT message, it must 
-     remove all references to it and cease touching any data structures related
-     to it prior to responding with SCRIPT_KILLED. It's guaranteed not to get
-     any further messages for this script after KILL_SCRIPT, and can't send any
-     after the SCRIPT_KILLED.
+     remove all references to the script and cease touching any data structures 
+     related to it prior to responding with SCRIPT_KILLED. It's guaranteed not
+     to get any further messages for this script after KILL_SCRIPT, and can't 
+     send any after the SCRIPT_KILLED.
    - Messages are delivered in order.
    - The RPC stuff is easy - it just passes ownership of scr->vm to the main 
      thread temporarily in order for it to do the call there.
@@ -51,6 +52,20 @@
 
 #define DEBUG_CHANNEL 2147483647
 
+struct sim_script;
+
+struct timer_sched {
+  double time;
+  sim_script *scr;
+
+  timer_sched(double time_, sim_script *scr_) : time(time_), scr(scr_) { }
+  timer_sched(sim_script *scr_);
+};
+
+static inline bool operator< (const timer_sched &s1, const timer_sched &s2) {
+  return s1.time < s2.time || (s1.time == s2.time && s1.scr < s2.scr);
+}
+
 struct sim_scripts {
   // used by main thread
   GThread *thread;
@@ -58,6 +73,7 @@ struct sim_scripts {
 
   // used by script thread
   GTimer *timer;
+  std::set<timer_sched> timers;
 
   // these are used by both main and scripting threads. Don't modify them.
   GAsyncQueue *to_st;
@@ -76,6 +92,7 @@ struct list_head {
 #define EVENT_TOUCH_START 1
 #define EVENT_TOUCH 2
 #define EVENT_TOUCH_END 3
+#define EVENT_TIMER 4
 
 // internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
@@ -117,10 +134,12 @@ struct sim_script {
   list_head list;
   int is_running, in_rpc;
   script_state *vm;
-  int state_entry; // HACK!
+  int state_entry, timer_fired; // HACK!
   double time; // for llGetTime etc
+  double next_timer_event;
   detected_event *detected;
   std::deque<detected_event*> pending_detect;
+  float timer_interval;
 
   // section used by main thread
   int mt_state; // state as far as main thread is concerned
@@ -133,6 +152,9 @@ struct sim_script {
   sim_scripts *simscr;
   char *cvm_file; // basically the script executable
 };
+
+// FIXME - really want this to be static!
+timer_sched::timer_sched(sim_script *scr_) : time(scr_->next_timer_event), scr(scr_) { }
 
 #define CAJ_SMSG_SHUTDOWN 0
 #define CAJ_SMSG_ADD_SCRIPT 1
@@ -248,6 +270,31 @@ static void do_rpc(script_state *st, sim_script *scr, int func_id,
 #define RPC_TO_MAIN(name) static void name##_cb(script_state *st, void *sc_priv, int func_id) { \
   sim_script *scr = (sim_script*)sc_priv; \
   do_rpc(st, scr, func_id, name##_rpc); \
+}
+
+static void st_update_timer_sched(sim_script *scr, double next_event) {
+  sim_scripts *simscr = scr->simscr;
+  if(scr->next_timer_event != 0.0) {
+    assert(simscr->timers.count(timer_sched(scr)) != 0); // FIXME - remove.
+    simscr->timers.erase(timer_sched(scr));
+  }
+  scr->next_timer_event = next_event;
+  if(scr->next_timer_event != 0.0) {
+    simscr->timers.insert(timer_sched(scr));
+  }
+}
+
+static void llSetTimerEvent_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  vm_func_get_args(st, func_id, &scr->timer_interval);
+  // FIXME - enforce limit on minimum interval between timer events?
+  if(scr->timer_interval <= 0.0f || !finite(scr->timer_interval)) {
+    st_update_timer_sched(scr, 0.0f);
+    scr->timer_fired = 0;
+  } else {
+    st_update_timer_sched(scr, scr->timer_interval+g_timer_elapsed(scr->simscr->timer, NULL));
+  }
+  vm_func_return(st, func_id);
 }
 
 static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
@@ -498,20 +545,25 @@ static gpointer script_thread(gpointer data) {
   list_head_init(&running); list_head_init(&waiting);
   simscr->timer = g_timer_new();
   for(;;) {
+    double time_now = g_timer_elapsed(simscr->timer, NULL);
+    while(!simscr->timers.empty() && simscr->timers.begin()->time < time_now) {
+      sim_script *scr = simscr->timers.begin()->scr;
+      scr->timer_fired = 1; awaken_script(scr, &running);
+      st_update_timer_sched(scr, time_now + scr->timer_interval);
+    }
+
     for(int i = 0; i < 20; i++) {
       if(running.next == &running) break;
       sim_script *scr = (sim_script*)running.next; 
-      printf("DEBUG: handling script on run queue\n");
       assert(scr->is_running);
       if(scr->in_rpc) {
 	// deschedule. Special-cased because we don't have ownership of scr->vm
 	// during RPC calls to the main thread.
 	scr->is_running = 0; list_remove(&scr->list);
 	list_insert_after(&scr->list, &waiting);
+	continue;
       }
       if(vm_script_is_idle(scr->vm)) {
-	printf("DEBUG: script idle\n");
-
 	if(scr->detected != NULL) {
 	  // FIXME - this is leaked if the script is destroyed at the wrong time
 	  delete scr->detected; scr->detected = NULL;
@@ -521,6 +573,9 @@ static gpointer script_thread(gpointer data) {
 	  printf("DEBUG: calling state_entry\n");
 	  scr->state_entry = 0;
 	  vm_call_event(scr->vm,EVENT_STATE_ENTRY);
+	} else if(scr->timer_fired) {
+	  scr->timer_fired = 0;
+	  vm_call_event(scr->vm,EVENT_TIMER);
 	} else if(!scr->pending_detect.empty()) {
 	  // FIXME - coalesce detected events into one call somehow
 	  
@@ -541,10 +596,8 @@ static gpointer script_thread(gpointer data) {
 	// FIXME - schedule events
       }
       if(vm_script_is_runnable(scr->vm)) {
-	printf("DEBUG: script runnable\n");
 	vm_run_script(scr->vm, 100);
       } else {
-	printf("DEBUG: removing script from run queue\n");
 	if(vm_script_has_failed(scr->vm)) {
 	  do_say(scr, DEBUG_CHANNEL, vm_script_get_error(scr->vm),
 		 CHAT_TYPE_NORMAL);
@@ -557,9 +610,21 @@ static gpointer script_thread(gpointer data) {
 
     script_msg *msg;
     for(;;) {
-      if(running.next == &running)
+      if(running.next != &running) {
+	msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
+      } else if(simscr->timers.empty()) {
 	msg = (script_msg*)g_async_queue_pop(simscr->to_st);
-      else msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
+      } else {
+	double wait = simscr->timers.begin()->time -
+	                g_timer_elapsed(simscr->timer, NULL);
+	GTimeVal tval;
+	// FIXME - slightly inaccurate. Should we use GTimeVal throughout?
+	g_get_current_time(&tval);
+	g_time_val_add(&tval, G_USEC_PER_SEC*wait);
+	if(wait <= 0.0)
+	  msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
+	else msg = (script_msg*)g_async_queue_timed_pop(simscr->to_st, &tval);
+      }
       if(msg == NULL) break;
 
       switch(msg->msg_type) {
@@ -586,6 +651,7 @@ static gpointer script_thread(gpointer data) {
       case CAJ_SMSG_KILL_SCRIPT:
 	printf("DEBUG: got KILL_SCRIPT\n");
 	list_remove(&msg->scr->list);
+	st_update_timer_sched(msg->scr, 0.0);
 	if(msg->scr->vm != NULL) vm_free_script(msg->scr->vm);
 	msg->scr->vm = NULL;
 	delete msg->scr->detected; msg->scr->detected = NULL;
@@ -595,7 +661,6 @@ static gpointer script_thread(gpointer data) {
 	send_to_mt(simscr, msg); msg = NULL;
 	break;
       case CAJ_SMSG_RPC_RETURN:
-	printf("DEBUG: got RPC_RETURN\n");
 	assert(msg->scr->in_rpc); msg->scr->in_rpc = 0;
 	awaken_script(msg->scr, &running);
 	break;
@@ -670,6 +735,7 @@ static void mt_enable_script(sim_script *scr) {
   scr->mt_state = SCR_MT_RUNNING;
   
   scr->state_entry = 1; // HACK!!!
+  scr->timer_fired = 0; // HACK!!!
   script_msg *msg = new script_msg();
   msg->msg_type = CAJ_SMSG_ADD_SCRIPT;
   msg->scr = scr;
@@ -794,7 +860,8 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   sim_script *scr = new sim_script();
   scr->prim = prim; scr->mt_state = SCR_MT_COMPILING; scr->evmask = 0;
   scr->is_running = 0; scr->simscr = simscr; scr->magic = SCRIPT_MAGIC;
-  scr->detected = NULL; scr->in_rpc = 0;
+  scr->detected = NULL; scr->in_rpc = 0; 
+  scr->timer_interval = 0.0f; scr->next_timer_event = 0.0;
   scr->cvm_file = strdup(binname);
   scr->comp_out = listen_compiler_output(stdout_compile, stderr_compile);
   scr->comp_out->cb = cb; scr->comp_out->cb_priv = cb_priv;
@@ -882,7 +949,6 @@ static gboolean script_poll_timer(gpointer data) {
       break;
     case CAJ_SMSG_RPC:
       if(msg->scr->prim != NULL) {
-	printf("DEBUG: got RPC call in main thread\n");
 	msg->u.rpc.rpc_func(msg->u.rpc.st, msg->scr, msg->u.rpc.func_id);
       }
       break;
@@ -919,9 +985,13 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_event(simscr->vmw, "touch_end", VM_TYPE_NONE, EVENT_TOUCH_END,
 		     1, VM_TYPE_INT);
 
+  vm_world_add_event(simscr->vmw, "timer", VM_TYPE_NONE, EVENT_TIMER, 0);
+
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
+
+  vm_world_add_func(simscr->vmw, "llSetTimerEvent", VM_TYPE_NONE, llSetTimerEvent_cb, 1, VM_TYPE_FLOAT);
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetUnixTime", VM_TYPE_INT, llGetUnixTime_cb, 0);

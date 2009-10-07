@@ -16,6 +16,7 @@ llOwnerSay(string message) { } // TODO
 llResetTime( ) { }
 float llGetTime( ) { }
 float llGetAndResetTime( ) { }
+llSetTimerEvent(float interval) { }
 
 string llGetTimestamp( ) { } // TODO
 integer llGetUnixTime( ) { }
