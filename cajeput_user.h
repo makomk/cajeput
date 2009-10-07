@@ -230,7 +230,12 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
 
 // Should only really be used to handle incoming requests from client
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
-			    const caj_vector3 *pos, const caj_vector3 *look_at);
+			    const caj_vector3 *pos, const caj_vector3 *look_at,
+			    int is_from_viewer);
+void user_teleport_by_region_name(struct user_ctx* ctx, char *region_name,
+				  const caj_vector3 *pos, 
+				  const caj_vector3 *look_at,
+				  int is_from_viewer);
 void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark);
 
 // and these should only be used by code that handles teleports

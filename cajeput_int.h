@@ -151,6 +151,7 @@ struct avatar_obj {
    !!!     WARNING   WARNING   WARNING    !!!
 */
 struct user_hooks {
+  void(*teleport_begin)(struct user_ctx* ctx, struct teleport_desc *tp);
   void(*teleport_failed)(struct user_ctx* ctx, const char* reason);
   void(*teleport_progress)(struct user_ctx* ctx, const char* msg, 
 			   uint32_t flags);

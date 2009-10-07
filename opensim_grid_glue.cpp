@@ -777,12 +777,19 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
 
 struct map_block_state {
   struct simgroup_ctx *sgrp;
-  void(*cb)(void *priv, struct map_block_info *blocks, 
-	    int count);
+  caj_find_regions_cb cb;
   void *cb_priv;
 
-  map_block_state(struct simgroup_ctx *sgrp_, void(*cb_)(void *priv, struct map_block_info *blocks, 
-							 int count), void *cb_priv_) : 
+  map_block_state(struct simgroup_ctx *sgrp_, caj_find_regions_cb cb_, void *cb_priv_) : 
+    sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
+};
+
+struct map_region_state {
+  struct simgroup_ctx *sgrp;
+  caj_find_region_cb cb;
+  void *cb_priv;
+
+  map_region_state(struct simgroup_ctx *sgrp_, caj_find_region_cb cb_, void *cb_priv_) : 
     sgrp(sgrp_), cb(cb_), cb_priv(cb_priv_) { };
 };
 
@@ -893,10 +900,8 @@ static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpoint
 }
 
 static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x, 
-			      int min_y, int max_y, 
-			      void(*cb)(void *priv, struct map_block_info *blocks, 
-					int count),
-			      void *cb_priv) {
+				 int min_y, int max_y, 
+				 caj_find_regions_cb cb, void *cb_priv) {
   
   GHashTable *hash;
   //GError *error = NULL;
@@ -1073,10 +1078,8 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
 }
 
 static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x, 
-			      int min_y, int max_y, 
-			      void(*cb)(void *priv, struct map_block_info *blocks, 
-					int count),
-			      void *cb_priv) {
+			      int min_y, int max_y,
+				 caj_find_regions_cb cb, void *cb_priv) {
   char grid_uri[256]; char *req_body;
   char xmin_s[20], xmax_s[20], ymin_s[20], ymax_s[20];
   uuid_t zero_uuid; char zero_uuid_str[40];
@@ -1111,21 +1114,16 @@ static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x
 }
 
 
-struct region_info_state {
-  simulator_ctx* sim;
-  void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info);
-  void *cb_priv;
-};
 
 
 static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
-  struct region_info_state *st = (region_info_state*)user_data;
+  struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
   GHashTable *hash = NULL;
   char *s; //uuid_t u;
 
-  sim_shutdown_release(st->sim);
+  caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
     printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -1170,7 +1168,7 @@ static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer 
 
   // FIXME - use regionHandle, server_uri!
  
-  st->cb(st->sim, st->cb_priv, &info);
+  st->cb(st->cb_priv, &info);
   g_hash_table_destroy(hash);
   delete st;
   return;
@@ -1180,17 +1178,16 @@ static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer 
   //out_free_fail:
   g_hash_table_destroy(hash);
  out_fail:
-  st->cb(st->sim, st->cb_priv, NULL);
+  st->cb(st->cb_priv, NULL);
   delete st;
 }
 
 // WARNING: while superficially, this looks like a map block request-type
 // function, it does NOT return enough information for such a purpose, and is
 // for INTERNAL USE ONLY.
-static void req_region_info_v1(struct simulator_ctx* sim, uint64_t handle,
-			    void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
-			    void *cb_priv) {
-  GRID_PRIV_DEF(sim);
+static void req_region_info_v1(struct simgroup_ctx* sgrp, uint64_t handle,
+			       caj_find_region_cb cb, void *cb_priv) {
+  GRID_PRIV_DEF_SGRP(sgrp);
   char buf[40];
 
   GHashTable *hash;
@@ -1208,27 +1205,27 @@ static void req_region_info_v1(struct simulator_ctx* sim, uint64_t handle,
   g_hash_table_destroy(hash);
   if (!msg) {
     fprintf(stderr, "Could not create region_info request\n");
-    cb(sim, cb_priv, NULL);
+    cb(cb_priv, NULL);
     return;
   }
 
-  region_info_state *st = new region_info_state();
-  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+  
+  map_region_state *st = new map_region_state(sgrp, cb, cb_priv);
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, msg,
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
 			 got_region_info_v1, st);
 
 }
 
-static void got_region_info_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+static void got_map_single_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   xmlDocPtr doc; xmlNodePtr node;
-  struct region_info_state *st = (region_info_state*)user_data;
+  struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
   char *s; //uuid_t u;
 
-  sim_shutdown_release(st->sim);
+  caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
     printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
@@ -1259,7 +1256,7 @@ static void got_region_info_v2(SoupSession *session, SoupMessage *msg, gpointer 
   }
 
   if(unpack_v2_region_entry(doc, node, &info)) {
-    st->cb(st->sim, st->cb_priv, &info);
+    st->cb(st->cb_priv, &info);
     xmlFree(info.name); xmlFree(info.sim_ip);
     xmlFreeDoc(doc); delete st; return;
   }
@@ -1267,19 +1264,18 @@ static void got_region_info_v2(SoupSession *session, SoupMessage *msg, gpointer 
  out_xmlfree_fail:
   xmlFreeDoc(doc);
  out_fail:
-  st->cb(st->sim, st->cb_priv, NULL);
+  st->cb(st->cb_priv, NULL);
   delete st;
 }
 
-static void req_region_info_v2(struct simulator_ctx* sim, uint64_t handle,
-			       void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
-			       void *cb_priv) {
+static void req_region_info_v2(struct simgroup_ctx* sgrp, uint64_t handle,
+			       caj_find_region_cb cb, void *cb_priv) {
   char grid_uri[256]; char *req_body;
   char x_s[20], y_s[20];
   uuid_t zero_uuid; char zero_uuid_str[40];
   //GError *error = NULL;
   SoupMessage *msg;
-  GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
 
   uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
 
@@ -1299,31 +1295,31 @@ static void req_region_info_v2(struct simulator_ctx* sim, uint64_t handle,
   soup_message_set_request(msg, "application/x-www-form-urlencoded",
 			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
 
-  region_info_state *st = new region_info_state();
-  st->sim = sim; st->cb = cb; st->cb_priv = cb_priv;
+  map_region_state *st = new map_region_state(sgrp, cb, cb_priv);
 
-  sim_shutdown_hold(sim);
-  sim_queue_soup_message(sim, msg, got_region_info_v2, st);
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg, got_map_single_resp_v2, st);
   
 }
 
 static void req_region_info(struct simulator_ctx* sim, uint64_t handle,
-			    void(*cb)(simulator_ctx* sim, void* cb_priv, map_block_info* info),
-			    void *cb_priv) {
+			    caj_find_region_cb cb, void *cb_priv) {
+  simgroup_ctx* sgrp = sim_get_simgroup(sim);
   GRID_PRIV_DEF(sim);
   if(grid->old_xmlrpc_grid_proto)
-    req_region_info_v1(sim, handle, cb, cb_priv);
-  else req_region_info_v2(sim, handle, cb, cb_priv);
+    req_region_info_v1(sgrp, handle, cb, cb_priv);
+  else req_region_info_v2(sgrp, handle, cb, cb_priv);
 }
 
-struct region_by_name_state {
+// FIXME - consolidate this?
+struct regions_by_name_state {
   simgroup_ctx* sgrp;
-  void(*cb)(void* cb_priv, map_block_info* info, int count);
+  caj_find_regions_cb cb;
   void *cb_priv;
 };
 
-static void got_region_by_name_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
-  struct region_by_name_state *st = (region_by_name_state*)user_data;
+static void got_regions_by_name_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct regions_by_name_state *st = (regions_by_name_state*)user_data;
   struct map_block_info *info; int count;
   //GRID_PRIV_DEF(st->sim);
   GHashTable *hash = NULL;
@@ -1421,8 +1417,7 @@ static void got_region_by_name_v1(SoupSession *session, SoupMessage *msg, gpoint
 }
 
 static void map_name_request_v1(struct simgroup_ctx* sgrp, const char* name,
-			    void(*cb)(void* cb_priv, map_block_info* info, int count),
-			    void *cb_priv) {
+				caj_find_regions_cb cb, void *cb_priv) {
   GRID_PRIV_DEF_SGRP(sgrp);
 
   GHashTable *hash;
@@ -1443,18 +1438,17 @@ static void map_name_request_v1(struct simgroup_ctx* sgrp, const char* name,
     return;
   }
 
-  region_by_name_state *st = new region_by_name_state();
+  regions_by_name_state *st = new regions_by_name_state();
   st->sgrp = sgrp; st->cb = cb; st->cb_priv = cb_priv;
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, msg,
-			 got_region_by_name_v1, st);
+			 got_regions_by_name_v1, st);
 
 }
 
 static void map_name_request_v2(struct simgroup_ctx* sgrp, const char* name,
-			    void(*cb)(void* cb_priv, map_block_info* info, int count),
-				void *cb_priv) {
+				caj_find_regions_cb cb, void *cb_priv) {
 
   char grid_uri[256]; char *req_body;
   char max_results[20];
@@ -1483,6 +1477,41 @@ static void map_name_request_v2(struct simgroup_ctx* sgrp, const char* name,
   caj_queue_soup_message(sgrp, msg,
 			 got_map_multi_resp_v2, new map_block_state(sgrp,cb,cb_priv));
 }
+
+void map_region_by_name_v1(struct simgroup_ctx* sgrp, const char* name,
+			   caj_find_region_cb cb, void *cb_priv) {
+  cb(cb_priv, NULL); // FIXME - TODO!!!
+}
+
+void map_region_by_name_v2(struct simgroup_ctx* sgrp, const char* name,
+			   caj_find_region_cb cb, void *cb_priv) {
+  char grid_uri[256]; char *req_body;
+  char max_results[20];
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  printf("DEBUG: map name request %s\n", name);
+
+  snprintf(max_results, 20, "%i", 20); // FIXME!
+
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
+			      "SCOPEID", zero_uuid_str,
+			      "NAME", name, "METHOD", "get_region_by_name",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg, got_map_single_resp_v2, 
+			 new map_region_state(sgrp,cb,cb_priv));
+}
+
 
 void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason) {
   user_teleport_failed(tp_priv->tp, reason);
@@ -1518,8 +1547,7 @@ static void do_teleport_resolve_cb(SoupAddress *addr,
   g_object_unref(addr);
 }
 
-static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv, 
-				 map_block_info *info) {
+static void do_teleport_rinfo_cb(void *priv, map_block_info *info) {
   teleport_desc* tp = (teleport_desc*)priv;
   if(tp->ctx == NULL) {
     user_teleport_failed(tp, "cancelled");
@@ -1527,7 +1555,7 @@ static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv,
     user_teleport_failed(tp, "Couldn't find destination region");
   } else {
     os_teleport_desc *tp_priv = new os_teleport_desc();
-    tp_priv->our_sim = sim;
+    tp_priv->our_sim = user_get_sim(tp->ctx);
     tp_priv->sim_ip = strdup(info->sim_ip);
     tp_priv->sim_port = info->sim_port;
     tp_priv->http_port = info->http_port;
@@ -1537,7 +1565,7 @@ static void do_teleport_rinfo_cb(struct simulator_ctx* sim, void *priv,
     // FIXME - use provided region handle
 
     // FIXME - do we really need to hold simulator shutdown here?
-    sim_shutdown_hold(sim);
+    sim_shutdown_hold(tp_priv->our_sim);
     SoupAddress *addr = soup_address_new(info->sim_ip, 0);
     soup_address_resolve_async(addr, g_main_context_default(),
 			       NULL, do_teleport_resolve_cb, tp_priv);
@@ -1734,10 +1762,12 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
     hooks->do_grid_login = do_grid_login_v1;
     hooks->map_block_request = map_block_request_v1;
     hooks->map_name_request = map_name_request_v1;
+    hooks->map_region_by_name = map_region_by_name_v1;
   } else {
     hooks->do_grid_login = do_grid_login_v2;
     hooks->map_block_request = map_block_request_v2;
     hooks->map_name_request = map_name_request_v2;
+    hooks->map_region_by_name = map_region_by_name_v2;
   }
   hooks->user_created = user_created;
   hooks->user_logoff = user_logoff;

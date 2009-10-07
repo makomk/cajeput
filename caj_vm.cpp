@@ -1630,6 +1630,7 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
 	break;
       }
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
       { 
 	frame_ptr -= ptr_stack_sz();
 	heap_header *p = get_stk_ptr(frame_ptr+1);
@@ -1758,6 +1759,7 @@ void vm_func_return(script_state *st, int func_no) {
     case VM_TYPE_ROT:
       st->stack_top += 4; break;      
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
       {
 	heap_header *p = get_stk_ptr(st->stack_top+1);
 	heap_ref_decr(p, st); st->stack_top += ptr_stack_sz();

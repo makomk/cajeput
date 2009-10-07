@@ -481,6 +481,43 @@ static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_i
   vm_func_return(st, func_id);
 }
 
+static void osTeleportAgent_loc_rpc(script_state *st, sim_script *scr, int func_id) {
+  uuid_t user_id; char* user_id_str; user_ctx* user;
+  int x, y; caj_vector3 pos, look_at;
+  vm_func_get_args(st, func_id, &user_id_str, &x, &y, &pos, &look_at);
+  if(uuid_parse(user_id_str, user_id)) goto out;
+  user = user_find_ctx(scr->simscr->sim, user_id);
+  // FIXME - needs better verification and protection!
+  if(user != NULL) {
+    uint64_t region_handle = ((uint64_t)x<<40)|((uint64_t)y<<8);
+    printf("DEBUG: teleporting to %llu\n", (long long unsigned)region_handle);
+    user_teleport_location(user, region_handle, &pos, &look_at, FALSE);
+  }
+ out:
+  free(user_id_str);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(osTeleportAgent_loc);
+
+static void osTeleportAgent_name_rpc(script_state *st, sim_script *scr, int func_id) {
+  uuid_t user_id; char *user_id_str, *region; user_ctx *user;
+  int x, y; caj_vector3 pos, look_at;
+  vm_func_get_args(st, func_id, &user_id_str, &region, &pos, &look_at);
+  if(uuid_parse(user_id_str, user_id)) goto out;
+  user = user_find_ctx(scr->simscr->sim, user_id);
+  // FIXME - needs better verification and protection!
+  if(user != NULL) {
+    printf("DEBUG: teleporting to %s\n", region);
+    user_teleport_by_region_name(user, region, &pos, &look_at, FALSE);
+  }
+ out:
+  free(user_id_str); free(region);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(osTeleportAgent_name);
+
 static void llDetectedName_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   int num;
@@ -1065,7 +1102,17 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   g_static_mutex_init(&simscr->vm_mutex);
 
   // FIXME - need to check api version!
-  
+
+  int enable_unsafe_funcs = 
+    sgrp_config_get_bool(sim_get_simgroup(sim), "script", 
+			 "enable_unsafe_funcs", NULL);
+  if(enable_unsafe_funcs) {
+    printf("!!! WARNING !!!\n"
+	   "You have enabled the use of unsafe scripting functions.\n"
+	   "Do *NOT* do this on a publicly-accessible region\n"
+	   "!!! WARNING !!!\n");
+  }
+
   simscr->sim = sim;
   simscr->vmw = vm_world_new();
   vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, EVENT_STATE_ENTRY, 0);
@@ -1120,6 +1167,16 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);
+  if(enable_unsafe_funcs) {
+    // FIXME - add support for function overloading so we can do this right
+    vm_world_add_func(simscr->vmw, "osTeleportAgent_loc", VM_TYPE_NONE, 
+		      osTeleportAgent_loc_cb, 5, VM_TYPE_KEY, 
+		      VM_TYPE_INT, VM_TYPE_INT, VM_TYPE_VECT, VM_TYPE_VECT);
+    vm_world_add_func(simscr->vmw, "osTeleportAgent", VM_TYPE_NONE, 
+		      osTeleportAgent_name_cb, 4, VM_TYPE_KEY, 
+		      VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_VECT);
+  }
+  
   
 
   simscr->to_st = g_async_queue_new();

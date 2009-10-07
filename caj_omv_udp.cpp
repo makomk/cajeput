@@ -977,6 +977,16 @@ static void handle_LogoutRequest_msg(struct omuser_ctx* lctx, struct sl_message*
   user_session_close(ctx, false);
 }
 
+static void teleport_begin(struct user_ctx* ctx, struct teleport_desc *tp) {
+  omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
+  SL_DECLMSG(TeleportStart, start);
+  SL_DECLBLK(TeleportStart, Info, info, &start);
+  info->TeleportFlags = tp->flags;
+  start.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &start);
+}
+
+
 static void teleport_failed(struct user_ctx* ctx, const char* reason) {
   omuser_ctx* lctx = (omuser_ctx*)ctx->user_priv;
   SL_DECLMSG(TeleportFailed, fail);
@@ -1040,7 +1050,8 @@ static void handle_TeleportLocationRequest_msg(struct omuser_ctx* lctx, struct s
   SL_DECLBLK_GET1(TeleportLocationRequest, Info, info, msg);
   if(ad == NULL || info == NULL || VALIDATE_SESSION(ad)) 
     return;
-  user_teleport_location(lctx->u, info->RegionHandle, &info->Position, &info->LookAt);
+  user_teleport_location(lctx->u, info->RegionHandle, &info->Position, 
+			 &info->LookAt, TRUE);
 }
 
 static void handle_TeleportLandmarkRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2910,6 +2921,7 @@ static void remove_user(void *user_priv) {
 
 // FIXME - use GCC-specific extensions for robustness?
 static user_hooks our_hooks = {
+  teleport_begin,
   teleport_failed,
   teleport_progress,
   teleport_complete,

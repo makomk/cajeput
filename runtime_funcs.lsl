@@ -36,6 +36,12 @@ vector llDetectedVel( integer number ) { }
 
 // TODO: llDetectedTouch*
 
+//osTeleportAgent( key avatar, integer region_x, integer region_y,
+//		 vector pos, vector look_at) { }
+
+osTeleportAgent( key avatar, string region,
+		 vector pos, vector look_at) { }
+
 // bunch of stuff I need to implement
 vector llGetPos() { }
 rotation llGetRot() { }

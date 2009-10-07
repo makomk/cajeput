@@ -49,6 +49,11 @@ struct map_block_info {
 };
 
 typedef void (*caj_put_asset_cb)(uuid_t asset_id, void *priv);
+typedef void(*caj_find_regions_cb)(void* cb_priv, 
+				   struct map_block_info* blocks, 
+				   int count);
+typedef void(*caj_find_region_cb)(void* cb_priv, 
+				   struct map_block_info* block);
 
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simgroup_ctx *sgrp, 
@@ -86,13 +91,11 @@ struct cajeput_grid_hooks {
 		   caj_put_asset_cb cb, void *cb_priv);
   void(*map_block_request)(struct simgroup_ctx *sgrp, int min_x, int max_x, 
 			   int min_y, int max_y, 
-			   void(*cb)(void *priv, struct map_block_info *blocks, 
-				     int count),
-			   void *cb_priv);
+			   caj_find_regions_cb cb, void *cb_priv);
   void(*map_name_request)(struct simgroup_ctx* sgrp, const char* name,
-			  void(*cb)(void* cb_priv, struct map_block_info* blocks, 
-				    int count),
-			  void *cb_priv);
+			  caj_find_regions_cb cb, void *cb_priv);
+  void(*map_region_by_name)(struct simgroup_ctx* sgrp, const char* name,
+			    caj_find_region_cb cb, void *cb_priv);
 
   // interesting interesting function...
   void(*fetch_inventory_folder)(simgroup_ctx *sgrp, user_ctx *user,

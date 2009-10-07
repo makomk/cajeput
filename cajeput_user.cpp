@@ -576,14 +576,48 @@ static void do_real_teleport(struct teleport_desc* tp) {
 }
 
 void user_teleport_location(struct user_ctx* ctx, uint64_t region_handle,
-			    const caj_vector3 *pos, const caj_vector3 *look_at) {
+			    const caj_vector3 *pos, const caj_vector3 *look_at,
+			    int is_from_viewer) {
   teleport_desc* desc = begin_teleport(ctx);
   if(desc == NULL) return;
   desc->region_handle = region_handle;
   desc->pos = *pos;
   desc->look_at = *look_at;
   desc->flags = TELEPORT_TO_LOCATION;
+  if(!is_from_viewer && ctx->userh->teleport_begin != NULL) {
+    // FIXME - should this be unconditional? Dunno...
+    ctx->userh->teleport_begin(ctx, desc);
+  }
   do_real_teleport(desc);
+}
+
+void tp_region_name_cb(void* cb_priv, struct map_block_info* block) {
+  teleport_desc* tp = (teleport_desc*)cb_priv;
+  if(tp->ctx == NULL) {
+    user_teleport_failed(tp,"cancelled");
+  } else if(block == NULL) {
+    user_teleport_failed(tp,"Destination region not found");
+  } else {
+    tp->region_handle = ((uint64_t)block->x <<40)|((uint64_t)block->y << 8);
+    do_real_teleport(tp);
+  }
+}
+
+void user_teleport_by_region_name(struct user_ctx* ctx, char *region_name,
+				  const caj_vector3 *pos, 
+				  const caj_vector3 *look_at,
+				  int is_from_viewer) {
+  teleport_desc* desc = begin_teleport(ctx);
+  if(desc == NULL) return;
+  desc->region_handle = 0;
+  desc->pos = *pos;
+  desc->look_at = *look_at;
+  desc->flags = TELEPORT_TO_LOCATION;
+  if(!is_from_viewer && ctx->userh->teleport_begin != NULL) {
+    ctx->userh->teleport_begin(ctx, desc);
+  }
+  ctx->sgrp->gridh.map_region_by_name(ctx->sgrp, region_name, 
+				      tp_region_name_cb, desc);
 }
 
 void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {
