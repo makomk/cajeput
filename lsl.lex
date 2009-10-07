@@ -26,9 +26,9 @@ static void unescape_str(char *str) {
 	return;
       case '\\':
 	str[j] = '\\'; break;
-      case '\n':
+      case 'n':
 	str[j] = '\n'; break;
-      case '\r':
+      case 'r':
 	str[j] = '\r'; break;
 	/* FIXME - handle '\t' (requires special code; expands to 4 spaces. */
       case '"':
