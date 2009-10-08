@@ -288,6 +288,7 @@ struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id
 struct primitive_obj* world_get_root_prim(struct primitive_obj *prim);
 
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
+struct inventory_item* world_prim_alloc_inv_item(void);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
@@ -302,6 +303,10 @@ inventory_item* world_prim_find_inv(struct primitive_obj *prim, uuid_t item_id);
 void world_prim_mark_inv_updated(struct primitive_obj *prim);
 int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim, 
 			  uuid_t item_id);
+
+// note that this function is interesting. USE WITH CARE!
+void world_prim_set_inv(struct primitive_obj *prim, inventory_item** inv,
+			int inv_count);
 
   // for use by the physics engine only
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,

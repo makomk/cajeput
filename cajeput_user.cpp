@@ -927,7 +927,7 @@ struct os_object_part {
   int allow_drop; // bool
   uuid_t creator_id, folder_id;
   int inv_serial;
-  // FIXME - handle TaskInventory!
+  inventory_item **inv; int inv_count;
   int object_flags; // actually should be uint32_t
   uuid_t id;
   int local_id; // actually should be uint32_t
@@ -1030,12 +1030,108 @@ static xml_serialisation_desc deserialise_object_shape[] = {
 };
 
 /* ...<Scale><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Scale><UpdateFlag>0</UpdateFlag><SitTargetOrientation><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientation><SitTargetPosition><X>0</X><Y>0</Y><Z>0</Z></SitTargetPosition><SitTargetPositionLL><X>0</X><Y>0</Y><Z>0</Z></SitTargetPositionLL><SitTargetOrientationLL><X>0</X><Y>0</Y><Z>0</Z><W>1</W></SitTargetOrientationLL><ParentID>0</ParentID><CreationDate>1250356050</CreationDate><Category>0</Category><SalePrice>0</SalePrice><ObjectSaleType>0</ObjectSaleType><OwnershipCost>0</OwnershipCost><GroupID><Guid>00000000-0000-0000-0000-000000000000</Guid></GroupID><OwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></OwnerID><LastOwnerID><Guid>cc358b45-99a0-46d7-b643-4a8038901f74</Guid></LastOwnerID><BaseMask>2147483647</BaseMask><OwnerMask>2147483647</OwnerMask><GroupMask>0</GroupMask><EveryoneMask>0</EveryoneMask><NextOwnerMask>2147483647</NextOwnerMask><Flags>None</Flags><CollisionSound><Guid>00000000-0000-0000-0000-000000000000</Guid></CollisionSound><CollisionSoundVolume>0</CollisionSoundVolume></SceneObjectPart></RootPart><OtherParts /></SceneObjectGroup> */
+
+struct os_task_inv_item {
+  char *name, *description;
+  uuid_t item_id, old_item_id, asset_id, creator_id, group_id;
+  uuid_t owner_id, last_owner_id, parent_id, part_id;
+  int base_perms, current_perms, group_perms;
+  int everyone_perms, next_perms;
+  int creation_date, flags;
+  int inv_type, asset_type;
+  uuid_t perms_granter; int perms_mask; // ???
+};
+
+static xml_serialisation_desc deserialise_task_inv_item[] = {
+  { "AssetID", XML_STYPE_UUID, offsetof(os_task_inv_item, asset_id) },
+  { "BasePermissions", XML_STYPE_INT, offsetof(os_task_inv_item, base_perms) },
+  { "CreationDate", XML_STYPE_INT, offsetof(os_task_inv_item, creation_date) },
+  { "CreatorID", XML_STYPE_UUID, offsetof(os_task_inv_item, creator_id) },
+  { "Description", XML_STYPE_STRING, offsetof(os_task_inv_item, description) },  
+  { "EveryonePermissions", XML_STYPE_INT, offsetof(os_task_inv_item, everyone_perms) },
+  { "Flags", XML_STYPE_INT, offsetof(os_task_inv_item, flags) },
+  { "GroupID", XML_STYPE_UUID, offsetof(os_task_inv_item, group_id) },
+  { "GroupPermissions", XML_STYPE_INT, offsetof(os_task_inv_item, group_perms) },
+  { "InvType", XML_STYPE_INT, offsetof(os_task_inv_item, inv_type) },
+  { "ItemID", XML_STYPE_UUID, offsetof(os_task_inv_item, item_id) },
+  { "OldItemID", XML_STYPE_UUID, offsetof(os_task_inv_item, old_item_id) },
+  { "LastOwnerID", XML_STYPE_UUID, offsetof(os_task_inv_item, last_owner_id) },
+  { "Name", XML_STYPE_STRING, offsetof(os_task_inv_item, name) },  
+  { "NextPermissions", XML_STYPE_INT, offsetof(os_task_inv_item, next_perms) },
+  { "OwnerID", XML_STYPE_UUID, offsetof(os_task_inv_item, owner_id) },
+  { "CurrentPermissions", XML_STYPE_INT, offsetof(os_task_inv_item, current_perms) },
+  { "ParentID", XML_STYPE_UUID, offsetof(os_task_inv_item, parent_id) },
+  { "ParentPartID", XML_STYPE_UUID, offsetof(os_task_inv_item, part_id) },
+  { "PermsGranter", XML_STYPE_UUID, offsetof(os_task_inv_item, perms_granter) },
+  { "PermsMask", XML_STYPE_INT, offsetof(os_task_inv_item, perms_mask) },
+  { "Type", XML_STYPE_INT, offsetof(os_task_inv_item, asset_type) },
+  { NULL }
+};
+
+// FIXME - this is likely to leak memory in the failure case.
+// FIXME - also need to restrict number of inventory items.
+static OSGLUE_XML_CALLBACK(deserialise_prim_inv) {
+  std::vector<inventory_item*> inv;
+  os_object_part *part = (os_object_part*)out;
+  for( ; node != NULL; node = node->next) {
+    if (node->type != XML_ELEMENT_NODE) continue;
+    if(strcmp((char*)node->name, "TaskInventoryItem") != 0) {
+      printf("ERROR: got unexpected node %s, wanted TaskInventoryItem\n",
+	     (char*)node->name);
+      continue;
+    }
+    os_task_inv_item taskinv;
+    if(osglue_deserialise_xml(doc, node->children, deserialise_task_inv_item,
+			      &taskinv)) {
+      printf("DEBUG: got task inventory item %s\n", taskinv.name);
+      inventory_item *item = world_prim_alloc_inv_item();
+      item->name = strdup(taskinv.name); 
+      item->description = strdup(taskinv.description);
+      item->creator_id = (char*)malloc(37); 
+      uuid_unparse(taskinv.creator_id, item->creator_id);
+      uuid_copy(item->creator_as_uuid, taskinv.creator_id);
+
+      uuid_copy(item->item_id, taskinv.item_id);
+      uuid_copy(item->folder_id, taskinv.parent_id);
+      uuid_copy(item->owner_id, taskinv.owner_id);
+      uuid_copy(item->asset_id, taskinv.asset_id);
+
+      item->perms.base = taskinv.base_perms;
+      item->perms.current = taskinv.current_perms;
+      item->perms.group = taskinv.group_perms;
+      item->perms.everyone = taskinv.everyone_perms;
+      item->perms.next = taskinv.next_perms;
+
+      item->inv_type = taskinv.inv_type; 
+      item->asset_type = taskinv.asset_type;
+      item->sale_type = 0; // FIXME - magic number!
+      item->sale_price = 10;
+
+      item->group_owned = FALSE; // FIXME - not set in task inv?
+      uuid_copy(item->group_id, taskinv.group_id);
+      item->flags = taskinv.flags;
+      item->creation_date = taskinv.creation_date;
+
+      inv.push_back(item);
+      xmlFree(taskinv.name); xmlFree(taskinv.description);
+    } else {
+      printf("ERROR: couldn't deserialise prim inventory item\n");
+    }
+  }
+  part->inv_count = inv.size();
+  part->inv = new inventory_item*[inv.size()];
+  for(unsigned i = 0; i < part->inv_count; i++) {
+    part->inv[i] = inv[i];
+  }
+  return TRUE;
+}
+
 static xml_serialisation_desc deserialise_object_part[] = {
   { "AllowedDrop", XML_STYPE_BOOL, offsetof(os_object_part, allow_drop) },
   { "CreatorID", XML_STYPE_UUID, offsetof(os_object_part, creator_id) },
   { "FolderID", XML_STYPE_UUID, offsetof(os_object_part, folder_id) },
   { "InventorySerial", XML_STYPE_INT, offsetof(os_object_part, inv_serial) },
-  { "TaskInventory", XML_STYPE_SKIP, 0 }, // FIXME
+  { "TaskInventory", XML_STYPE_CUSTOM, 0, (void*)deserialise_prim_inv },
   { "ObjectFlags", XML_STYPE_INT,  offsetof(os_object_part, object_flags) },
   { "UUID",  XML_STYPE_UUID, offsetof(os_object_part, id) },
   { "LocalId", XML_STYPE_INT, offsetof(os_object_part, local_id) },
@@ -1162,6 +1258,11 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node, int 
   // prim->category = objpart.category;
   prim->sale_type = objpart.sale_type;
   prim->sale_price = objpart.sale_price;
+
+  world_prim_set_inv(prim, objpart.inv, objpart.inv_count);
+  prim->inv.serial = objpart.inv_serial;
+  delete[] objpart.inv;
+
   // FIXME - TODO
 
   xmlFree(objpart.name); xmlFree(objpart.description); xmlFree(objpart.text); 

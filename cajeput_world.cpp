@@ -474,6 +474,12 @@ void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params)
   caj_string_copy(&prim->extra_params, params);
 }
 
+inventory_item* world_prim_alloc_inv_item(void) {
+  inventory_item *inv = new inventory_item();
+  inv->asset_hack = NULL; inv->spriv = NULL;
+  return inv;
+}
+
 static void prim_free_inv_item(inventory_item *inv) {
   free(inv->name); free(inv->description); free(inv->creator_id);
 
@@ -670,6 +676,24 @@ static void prim_add_inventory(struct primitive_obj *prim, inventory_item *inv) 
   world_prim_mark_inv_updated(prim);
 }
 
+void world_prim_set_inv(struct primitive_obj *prim, inventory_item** inv,
+			int inv_count) {
+  assert(prim->inv.num_items == 0 && prim->inv.items == NULL);
+  if(inv_count <= 0) return;
+
+  prim->inv.items = (inventory_item**)calloc(inv_count,
+					     sizeof(inventory_item**));
+  if(prim->inv.items == NULL) return;
+
+  prim->inv.alloc_items = prim->inv.num_items = inv_count;
+  for(int i = 0; i < inv_count; i++) {
+    prim->inv.items[i] = inv[i];
+  }
+  prim->inv.serial++;
+  // no update, since this is intended for objects not added to the world
+  // yet.
+}
+
 inventory_item* world_prim_find_inv(struct primitive_obj *prim, uuid_t item_id) {
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     inventory_item *inv = prim->inv.items[i];
@@ -739,7 +763,14 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
 
       uuid_generate(inv->asset_id); // changed by update
 
-      assert(inv->asset_hack != NULL); // FIXME
+      if(inv->asset_hack == NULL) {
+	simple_asset *asset = new simple_asset();
+	asset->name = strdup(inv->name); 
+	asset->description = strdup(inv->description);
+	asset->type = ASSET_LSL_TEXT;
+	asset->data.len = 0; asset->data.data = NULL;
+	inv->asset_hack = asset;
+      }
       uuid_copy(inv->asset_hack->id, inv->asset_id);
       caj_string_free(&inv->asset_hack->data);
       caj_string_set_bin(&inv->asset_hack->data, data, data_len);
@@ -776,7 +807,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
     return;
   }
 
-  inv = new inventory_item();
+  inv = world_prim_alloc_inv_item();
   
   inv->name = strdup(name); inv->description = strdup(descrip);
 

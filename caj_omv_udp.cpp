@@ -888,27 +888,26 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
 	printf("ERROR: TransferRequest for prim inv item has mismatching asset_id\n"); 
 	return; 
       }
-      if(inv->asset_hack == NULL) {
-	printf("FIXME: prim inv is real inventory item?\n"); 
-	return; 	
-      }
-
       if(!user_can_access_asset_task_inv(lctx->u, prim, inv)) {
 	// FIXME - send the right sort of error
 	printf("ERROR: insufficient perms accessing asset from prim inventory.\n");
+	return;
       }
       
       asset_request *req = new asset_request();
       req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
       req->lctx = lctx; req->is_direct = 0;
-      memcpy(req->asset_id, tinfo->Params.data+0, 16);
+      uuid_copy(req->asset_id, asset_id);
       uuid_copy(req->transfer_id, tinfo->TransferID);
       req->channel_type = tinfo->ChannelType;
       caj_string_copy(&req->params, &tinfo->Params);
     
-      do_send_asset_cb(lctx->u->sim->sgrp, req, inv->asset_hack); // HACK
-      
-      // prim inventory items - TODO
+      if(inv->asset_hack != NULL) {
+	// HACK - FIXME!
+	do_send_asset_cb(lctx->u->sim->sgrp, req, inv->asset_hack);
+      } else {
+	do_send_asset(req);
+      }
     }
   } else {
     // I suspect this could happen, though.

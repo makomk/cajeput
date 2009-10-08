@@ -12,6 +12,12 @@
 #define XML_STYPE_FLOAT 5
 #define XML_STYPE_STRUCT 6
 #define XML_STYPE_BASE64 7
+#define XML_STYPE_CUSTOM 8
+
+
+#define OSGLUE_XML_CALLBACK(name) int name(xmlDocPtr doc, xmlNodePtr node, void* out)
+
+typedef int(*osglue_xml_callback)(xmlDocPtr doc, xmlNodePtr node, void* out);
 
 struct xml_serialisation_desc {
   const char* name;

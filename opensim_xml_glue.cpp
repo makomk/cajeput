@@ -145,6 +145,17 @@ int osglue_deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
 	xmlFree(s);
       }
       break;
+    case XML_STYPE_CUSTOM:
+      {
+	osglue_xml_callback cb = (osglue_xml_callback)serial[i].extra;
+	if(!cb(doc, node->children, outbuf+serial[i].offset)) {
+	  printf("ERROR: custom deserialiser for %s failed\n",
+	       serial[i].name);
+	  free_partial_deserial_xml(serial, out, i);
+	  return 0;
+	}
+      }
+      break;
     default:
       printf("ERROR: bad type passed to deserialise_xml");
       free_partial_deserial_xml(serial, out, i);
