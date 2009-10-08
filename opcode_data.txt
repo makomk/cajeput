@@ -109,3 +109,11 @@
 91 NEG_R: - rot -> rot
 
 92 STRLEN: str -> int func:llStringLength
+93 LISTLEN: list -> int func:llGetListLength
+
+94 LIST2INT: list int -> int func:llList2Integer
+95 LIST2FLOAT: list int -> float func:llList2Float
+96 LIST2STR: list int -> str func:llList2String
+97 LIST2KEY: list int -> key func:llList2Key
+98 LIST2VEC: list int -> vect func:llList2Vector
+99 LIST2ROT: list int -> vect func:llList2Rot

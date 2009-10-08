@@ -118,10 +118,36 @@ static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) 
   return p;
 }
 
+static heap_header *script_alloc_list(script_state *st, uint32_t len) {
+  uint32_t fakelen = len*4 + sizeof(heap_header);
+  if(len > VM_LIMIT_HEAP || (st->mem_use+fakelen) > VM_LIMIT_HEAP) {
+    printf("DEBUG: exceeded mem limit of %i allocating %i-item list with %i in use\n",
+	   VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
+    st->scram_flag = VM_SCRAM_MEM_LIMIT; return NULL;
+  }
+  heap_header* p = (heap_header*)malloc(len*sizeof(heap_header*) + 
+					sizeof(heap_header));
+  p->refcnt = ((uint32_t)VM_TYPE_LIST << 24) | 1;
+  p->len = len;
+  st->mem_use += fakelen;
+  return p;
+}
+
+static inline void *script_getptr(heap_header *p) {
+  return p+1;
+}
+
 static void heap_ref_decr(heap_header *p, script_state *st) {
   if( ((--(p->refcnt)) & 0xffffff) == 0) {
     // printf("DEBUG: freeing heap entry 0x%p\n",p);
-    st->mem_use -= p->len + sizeof(heap_header);
+    if(heap_entry_vtype(p) == VM_TYPE_LIST) {
+      heap_header **list = (heap_header**)script_getptr(p);
+      for(unsigned i = 0; i < p->len; i++)
+	heap_ref_decr(list[i], st);
+      st->mem_use -= p->len*4 + sizeof(heap_header);
+    } else {
+      st->mem_use -= p->len + sizeof(heap_header);
+    }
     free(p);
   }
 }
@@ -132,10 +158,6 @@ static inline void heap_ref_incr(heap_header *p) {
 
 static inline uint32_t heap_get_refcnt(heap_header *p) {
   return p->refcnt & 0xffffff;
-}
-
-static inline void *script_getptr(heap_header *p) {
-  return p+1;
 }
 
 static heap_header* make_vm_string(script_state *st, const char* str) {
@@ -306,12 +328,46 @@ public:
 	      printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
 	    }
 	    uint32_t it_len = heap[heap_count].len = read_u32();
-	    heap_header *p = script_alloc(st, it_len, heap[heap_count].vtype);
-	    if(p == NULL) { printf("SCRIPT LOAD ERR: memory limit\n"); return NULL; }
-	    switch(heap[heap_count].vtype) {
-	    case VM_TYPE_STR:
-	    default: // FIXME - handle lists, etc
+	    heap_header *p;
+	    // FIXME - handle this right
+	    if(heap[heap_count].vtype == VM_TYPE_STR || 
+	       heap[heap_count].vtype == VM_TYPE_KEY) { 
+	      p = script_alloc(st, it_len, heap[heap_count].vtype);
+	      if(p == NULL) { 
+		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+	      }
 	      read_data(script_getptr(p), it_len);
+	    } else if(heap[heap_count].vtype == VM_TYPE_LIST) {
+	      it_len /= 4;
+	      p = script_alloc_list(st, it_len);
+	      if(p == NULL) { 
+		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL; 
+	      }
+	      printf("DEBUG: created a list at %p\n", p);
+	      p->len = 0; // HACK!!!!
+	      heap_header **list = (heap_header**)script_getptr(p);
+	      memset(list, 0, it_len*sizeof(heap_header*));
+	      for(uint32_t i = 0; i < it_len; i++) {
+		uint32_t gptr = read_u32();
+		if(has_failed) return NULL;
+		if(gptr >= heap_count) {
+		  printf("SCRIPT LOAD ERR: invalid gptr\n"); 
+		  has_failed = 1; break;
+		}
+		heap_header *itemp = (heap_header*)heap[gptr].data; // FIXME
+		if(heap_entry_vtype(itemp) == VM_TYPE_LIST) {
+		  // technically, we don't need to block this... it should be
+		  // impossible to load or create a circularly-linked data
+		  // structure anyway (immutable data + ordering restrictions 
+		  // within the file format). LSL doesn't allow it, though.
+		  printf("SCRIPT LOAD ERR: list within a list\n"); 
+		  has_failed = 1; break;
+		}
+		heap_ref_incr(itemp); list[i] = itemp;
+		p->len = i+1; // HACK!!!!
+	      }
+	    } else {
+	      printf("SCRIPT LOAD ERR: unhandled heap entry vtype\n"); return NULL;
 	    }
 	    heap[heap_count].data = (unsigned char*)p; // FIXME - bad types!
 	    heap_count++; // placement important for proper mem freeing later
@@ -1296,7 +1352,13 @@ static void step_script(script_state* st, int num_steps) {
 	  stack_top[1] = p->len; heap_ref_decr(p, st); 
 	  break;
 	}
-
+      case INSN_LISTLEN:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-1;
+	  stack_top[1] = p->len; heap_ref_decr(p, st); 
+	  break;
+	}
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;

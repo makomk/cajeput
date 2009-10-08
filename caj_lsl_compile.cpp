@@ -372,6 +372,15 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
       }
     }
     break;
+  case NODE_LIST:
+    {
+      for(lnode = expr->u.list; lnode != NULL; lnode = lnode->next) {
+	propagate_types(vasm, st, lnode->expr);
+	if(st.error != 0) return;
+      }
+      update_loc(st, expr);
+    }
+    break;
   }
 #if 0
 #define NODE_ASSIGNADD 22
@@ -433,6 +442,7 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int inde
       }
       break;
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
     case VM_TYPE_LIST:
       vasm.insn(MAKE_INSN(ICLASS_RDG_P, var.offset));
       break;
@@ -464,6 +474,7 @@ static void read_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int inde
       }
       break;
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
     case VM_TYPE_LIST:
       vasm.rd_local_ptr(var.offset);
       break;
@@ -500,6 +511,7 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int ind
       }
       break;
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
     case VM_TYPE_LIST:
       vasm.insn(MAKE_INSN(ICLASS_WRG_P, var.offset));
       break;
@@ -531,6 +543,7 @@ static void write_var(vm_asm &vasm, lsl_compile_state &st, var_desc var, int ind
       }
       break;
     case VM_TYPE_STR:
+    case VM_TYPE_KEY:
     case VM_TYPE_LIST:
       vasm.wr_local_ptr(var.offset); // FIXME - TODO
       break;
@@ -1056,6 +1069,44 @@ static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func
     }
 }
 
+static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
+			      expr_node *expr) {
+  int item_count = 0;
+  assert(expr->node_type == NODE_LIST);
+  update_loc(st, expr);
+  for(list_node *item = expr->u.list; item != NULL; item = item->next) {
+    item_count++;
+    if(item->expr->node_type != NODE_CONST) {
+      update_loc(st, item->expr);
+      do_error(st, "List constant contains non-constant expression");
+      return 0;
+    }
+  }
+
+  vasm.begin_list();
+  for(list_node *item = expr->u.list; item != NULL; item = item->next) {
+    update_loc(st, item->expr);
+    switch(item->expr->vtype) {
+    case VM_TYPE_STR:
+      vasm.list_add_str(item->expr->u.s);
+      break;
+    default:
+      do_error(st, "Unhandled type %s in list\n", 
+	       type_names[item->expr->vtype]);
+      return 0;
+    }
+    if(vasm.get_error() != NULL) {
+      do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+      return 0;
+    }
+  }
+  uint32_t retval = vasm.end_list();
+  if(vasm.get_error() != NULL) {
+    do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+  }
+  return retval;
+}
+
 int main(int argc, char** argv) {
   int num_funcs = 0; int func_no;
   vm_asm vasm;
@@ -1096,7 +1147,10 @@ int main(int argc, char** argv) {
       // FIXME - cast this, handle named constants.
       if(g->val != NULL) {
 	propagate_types(vasm, st, g->val);
-	if(g->val->node_type != NODE_CONST ||
+	if(g->val->node_type == NODE_LIST && g->vtype == VM_TYPE_LIST &&
+	   g->val->vtype == g->vtype) {
+	  // FIXME - TODO!
+	} else if(g->val->node_type != NODE_CONST ||
 			    g->val->vtype != g->vtype) {
 	  printf("FIXME: global var initialiser not const of expected type\n");
 	  printf("DEBUG: got %i %s node, wanted const %s\n",
@@ -1114,6 +1168,16 @@ int main(int argc, char** argv) {
       case VM_TYPE_STR:
 	var.offset = vasm.add_global_ptr(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
 					 VM_TYPE_STR); 
+	break;
+      case VM_TYPE_LIST:
+	if(g->val == NULL) {
+	  printf("FIXME: can't do uninited lists yet\n");
+	  st.error = 1; return 1;
+	} else {
+	  uint32_t ptr = constify_list(vasm, st, g->val);
+	  if(st.error != 0) return 1;
+	  var.offset = vasm.add_global_ptr(ptr, VM_TYPE_LIST); 
+	}
 	break;
       case VM_TYPE_VECT:
       case VM_TYPE_ROT:

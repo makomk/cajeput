@@ -24,7 +24,6 @@ class c_header:
             if m != None:
                 val = m.group(2)
                 self.names[m.group(1)] = val
-                print "Got %s = %s" % (m.group(1), val)
 
     def get_int(self, name):
         return eval(self.names[name])
@@ -42,7 +41,9 @@ lsl_consts = {
     "ZERO_ROTATION": lsl_rot(0,0,0,1),
     "NULL_KEY": "00000000-0000-0000-0000-000000000000", # yes, a string.
     "CHANGED_REGION_START": caj_script_h.get_int("CHANGED_REGION_START"),
-    "LINK_SET": caj_script_h.get_int("LINK_SET")
+    "LINK_SET": caj_script_h.get_int("LINK_SET"),
+    # FIXME - should be defined in a header
+    "AGENT": 1, "ACTIVE": 2, "PASSIVE": 4, "SCRIPTED": 8
     # TODO
 }
 

@@ -26,7 +26,9 @@ static int caj_vm_check_types(uint8_t stype, uint8_t vtype) {
   return stype != vtype && ((stype != VM_TYPE_INT && stype != VM_TYPE_FLOAT) ||
 			    (vtype != VM_TYPE_INT && vtype != VM_TYPE_FLOAT))
                         && ((stype != VM_TYPE_STR && stype != VM_TYPE_KEY) ||
-			    (vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY));
+			    (vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY))
+    && (stype != VM_TYPE_PTR || (vtype != VM_TYPE_STR && vtype != VM_TYPE_KEY && vtype != VM_TYPE_LIST))
+    && (vtype != VM_TYPE_PTR || (stype != VM_TYPE_STR && stype != VM_TYPE_KEY && stype != VM_TYPE_LIST));
 }
 
 class asm_verify {
@@ -118,6 +120,7 @@ class asm_verify {
     uint8_t stype = stack_types.back();
     stack_types.pop_back();
     if(caj_vm_check_types(stype, vtype)) {
+      printf("DEBUG: wanted %i got %i\n", vtype, stype);
       err = "Type mismatch on stack"; return;
     }
   }

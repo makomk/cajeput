@@ -88,6 +88,8 @@ private:
   std::vector<jump_fixup> fixups;
   std::vector<vm_function*> funcs;
 
+  std::vector<uint32_t> list_build;
+
   vm_serialiser serial;
 
 
@@ -378,6 +380,32 @@ public:
     }
   }
 
+  void begin_list() {
+    assert(list_build.size() == 0);
+  }
+
+  void list_add_str(const char* val) {
+    list_build.push_back(add_string(val));
+  }
+
+  uint32_t end_list() {
+    int count = list_build.size();
+    if(count >  VM_LIMIT_HEAP || count*4 >  VM_LIMIT_HEAP) {
+      err = "List too long"; return 0;
+    }
+    unsigned char *data = (unsigned char*)malloc(count*4);
+    unsigned offset = 0;
+    for(int i = 0; i < count; i++) {
+      uint32_t val = list_build[i];
+      data[offset++] = (val >> 24) & 0xff;
+      data[offset++] = (val >> 16) & 0xff;
+      data[offset++] = (val >> 8) & 0xff;
+      data[offset++] = (val) & 0xff;
+    }
+    list_build.clear();
+    return serial.add_heap_entry(VM_TYPE_LIST,count*4,data);
+  }
+
   void insn(uint16_t val) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Instruction outside of func"; return; }
@@ -432,7 +460,9 @@ public:
       {
 	uint16_t ival = GET_IVAL(val);
 	if(ival >= gptr_types.size() || 
-	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	   (gptr_types[ival] != VM_TYPE_STR &&
+	    gptr_types[ival] != VM_TYPE_KEY &&
+	    gptr_types[ival] != VM_TYPE_LIST)) {
 	   err = "Bad global pointer read"; return;
 	}
 	verify->push_val(gptr_types[ival]);
@@ -442,7 +472,9 @@ public:
       {
 	uint16_t ival = GET_IVAL(val);
 	if(ival >= gptr_types.size() || 
-	   gptr_types[ival] != VM_TYPE_STR) { // FIXME - handle lists
+	   (gptr_types[ival] != VM_TYPE_STR &&
+	    gptr_types[ival] != VM_TYPE_KEY &&
+	    gptr_types[ival] != VM_TYPE_LIST)) {
 	   err = "Bad global pointer write"; return;
 	}
 	verify->pop_val(gptr_types[ival]);
@@ -503,8 +535,9 @@ public:
     if(offset >= verify->stack_types.size()) {
       err = "Local variable out of bounds"; return;
     }
-    if(verify->stack_types[offset] != VM_TYPE_STR /* && 
-       verify->stack_types[offset] != VM_TYPE_LIST */) {
+    if(verify->stack_types[offset] != VM_TYPE_STR &&
+       verify->stack_types[offset] != VM_TYPE_KEY &&
+       verify->stack_types[offset] != VM_TYPE_LIST) {
       err = "Local variable of wrong type"; return;
     }
     offset = verify->stack_types.size()-offset;
@@ -518,8 +551,9 @@ public:
     if(offset >= verify->stack_types.size()-1) {
       err = "Local variable out of bounds"; return;
     }
-    if(verify->stack_types[offset] != VM_TYPE_STR /* && 
-       verify->stack_types[offset] != VM_TYPE_LIST */) {
+    if(verify->stack_types[offset] != VM_TYPE_STR && 
+       verify->stack_types[offset] != VM_TYPE_KEY && 
+       verify->stack_types[offset] != VM_TYPE_LIST) {
       err = "Local variable of wrong type"; return;
     }
     offset = verify->stack_types.size()-1-offset;

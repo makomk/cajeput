@@ -74,6 +74,7 @@
 // now for the internal types
 #define VM_TYPE_RET_ADDR 100 // for functions we're calling
 #define VM_TYPE_OUR_RET_ADDR 101 // for ourselves
+#define VM_TYPE_PTR 102
 
 /* WARNING WARING - this needs fixing if we increase the number of types */
 /* For this reason, do NOT use this for anything that's serialised. Really. */
