@@ -308,6 +308,12 @@ int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim,
 void world_prim_set_inv(struct primitive_obj *prim, inventory_item** inv,
 			int inv_count);
 
+  // also an interesting one. FIXME - should be removed when we add support
+  // for restoring OpenSim script states.
+void world_prim_start_rezzed_script(struct simulator_ctx *sim, 
+				    struct primitive_obj *prim, 
+				    struct inventory_item *item);
+
   // for use by the physics engine only
 void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 			      const caj_vector3 *new_pos);

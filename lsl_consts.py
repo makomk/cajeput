@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys
+import sys, re
 
 class lsl_const:
     def __init__(self,vtype,sval):
@@ -13,6 +13,24 @@ class lsl_rot:
     def __init__(self,x,y,z,s):
         self.x = x; self.y = y; self.z = z; self.s = s
 
+_header_re = re.compile(r"^#define\s+(\w+)\s+(.+?)(?://.*)?$")
+
+class c_header:
+    def __init__(self, fname):
+        self.names = { }
+        f = open(fname, 'r');
+        for line in f.readlines():
+            m = _header_re.match(line)
+            if m != None:
+                val = m.group(2)
+                self.names[m.group(1)] = val
+                print "Got %s = %s" % (m.group(1), val)
+
+    def get_int(self, name):
+        return eval(self.names[name])
+
+caj_script_h = c_header("caj_script.h")
+
 lsl_consts = {
     "FALSE": 0,
     "TRUE": 1,
@@ -23,8 +41,8 @@ lsl_consts = {
     "ZERO_VECTOR": lsl_vect(0,0,0),
     "ZERO_ROTATION": lsl_rot(0,0,0,1),
     "NULL_KEY": "00000000-0000-0000-0000-000000000000", # yes, a string.
-    # FIXME - load these from caj_script.h
-    "CHANGED_REGION_START": 0x400
+    "CHANGED_REGION_START": caj_script_h.get_int("CHANGED_REGION_START"),
+    "LINK_SET": caj_script_h.get_int("LINK_SET")
     # TODO
 }
 

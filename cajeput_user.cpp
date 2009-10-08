@@ -1120,7 +1120,7 @@ static OSGLUE_XML_CALLBACK(deserialise_prim_inv) {
   }
   part->inv_count = inv.size();
   part->inv = new inventory_item*[inv.size()];
-  for(unsigned i = 0; i < part->inv_count; i++) {
+  for(int i = 0; i < part->inv_count; i++) {
     part->inv[i] = inv[i];
   }
   return TRUE;
@@ -1273,8 +1273,24 @@ static primitive_obj* prim_from_os_xml_part(xmlDocPtr doc, xmlNodePtr node, int 
   return prim;
 }
 
+struct os_script_state {
+  char *state;
+  int is_running;
+};
+
+// HACK! this isn't actually serialised with the matching code
+// by OpenSim. In particular, case of boolean vars is wrong.
+static xml_serialisation_desc deserialise_script_state[] = {
+  { "State", XML_STYPE_STRING, offsetof(os_script_state, state) },
+  { "Running", XML_STYPE_BOOL, offsetof(os_script_state, is_running) },
+  { NULL }
+};
+
+typedef std::map<obj_uuid_t,os_script_state> script_state_map;
+
 // FIXME - this ought to skip whitespace!
-static primitive_obj *prim_from_os_xml(const caj_string *data) {
+static primitive_obj *prim_from_os_xml(const caj_string *data,
+				       script_state_map &states) {
   xmlDocPtr doc;
   xmlNodePtr node;
   primitive_obj * prim;
@@ -1313,6 +1329,37 @@ static primitive_obj *prim_from_os_xml(const caj_string *data) {
     if(child == NULL) goto free_prim_fail;
     child->ob.parent = &prim->ob;
     prim->children[prim->num_children++] = child;
+  }
+
+  node = node->next;
+  if(node != NULL && strcmp((char*)node->name, "GroupScriptStates") == 0) {
+    printf("DEBUG: got script states info\n");
+    for(xmlNodePtr st_node = node->children; st_node != NULL; 
+	st_node = st_node->next) {
+      if(strcmp((char*)st_node->name, "SavedScriptState") != 0)
+	continue;
+
+      uuid_t item_id; os_script_state state;
+      char *for_uuid = (char*)xmlGetProp(st_node, (const xmlChar*)"UUID");
+      if(for_uuid == NULL) continue;
+      if(uuid_parse(for_uuid, item_id)) { xmlFree(for_uuid); continue; }
+      printf("DEBUG: got script state for %s\n", for_uuid);
+      xmlFree(for_uuid);
+
+      xmlNodePtr st_node2 = st_node->children;
+      if(st_node2 == NULL || strcmp((char*)st_node2->name, "ScriptState") != 0)
+	continue;
+
+      if(states.count(item_id)) continue;
+
+      if(!osglue_deserialise_xml(doc, st_node2->children, 
+				 deserialise_script_state, &state)) {
+	printf("ERROR: couldn't deserialise OpenSim script state!\n");
+	continue;
+      }
+      
+      states[item_id] = state;
+    }
   }
 
   xmlFreeDoc(doc); return prim;
@@ -1362,12 +1409,36 @@ static void rez_object_set_perms(primitive_obj *prim,
   for(int i = 0; i < prim->num_children; i++)
     rez_object_set_perms(prim->children[i], desc);
 
+  // FIXME - TODO handle inventory!
+
   // Sane handling of linksets is hard. We don't want users to be able to
   // screw permissions up by linking objects, but we also need them to be able
   // to set perms sanely for the entire linkset by editing the root. The client
   // doesn't even permit editing of child permissions.
 }
-				       
+
+// FIXME: we need to renumber inventory items, and then this won't work right
+// anymore! (Otherwise, we'll get issues linking identical objects.)
+static void rez_object_enable_scripts(simulator_ctx *sim, primitive_obj *prim,
+				      script_state_map &states) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *item = prim->inv.items[i];
+    if(item->inv_type != INV_TYPE_LSL) continue;
+
+    script_state_map::iterator iter = states.find(item->item_id);
+    if(iter == states.end()) {
+      char buf[40]; uuid_unparse(item->item_id, buf);
+      printf("WARNING: missing script state for %s\n", buf);
+      continue;
+    }
+
+    if(iter->second.is_running) {
+      world_prim_start_rezzed_script(sim, prim, item);
+    }
+  }
+  for(int i = 0; i < prim->num_children; i++)
+    rez_object_enable_scripts(sim, prim->children[i], states);
+}
 
 static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset *asset) {
   rez_object_desc *desc = (rez_object_desc*)priv;
@@ -1380,11 +1451,12 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
     user_send_message(desc->ctx, "ERROR: you must have an avatar to attach something");
     user_del_self_pointer(&desc->ctx); delete desc;
   } else {
-    char buf[asset->data.len+1];
+    script_state_map states;
+    char buf[asset->data.len+1]; // FIXME!!!!!
     memcpy(buf, asset->data.data, asset->data.len);
     buf[asset->data.len] = 0;
     printf("DEBUG: Got object asset data: ~%s~\n", buf);
-    primitive_obj *prim = prim_from_os_xml(&asset->data);
+    primitive_obj *prim = prim_from_os_xml(&asset->data, states);
     if(prim != NULL) {
       uuid_copy(prim->inv_item_id, desc->inv_item_id);
       rez_object_set_perms(prim, desc);
@@ -1401,10 +1473,16 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
 	}
 	world_add_attachment(desc->ctx->sim, desc->ctx->av, prim, desc->attach_point);
       } else {
-	world_insert_obj(desc->ctx->sim, &prim->ob);
 	prim->ob.local_pos = desc->pos;
+	world_insert_obj(desc->ctx->sim, &prim->ob);
       }
+      rez_object_enable_scripts(desc->ctx->sim, prim, states);
     }
+    for(std::map<obj_uuid_t,os_script_state>::iterator iter = states.begin();
+	iter != states.end(); iter++) {
+      xmlFree(iter->second.state);
+    }
+    // FIXME - free script state info!
     user_del_self_pointer(&desc->ctx); delete desc;
   }
 }

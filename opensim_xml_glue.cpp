@@ -96,9 +96,9 @@ int osglue_deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
     case XML_STYPE_BOOL:
       {
 	char *s = (char*)xmlNodeListGetString(doc, node->children, 1);
-	if(strcmp(s,"true") == 0) {
+	if(strcasecmp(s,"true") == 0) {
 	  *(int*)(outbuf+serial[i].offset) = 1;
-	} else if(strcmp(s,"false") == 0) {
+	} else if(strcasecmp(s,"false") == 0) {
 	  *(int*)(outbuf+serial[i].offset) = 0;
 	} else {
 	  printf("ERROR: bad boolean value in deserialise_xml\n");

@@ -46,4 +46,11 @@
 #define CHANGED_TELEPORT 0x200
 #define CHANGED_REGION_START 0x400
 
+#define LINK_ROOT 1
+#define LINK_FIRST_CHILD 2
+#define LINK_SET -1
+#define LINK_ALL_OTHERS -2
+#define LINK_ALL_CHILDREN -3
+#define LINK_THIS -4
+
 #endif

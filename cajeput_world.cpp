@@ -28,15 +28,28 @@
 #include <cassert>
 
 struct script_info {
+private:
+  int m_refcnt;
+public:
   void *priv;
   caj_string state;
+  simulator_ctx *sim; // FIXME - sim and prim may be NULL!
+  primitive_obj *prim;
+  inventory_item *inv;
 
-  script_info() : priv(NULL) {
+  script_info(simulator_ctx *sim_, primitive_obj *prim_, inventory_item *inv_)
+    : m_refcnt(1), priv(NULL), sim(sim_), prim(prim_), inv(inv_) {
     state.len = 0; state.data = NULL;
   }
 
   ~script_info() {
     caj_string_free(&state);
+  }
+
+  void ref(void) { m_refcnt++; }
+  void unref(void) {
+    m_refcnt--;
+    if(m_refcnt == 0) delete this;
   }
 };
 
@@ -549,7 +562,7 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
       script_info *sinfo = (script_info*)inv->spriv;
       if(sinfo->priv != NULL)
 	sim->scripth.kill_script(sim, sim->script_priv, sinfo->priv);
-      delete sinfo; inv->spriv = NULL;
+      sinfo->inv = NULL; sinfo->unref(); inv->spriv = NULL;
     }
   }
   
@@ -711,7 +724,7 @@ int world_prim_delete_inv(struct simulator_ctx *sim, struct primitive_obj *prim,
 	script_info* sinfo = (script_info*)inv->spriv;
 	if(sinfo->priv != NULL)
 	  sim->scripth.kill_script(sim, sim->script_priv, sinfo->priv);
-	delete sinfo; inv->spriv = NULL;
+	sinfo->inv = NULL; sinfo->unref(); inv->spriv = NULL;
       }
 
       prim_free_inv_item(inv);
@@ -753,7 +766,7 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
       }
       script_info* sinfo = (script_info*)inv->spriv;
       if(sinfo == NULL) {
-	sinfo = new script_info(); sinfo->priv = NULL;
+	sinfo = new script_info(sim, prim, inv); sinfo->priv = NULL;
 	inv->spriv = sinfo;
       }
       if(sinfo->priv != NULL) {
@@ -843,7 +856,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   caj_string_set(&asset->data, "default\n{\n  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
   inv->asset_hack = asset;
 
-  script_info* sinfo = new script_info();
+  script_info* sinfo = new script_info(ctx->sim, prim, inv);
   sinfo->priv = NULL; inv->spriv = sinfo;
 
   prim_add_inventory(prim, inv);
@@ -854,6 +867,37 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 					     prim, inv, asset, NULL, NULL);
   } else {
     sinfo->priv = NULL;
+  }
+}
+
+static void start_script_asset_cb(struct simgroup_ctx *sgrp, void *priv,
+				  struct simple_asset *asset) {
+  script_info* sinfo = (script_info*)priv;
+  if(asset != NULL && sinfo->inv != NULL && sinfo->priv == NULL &&
+     uuid_compare(asset->id, sinfo->inv->asset_id) == 0) {
+    sinfo->priv = sinfo->sim->scripth.add_script(sinfo->sim, 
+						 sinfo->sim->script_priv, 
+						 sinfo->prim, sinfo->inv, 
+						 asset, NULL, NULL);
+  }
+  sinfo->unref();
+}
+
+void world_prim_start_rezzed_script(struct simulator_ctx *sim, 
+				    struct primitive_obj *prim, 
+				    struct inventory_item *item) {
+  assert(item->inv_type == INV_TYPE_LSL);
+  script_info* sinfo = (script_info*) item->spriv;
+  if(sinfo == NULL) {
+    sinfo = new script_info(sim, prim, item);
+    sinfo->priv = NULL; item->spriv = sinfo;
+  }
+  
+  assert(sinfo->priv == NULL);
+
+  if(sim->scripth.add_script != NULL) {
+    sinfo->ref(); sinfo->sim = sim; sinfo->prim = prim;
+    caj_get_asset(sim->sgrp, item->asset_id, start_script_asset_cb, sinfo);
   }
 }
 
@@ -871,7 +915,7 @@ void world_save_script_state(simulator_ctx *sim, inventory_item *inv,
 void world_load_script_state(inventory_item *inv, caj_string *state) {
   assert(inv->spriv == NULL);
   assert(inv->inv_type == INV_TYPE_LSL);
-  script_info *sinfo = new script_info();
+  script_info *sinfo = new script_info(NULL, NULL, inv);
   caj_string_steal(&sinfo->state, state);
   inv->spriv = sinfo;
 }
