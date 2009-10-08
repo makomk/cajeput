@@ -343,6 +343,7 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   char *caps_path, *s;
   //uuid_t session_id, agent_id, secure_session_id;
   char seed_cap[50]; int success = 0;
+  caj_vector3 start_pos;
   soup_server_unpause_message(state->server,state->msg);
 
   if(!is_ok) goto return_fail;
@@ -365,21 +366,30 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   if(uuid_parse(s, uinfo.secure_session_id)) goto bad_args;
   if(!soup_value_hash_lookup(args,"circuit_code",G_TYPE_INT,
 			     &uinfo.circuit_code)) goto bad_args;
-  // FIXME - use startpos_x/y/z, secure_session_id
+  if(!soup_value_hash_lookup(args, "startpos_x",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  start_pos.x = atof(s);
+  if(!soup_value_hash_lookup(args, "startpos_y",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  start_pos.y = atof(s);
+  if(!soup_value_hash_lookup(args, "startpos_z",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  start_pos.z = atof(s);
   
   // WTF? Why such an odd path?
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
   uinfo.is_child = 0;
+
   user = sim_prepare_new_user(state->sim, &uinfo);
+  if(user == NULL) goto return_fail;
   if(soup_value_hash_lookup(args,"appearance",G_TYPE_HASH_TABLE,
 			    &hash)) {
     expect_user_set_appearance(user, hash);
   } else {
     printf("WARNING: expect_user is missing appearance data\n");
   }
-  
-
+  user_set_start_pos(user, &start_pos, &start_pos); // FIXME - look_at?
  
   success = 1;
  return_fail:

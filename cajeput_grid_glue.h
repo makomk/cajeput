@@ -142,6 +142,9 @@ struct sim_new_user {
 struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
 				      struct sim_new_user *uinfo);
 
+void user_set_start_pos(user_ctx *ctx, const caj_vector3 *pos,
+			const caj_vector3 *look_at);
+
 // ICK. This function is for use by OpenSim glue code only.
 void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id, 
 			    uuid_t secure_session_id);

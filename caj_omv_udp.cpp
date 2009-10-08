@@ -949,7 +949,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     uuid_copy(ad2->AgentID, ctx->user_id);
     uuid_copy(ad2->SessionID, ctx->session_id);
     dat->Position = ctx->av->ob.local_pos; // FIXME - local pos or global?
-    dat->LookAt = dat->Position;
+    dat->LookAt = ctx->start_look_at;
     dat->RegionHandle = ctx->sim->region_handle;
     dat->Timestamp = time(NULL);
     caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
