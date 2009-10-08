@@ -2,32 +2,28 @@
 <head></head>
 <body><h1>Welcome to the Cajeput pre-release</h1>
 
-<p>This software is highly experimental, for testing purposes only, and not release-worthy. Most of the features you'd expect to have - inventory, teleportation and region crossing, even objects - are not implemented yet.</p>
-
-<p>If you wish to leave the region, please logout and log back in somewhere else. (You <em>should</em> be logged out cleanly, though this also means that you'll return here if you just log in at your previous location.)</p>
+<p>This software is highly experimental, for testing purposes only, and not release-worthy. Most of the features you'd expect to have are incomplete or not implemented yet.</p>
 
 <h2>Currently supported:</h2>
 <ul>
-  <li>Teleports into the region (mostly), and even out (occasionally)</li>
-  <li>Logging into the region directly (again, mostly)</li>
-  <li>Logging out cleanly</li>
-  <li>Chat</li>
+  <li>Teleports into the region, and even out (most of the time), as well as direct logins</li>
+  <li>Logging out cleanly (though <em>without saving attachments</em>, so be careful)</li>
+  <li>Chat, including chat from (though <em>not</em> to) objects</li>
   <li>Avatar movement (including most of the animations)</li>
+  <li>Some very basic and buggy LSL scripting support</li>
 </ul>
 <h2>Still to do</h2>
 <ul>
-  <li>Fix teleport out. Various bits are unfinished, and it <em>still</em> randomly logs you out (we need to postpone terminating the user session until after the viewer gets a seed capability response from the destination, I think).</li>
-  <li>For some reason, if you teleport into Cajeput from an OpenSim region and then back to the original region, the original OpenSim region does a RequestTeleportToLocation back into the Cajeput region - which breaks the viewer! This may be an OpenSim or viewer issue, though - similar issues with rapid teleports between OpenSim regions</li>
-  <li>Teleport home/to landmark/to same region</li>
-  <li>Prim creation and deletion</li>
+  <li>For some reason, if you teleport into Cajeput from an OpenSim region and then back to the original region, the original OpenSim region does a RequestTeleportToLocation back into the Cajeput region - which breaks the viewer! This isn't Cajeput-specific, though - it looks like OpenSim is known to have issues in this area.</li>
+  <li>Finish teleport/enter region, so that it puts you in the correct location</li>
+  <li>Teleport home/to landmark</li>
   <li>Finish inventory</li>
   <li>Debug texture downloads and prioritise correctly</li>
-  <li>Texture and asset uploads</li>
+  <li>Finish texture and asset uploads</li>
   <li>Finish/debug mapping</li>
   <li>Search, user profiles, etc</li>
   <li>Proper throttling of outgoing packets</li>
   <li>Instant messaging</li>
-  <li>Asset downloads</li>
   <li>Finish animation support</li>
   <li>and a thousand other things...</li>
 </ul>
