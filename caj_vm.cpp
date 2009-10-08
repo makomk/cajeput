@@ -663,8 +663,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  assert(ival < NUM_INSNS); // checked pass 1
 
 	  insn_info info = vm_insns[ival];
-	  vs.verify->pop_val(info.arg1); 
-	  vs.verify->pop_val(info.arg2);
+	  vs.verify->pop_val(info.arg2); 
+	  vs.verify->pop_val(info.arg1);
 	  vs.verify->push_val(info.ret);
 	  if(err != NULL) { delete vs.verify; goto out; }
 
@@ -907,6 +907,23 @@ static heap_header* get_stk_ptr(int32_t *tloc) {
   }
 }
 
+static heap_header *list_2_str(heap_header* list, int32_t pos, script_state *st) {
+  heap_header* ret;
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    ret = script_alloc(st, 0, VM_TYPE_STR);
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    switch(heap_entry_vtype(item)) {
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+      heap_ref_incr(item); ret = item; break;
+    default:
+      ret = script_alloc(st, 0, VM_TYPE_STR); break;
+    }
+  }
+  heap_ref_decr(list, st); return ret;
+}
 
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->patched_bytecode;
@@ -1092,7 +1109,7 @@ static void step_script(script_state* st, int num_steps) {
 	{
 	  char buf[40]; sprintf(buf, "%f", *(float*)(++stack_top));
 	  stack_top -= ptr_stack_sz();
-	  heap_header *p = make_vm_string(st, buf);;  
+	  heap_header *p = make_vm_string(st, buf);  
 	  put_stk_ptr(stack_top+1,p);
 	  if(p == NULL) goto abort_exec;
 	  break;
@@ -1357,6 +1374,14 @@ static void step_script(script_state* st, int num_steps) {
 	  heap_header *p = get_stk_ptr(stack_top+1);
 	  stack_top += ptr_stack_sz()-1;
 	  stack_top[1] = p->len; heap_ref_decr(p, st); 
+	  break;
+	}
+	// FIXME - TODO rest of list instructions
+      case INSN_LIST2STR:
+	{
+	  int32_t off = stack_top[1]; stack_top++;
+	  put_stk_ptr(stack_top+1,list_2_str(get_stk_ptr(stack_top+1), off, st));
+	  if(st->scram_flag != 0) goto abort_exec;
 	  break;
 	}
       default:

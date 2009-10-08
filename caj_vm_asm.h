@@ -417,7 +417,7 @@ public:
 	uint16_t ival = GET_IVAL(val);
 	if(ival >= NUM_INSNS) { err = "Invalid instruction"; return; }
 	insn_info info = vm_insns[ival];
-	verify->pop_val(info.arg1); verify->pop_val(info.arg2);
+	verify->pop_val(info.arg2); verify->pop_val(info.arg1);
 	verify->push_val(info.ret);
 	
 	if(err != NULL) return;
