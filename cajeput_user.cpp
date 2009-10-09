@@ -497,6 +497,23 @@ static void free_system_folders(user_ctx *ctx) {
   ctx->sys_folders_state = SYS_FOLDERS_BAD_STATE;
 }
 
+static void sanitise_teleport_pos(simulator_ctx *sim, caj_vector3 *pos) {
+  if(!finite(pos->x)) pos->x = 128.0f;
+  else if(pos->x <= 0.0f) pos->x = 1.0f;
+  else if(pos->x >= WORLD_REGION_SIZE) pos->x = WORLD_REGION_SIZE - 1.0f;
+
+  if(!finite(pos->y)) pos->y = 128.0f;
+  else if(pos->y <= 0.0f) pos->y = 1.0f;
+  else if(pos->y >= WORLD_REGION_SIZE) pos->y = WORLD_REGION_SIZE - 1.0f;
+  
+  if(!finite(pos->z)) pos->z = 1.0f;
+  else if(pos->z <= 0.0f) pos->z = 1.0f;
+  else if(pos->z >= WORLD_HEIGHT) pos->z = WORLD_HEIGHT - 1.0f;  
+
+  float min_height = 1.0f + sim_get_terrain_height(sim, pos->x, pos->y);
+  if(pos->z < min_height) pos->z = min_height;
+}
+
 static teleport_desc* begin_teleport(struct user_ctx* ctx) {
   if(ctx->tp_out != NULL) {
     printf("!!! ERROR: can't teleport while teleporting!\n");
@@ -563,6 +580,7 @@ static void do_real_teleport(struct teleport_desc* tp) {
       return;
     }
     // FIXME - this is horribly hacky!
+    sanitise_teleport_pos(tp->ctx->sim, &tp->pos);
     struct caj_multi_upd pos_upd;
     pos_upd.flags = CAJ_MULTI_UPD_POS;
     pos_upd.pos = tp->pos;
@@ -750,24 +768,9 @@ user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
   return ctx;
 }
 
-static void sanitise_teleport_pos(caj_vector3 *pos) {
-  if(!finite(pos->x)) pos->x = 128.0f;
-  else if(pos->x <= 0.0f) pos->x = 1.0f;
-  else if(pos->x >= WORLD_REGION_SIZE) pos->x = WORLD_REGION_SIZE - 1.0f;
-
-  if(!finite(pos->y)) pos->y = 128.0f;
-  else if(pos->y <= 0.0f) pos->y = 1.0f;
-  else if(pos->y >= WORLD_REGION_SIZE) pos->y = WORLD_REGION_SIZE - 1.0f;
-  
-  if(!finite(pos->z)) pos->z = 1.0f;
-  else if(pos->z <= 0.0f) pos->z = 1.0f;
-  else if(pos->z >= WORLD_HEIGHT) pos->z = WORLD_HEIGHT - 1.0f;  
-}
-
 void user_set_start_pos(user_ctx *ctx, const caj_vector3 *pos,
 			const caj_vector3 *look_at) {
   ctx->start_pos = *pos; ctx->start_look_at = *look_at;
-  sanitise_teleport_pos(&ctx->start_pos);
 }
 
 int user_complete_movement(user_ctx *ctx) {
@@ -782,6 +785,7 @@ int user_complete_movement(user_ctx *ctx) {
   if(ctx->av == NULL) {
     ctx->av = (struct avatar_obj*)calloc(sizeof(struct avatar_obj),1);
     ctx->av->ob.type = OBJ_TYPE_AVATAR;
+    sanitise_teleport_pos(ctx->sim, &ctx->start_pos);
     ctx->av->ob.local_pos = ctx->start_pos;
     ctx->av->ob.rot.x = ctx->av->ob.rot.y = ctx->av->ob.rot.z = 0.0f;
     ctx->av->ob.rot.w = 1.0f;

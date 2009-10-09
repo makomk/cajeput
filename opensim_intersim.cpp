@@ -314,7 +314,7 @@ static void agent_PUT_handler(SoupServer *server,
 			      struct simgroup_ctx* sgrp) {
   JsonNode * node = json_parser_get_root(parser); // reused later
   JsonObject *object; user_ctx *user;
-  const char *msg_type, *callback_uri, *s;
+  const char *msg_type, *callback_uri, *s, *s2, *s3;
   user_grid_glue *user_glue; simulator_ctx *sim;
   uuid_t user_id, session_id; uint64_t region_handle;
   // GRID_PRIV_DEF(sim);
@@ -382,6 +382,7 @@ static void agent_PUT_handler(SoupServer *server,
   }
 
   if(strcmp(msg_type,"AgentData") == 0) {
+    caj_vector3 start_pos;
     user_set_flag(user, AGENT_FLAG_INCOMING);
 
     free(user_glue->enter_callback_uri);
@@ -403,6 +404,16 @@ static void agent_PUT_handler(SoupServer *server,
       user_set_throttles_block(user, buf, len);
       free(buf);
     }
+
+    s = helper_json_get_string(object, "position");
+    if(s == NULL || sscanf(s, "<%f, %f, %f>",&start_pos.x,
+			   &start_pos.y, &start_pos.z) != 3) {
+      printf("DEBUG: agent PUT - bad/missing position\n");
+      goto out_fail;
+    }
+    
+    // FIXME - what about look_at? Is it not sent?
+    user_set_start_pos(user, &start_pos, &start_pos);
 
     node = json_object_get_member(object,"texture_entry");
     if(node != NULL) {

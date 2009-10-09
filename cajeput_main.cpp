@@ -110,6 +110,9 @@ void sim_set_script_priv(struct simulator_ctx *sim, void* p) {
 float* sim_get_heightfield(struct simulator_ctx *sim) {
   return sim->terrain;
 }
+float sim_get_terrain_height(struct simulator_ctx *sim, int x, int y) {
+  return sim->terrain[x + y*256];
+}
 // --- END sim query code ---
 
 
