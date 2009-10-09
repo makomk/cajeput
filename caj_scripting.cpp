@@ -472,6 +472,19 @@ static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id
 
 RPC_TO_MAIN(llGetRootRotation)
 
+static void llGetObjectName_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_str_ret(st, func_id, scr->prim->name);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetObjectName)
+
+static void llGetObjectDesc_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_str_ret(st, func_id, scr->prim->description);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetObjectDesc)
 
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
 // modified to provide restricted version information to untrusted scripts at
@@ -583,6 +596,24 @@ static void llDetectedVel_cb(script_state *st, void *sc_priv, int func_id) {
   }
   vm_func_return(st, func_id);
 }
+
+static void llGetRegionName_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_str_ret(st, func_id, sim_get_name(scr->simscr->sim));
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(llGetRegionName);
+
+static void llGetRegionCorner_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_vector3 corner;
+  corner.x = 256*sim_get_region_x(scr->simscr->sim);
+  corner.y = 256*sim_get_region_y(scr->simscr->sim);
+  corner.z = 0.0f;
+  vm_func_set_vect_ret(st, func_id, &corner);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(llGetRegionCorner);
 
 static void script_upd_evmask(sim_script *scr) {
   int evmask = 0;
@@ -1154,6 +1185,11 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 
+  vm_world_add_func(simscr->vmw, "llGetObjectName", VM_TYPE_STR,
+		    llGetObjectName_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetObjectDesc", VM_TYPE_STR,
+		    llGetObjectDesc_cb, 0);
+
   vm_world_add_func(simscr->vmw, "llDetectedName", VM_TYPE_STR, llDetectedName_cb,
 		    1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedPos", VM_TYPE_VECT, llDetectedPos_cb,
@@ -1164,6 +1200,12 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedKey", VM_TYPE_KEY, llDetectedKey_cb,
 		    1, VM_TYPE_INT);
+
+  // llGetRegion*
+  vm_world_add_func(simscr->vmw, "llGetRegionCorner", VM_TYPE_VECT,
+		    llGetRegionCorner_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetRegionName", VM_TYPE_STR,
+		    llGetRegionName_cb, 0);
 
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);

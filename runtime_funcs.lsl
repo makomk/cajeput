@@ -36,11 +36,18 @@ vector llDetectedVel( integer number ) { }
 
 // TODO: llDetectedTouch*
 
+// TODO - rest of llGetRegion* functions
+vector llGetRegionCorner() { }
+string llGetRegionName() { }
+
 //osTeleportAgent( key avatar, integer region_x, integer region_y,
 //		 vector pos, vector look_at) { }
 
 osTeleportAgent( key avatar, string region,
 		 vector pos, vector look_at) { }
+
+string llGetObjectName() { }
+string llGetObjectDesc() { }
 
 // bunch of stuff I need to implement
 vector llGetPos() { }
