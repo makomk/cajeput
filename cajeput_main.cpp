@@ -268,6 +268,7 @@ static void shutdown_sim(simulator_ctx *sim) {
   free(sim->cfg_sect); free(sim->shortname);
   
   world_octree_destroy(sim->world_tree);
+  delete sim->collisions;
   g_free(sim->name);
   g_free(sim->welcome_message);
   delete[] sim->terrain;
@@ -646,6 +647,7 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
   
   g_timeout_add(100, av_update_timer, sim);
 
+  sim->collisions = new collision_state();
 
   if(!cajeput_physics_init(CAJEPUT_API_VERSION, sim, 
 			     &sim->phys_priv, &sim->physh)) {

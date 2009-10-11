@@ -235,6 +235,8 @@ struct primitive_obj {
     int (*get_evmask)(simulator_ctx *sim, void *priv, void *script);
     void (*touch_event)(simulator_ctx *sim, void *priv, void *script,
 			user_ctx *user, world_obj *av, int touch_type);
+    void (*collision_event)(simulator_ctx *sim, void *priv, void *script,
+			    world_obj *collider, int coll_type);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
@@ -244,6 +246,14 @@ struct primitive_obj {
 
 
 // ----- PHYSICS GLUE -------------
+
+struct caj_phys_collision {
+  uint32_t collidee, collider;
+#if 0 // FIXME - TODO
+  caj_vector3 collider_pos;
+  caj_quat collider_rot;
+#endif
+};
 
 struct cajeput_physics_hooks {
   /* upd_object also does adding of objects */
@@ -266,8 +276,18 @@ struct cajeput_physics_hooks {
 int cajeput_physics_init(int api_version, struct simulator_ctx *sim, 
 			 void **priv, struct cajeput_physics_hooks *hooks);
 
-  void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
-			   const caj_vector4 *footfall);
+void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
+			 const caj_vector4 *footfall);
+
+void world_update_collisions(struct simulator_ctx *sim, 
+			     struct caj_phys_collision *collisions, int count);
+
+  // for use by the physics engine only
+void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
+			      const caj_vector3 *new_pos);
+
+
+// ---------- MISC WORLD STUFF ---------------------------------------
 
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 
@@ -313,10 +333,6 @@ void world_prim_set_inv(struct primitive_obj *prim, inventory_item** inv,
 void world_prim_start_rezzed_script(struct simulator_ctx *sim, 
 				    struct primitive_obj *prim, 
 				    struct inventory_item *item);
-
-  // for use by the physics engine only
-void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
-			      const caj_vector3 *new_pos);
 
   // don't ask. Really. Also, don't free or store returned string.
   char* world_prim_upd_inv_filename(struct primitive_obj* prim);

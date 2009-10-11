@@ -1145,3 +1145,72 @@ void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* p
 			      caj_vector3 impulse, int is_local) {
   sim->physh.apply_impulse(sim, sim->phys_priv, &prim->ob, impulse, is_local);
 }
+
+static void send_prim_collision(struct simulator_ctx *sim, struct primitive_obj* prim, 
+				int coll_type, struct world_obj *collider) {
+  //printf("DEBUG: in send_prim_collision, type %i\n", coll_type);
+  int handled = 0;
+
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->asset_type == ASSET_LSL_TEXT && inv->spriv != NULL &&
+       ((script_info*)inv->spriv)->priv != NULL) {
+      script_info* sinfo = (script_info*)inv->spriv;
+      int evmask = sim->scripth.get_evmask(sim, sim->script_priv,
+					   sinfo->priv);
+
+      if(evmask & (CAJ_EVMASK_COLLISION_CONT | CAJ_EVMASK_COLLISION)) {
+	handled = 1; // any touch handler will do for this
+
+	// we leave finer-grained filtering to the script engine
+	printf("DEBUG: sending collision event %i to script\n", coll_type);
+	sim->scripth.collision_event(sim, sim->script_priv, sinfo->priv,
+				     collider, coll_type);
+      } else {
+	//printf("DEBUG: ignoring script not interested in collision event\n");
+      }
+    }
+  }
+  if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
+     !handled) {
+    printf("DEBUG: passing collision event to parent prim\n");
+    send_prim_collision(sim, (primitive_obj*)prim->ob.parent, coll_type, collider);
+  }
+}
+
+
+void world_update_collisions(struct simulator_ctx *sim, 
+			     struct caj_phys_collision *collisions, int count) {
+  collision_state *new_collisions = new collision_state();
+  for(int i = 0; i < count; i++) {
+    caj_phys_collision *coll = collisions+i;
+    world_obj *obj = world_object_by_localid(sim, coll->collidee);
+    world_obj *collider = world_object_by_localid(sim, coll->collider);
+    if(obj == NULL || collider == NULL || obj->type != OBJ_TYPE_PRIM)
+      continue;
+
+    primitive_obj *prim = (primitive_obj*)obj;
+
+    // FIXME - should apply some sort of filtering to events.
+    if(sim->collisions->count(collision_pair(coll->collidee, coll->collider))) {
+      send_prim_collision(sim, prim, CAJ_COLLISION_CONT, collider);
+      sim->collisions->erase(collision_pair(coll->collidee, coll->collider));
+    } else {
+      send_prim_collision(sim, prim, CAJ_COLLISION_START, collider);
+    }
+    new_collisions->insert(collision_pair(coll->collidee, coll->collider));
+  }
+  for(collision_state::iterator iter = sim->collisions->begin();
+      iter != sim->collisions->end(); iter++) {
+    world_obj *obj = world_object_by_localid(sim, iter->collidee);
+    world_obj *collider = world_object_by_localid(sim, iter->collider);
+    if(obj == NULL || collider == NULL || obj->type != OBJ_TYPE_PRIM)
+      continue;
+    primitive_obj *prim = (primitive_obj*)obj;
+    send_prim_collision(sim, prim, CAJ_COLLISION_END, collider);
+  }
+
+  // FIXME - TODO send collision end events
+  delete sim->collisions; sim->collisions = new_collisions;
+}

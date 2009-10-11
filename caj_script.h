@@ -30,6 +30,11 @@
 #define CAJ_EVMASK_COLLISION 0x4 // collision start/end
 #define CAJ_EVMASK_COLLISION_CONT 0x8 // continuous collision events
 
+// more internal stuff
+#define CAJ_COLLISION_START 0
+#define CAJ_COLLISION_CONT 1
+#define CAJ_COLLISION_END 2
+
 // flags used by the changed event
 #define CHANGED_INVENTORY 0x1
 #define CHANGED_COLOR 0x2

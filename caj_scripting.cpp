@@ -98,6 +98,9 @@ struct list_head {
 #define EVENT_TOUCH_END 3
 #define EVENT_TIMER 4
 #define EVENT_CHANGED 5
+#define EVENT_COLLISION_START 6 // TODO!
+#define EVENT_COLLISION 7
+#define EVENT_COLLISION_END 8
 
 // internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
@@ -624,6 +627,13 @@ static void script_upd_evmask(sim_script *scr) {
   if(vm_event_has_handler(scr->vm, EVENT_TOUCH)) {
     evmask |= CAJ_EVMASK_TOUCH_CONT;
   }
+  if(vm_event_has_handler(scr->vm, EVENT_COLLISION_START) ||
+     vm_event_has_handler(scr->vm, EVENT_COLLISION_END)) {
+    evmask |= CAJ_EVMASK_COLLISION;
+  }
+  if(vm_event_has_handler(scr->vm, EVENT_COLLISION)) {
+    evmask |= CAJ_EVMASK_COLLISION_CONT;
+  }
 script_msg *smsg = new script_msg();
   smsg->msg_type = CAJ_SMSG_EVMASK;
   smsg->scr = scr;
@@ -691,6 +701,9 @@ static gpointer script_thread(gpointer data) {
 	  case EVENT_TOUCH_START:
 	  case EVENT_TOUCH_END:
 	  case EVENT_TOUCH:
+	  case EVENT_COLLISION_START:
+	  case EVENT_COLLISION_END:
+	  case EVENT_COLLISION:
 	    vm_call_event(scr->vm, scr->detected->event_id, 1);
 	    break;
 	  default:
@@ -1086,6 +1099,39 @@ static void handle_touch(simulator_ctx *sim, void *priv, void *script,
   }
 }
 
+static void handle_collision(simulator_ctx *sim, void *priv, void *script,
+			     world_obj *obj, int coll_type) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  if(coll_type == CAJ_COLLISION_CONT ? (scr->evmask & CAJ_EVMASK_COLLISION_CONT) :
+     (scr->evmask & CAJ_EVMASK_COLLISION)) {
+    int event_id;
+    switch(coll_type) {
+    case CAJ_COLLISION_START: event_id = EVENT_COLLISION_START; break;
+    case CAJ_COLLISION_CONT: event_id = EVENT_COLLISION; break;
+    case CAJ_COLLISION_END: event_id = EVENT_COLLISION_END; break;
+    default:
+      printf("FIXME: unhandled touch type\n"); return;
+    }
+
+    detected_event *det = new detected_event();
+    det->event_id = event_id;
+
+    if(obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim_coll = (primitive_obj*)obj;
+      det->name = strdup(prim_coll->name);
+    } else {
+      // FIXME!!!
+    }
+    // FIXME - set these to their values at the time of collision
+    det->pos = obj->world_pos; 
+    det->rot = obj->rot; 
+    det->vel = obj->velocity;
+    uuid_copy(det->key, obj->id);
+    send_detected_event(simscr, scr, det);
+  }
+}
+
 static gboolean script_poll_timer(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   script_msg* msg;
@@ -1157,6 +1203,13 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_event(simscr->vmw, "timer", VM_TYPE_NONE, EVENT_TIMER, 0);
   vm_world_add_event(simscr->vmw, "changed", VM_TYPE_NONE, EVENT_CHANGED,
 		     1, VM_TYPE_INT);
+
+  vm_world_add_event(simscr->vmw, "collision_start", VM_TYPE_NONE, 
+		     EVENT_COLLISION_START, 1, VM_TYPE_INT);
+  vm_world_add_event(simscr->vmw, "collision", VM_TYPE_NONE, 
+		     EVENT_COLLISION, 1, VM_TYPE_INT);
+  vm_world_add_event(simscr->vmw, "collision_end", VM_TYPE_NONE, 
+		     EVENT_COLLISION_END, 1, VM_TYPE_INT);
 
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
@@ -1240,6 +1293,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->kill_script = kill_script;
   hooks->get_evmask = get_evmask;
   hooks->touch_event = handle_touch;
+  hooks->collision_event = handle_collision;
 
   return 1;
 }

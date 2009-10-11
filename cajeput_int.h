@@ -311,8 +311,23 @@ struct simgroup_ctx {
   std::map<uint64_t, simulator_ctx*> sims;
 };
 
+struct collision_pair {
+  uint32_t collidee, collider;
+  
+collision_pair(uint32_t collidee, uint32_t collider) : 
+  collidee(collidee), collider(collider) { }
+};
+
+static inline bool operator<(const collision_pair &lhs, 
+			     const collision_pair &rhs) {
+  return lhs.collidee < rhs.collidee || (lhs.collidee == rhs.collidee &&
+					 lhs.collider < rhs.collider);
+}
+
 #define CAJEPUT_SIM_READY 1 // TODO
 #define CAJEPUT_SGRP_SHUTTING_DOWN 2
+
+typedef std::set<collision_pair> collision_state;
 
 struct simulator_ctx {
   simgroup_ctx *sgrp;
@@ -335,6 +350,8 @@ struct simulator_ctx {
 
   void *script_priv;
   struct cajeput_script_hooks scripth;
+
+  collision_state *collisions;
 
   //struct obj_bucket[8][8][32];
 

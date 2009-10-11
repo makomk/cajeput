@@ -29,11 +29,14 @@
 #include <unistd.h>
 #include <set>
 #include <vector>
+#include <deque>
 #include <map>
 
 #define GRAVITY 9.8
 
 struct phys_obj;
+
+typedef std::vector<caj_phys_collision> collisions_info;
 
 struct physics_ctx {
   simulator_ctx *sim;
@@ -59,11 +62,18 @@ struct physics_ctx {
   std::set<phys_obj*> physical;
   std::set<phys_obj*> changed;
   int shutdown;
+  std::deque<collisions_info*> collision_upds;
+};
+
+struct part_map {
+  int num_parts;
+  uint32_t parts[1];
 };
 
 struct phys_obj {
   // most of this is protected by the mutex
   btCollisionShape *shape, *newshape;
+  part_map *parts, *newparts;
   btRigidBody* body;
   btVector3 target_velocity;
   btVector3 pos, velocity;
@@ -305,6 +315,27 @@ static btCollisionShape* shape_from_obj(struct world_obj *obj) {
   return compound;
 }
 
+static part_map* make_part_map(struct world_obj *obj) {
+  if(obj->type == OBJ_TYPE_PRIM) {
+    primitive_obj *prim = (primitive_obj*)obj;
+    part_map *parts = (part_map*)malloc(offsetof(part_map, parts)+
+					sizeof(uint32_t)*(prim->num_children+1));
+    parts->num_parts = prim->num_children+1;
+    parts->parts[0] = prim->ob.local_id;
+    for(int i = 0; i < prim->num_children; i++) {
+      parts->parts[i+1] = prim->children[i]->ob.local_id;
+    }
+    return parts;
+  } else if(obj->type == OBJ_TYPE_AVATAR) {
+    part_map *parts = (part_map*)malloc(offsetof(part_map, parts)+
+					sizeof(uint32_t));
+    parts->num_parts = 1; parts->parts[0] = obj->local_id;
+    return parts;
+  } else {
+    return NULL;
+  }
+}
+
 static int compute_phys_type(struct world_obj *obj) {
   if(obj->type == OBJ_TYPE_AVATAR) {
     return PHYS_TYPE_PHYSICAL;
@@ -332,8 +363,9 @@ static void add_object(struct simulator_ctx *sim, void *priv,
     obj->phys = physobj; 
 
     physobj->phystype = phys_type;
-    physobj->shape = shape_from_obj(obj);
-    physobj->body = NULL; physobj->newshape = NULL;
+    physobj->shape = shape_from_obj(obj); physobj->newshape = NULL;
+    physobj->parts = make_part_map(obj); physobj->newparts = NULL;
+    physobj->body = NULL; 
     physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y);
     physobj->footfall_tmp = btVector4(0,0,0,1.0f);
     if(obj->type == OBJ_TYPE_AVATAR) {
@@ -425,6 +457,7 @@ static void del_object(struct simulator_ctx *sim, void *priv,
     phys->changed.insert(physobj);
     if(physobj->newshape != NULL) {
       free_shape(physobj->newshape); physobj->newshape = NULL;
+      free(physobj->newparts);
     }
     g_static_mutex_unlock(&phys->mutex);
     obj->phys = NULL;
@@ -454,6 +487,7 @@ static void upd_object_full(struct simulator_ctx *sim, physics_ctx *phys,
 
       free_shape(physobj->newshape);
       physobj->newshape = shape_from_obj(obj);
+      physobj->newparts = make_part_map(obj);
 
       physobj->pos = btVector3(obj->local_pos.x,obj->local_pos.z,obj->local_pos.y);  // don't always want this, but...
       physobj->rot = btQuaternion(obj->rot.x,obj->rot.z,obj->rot.y,obj->rot.w);
@@ -572,7 +606,7 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 	}
 	delete physobj->body;
       }
-      free_shape(physobj->shape);
+      free_shape(physobj->shape); free(physobj->parts);
       delete physobj;
 
       phys->physical.erase(physobj); // should really only do this for physical objs
@@ -589,8 +623,9 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 	delete physobj->body;
       }
       if(physobj->newshape != NULL) {
-	free_shape(physobj->shape);
+	free_shape(physobj->shape); free(physobj->parts);
 	physobj->shape = physobj->newshape; physobj->newshape = NULL;
+	physobj->parts = physobj->newparts; physobj->newparts = NULL;
       }
 
       btScalar mass;
@@ -705,6 +740,15 @@ static void do_phys_updates_locked(struct physics_ctx *phys) {
 
 #define COLLIDE_DOWN_ANGLE (M_PI*(5.0/6.0)) /* 30 degrees limit */
 
+uint32_t get_collider_id(phys_obj *physobj, int part_id) {
+  if(physobj->parts->num_parts > 1) {
+    assert(part_id >= 0 && part_id < physobj->parts->num_parts);
+    return physobj->parts->parts[part_id];
+  } else {
+    return physobj->parts->parts[0];
+  }
+}
+
 // technically, the footfall stuff isn't quite right - we want the 
 // surface normal of the prim, not the collision normal. Works, though.
 // FIXME - bunch of code duplication here that should be cleaned up
@@ -720,6 +764,8 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
     physobj->footfall_tmp = btVector4(0,0,0,1.0f);
   }
   g_static_mutex_unlock(&phys->mutex);
+
+  collisions_info *collisions = new collisions_info();
 
   int numManifolds = world->getDispatcher()->getNumManifolds();
   for (int i=0; i<numManifolds; i++) {
@@ -772,6 +818,33 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
 	 }
        }
      }
+
+     // FIXME - tidy this code up.
+     if(physobjA != NULL && physobjA->objtype == OBJ_TYPE_PRIM &&
+	physobjA->parts != NULL && physobjB != NULL && physobjB->parts != NULL) {
+       for (int j=0; j<numContacts; j++) {
+	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
+	 if (pt.getDistance() < 0.0f) {
+	   caj_phys_collision collision;
+	   collision.collidee = get_collider_id(physobjA, pt.m_index0);
+	   collision.collider = physobjB->parts->parts[0];
+	   collisions->push_back(collision);
+	 }
+       }
+     }
+
+     if(physobjB != NULL && physobjB->objtype == OBJ_TYPE_PRIM &&
+	physobjB->parts != NULL && physobjA != NULL && physobjA->parts != NULL) {
+       for (int j=0; j<numContacts; j++) {
+	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
+	 if (pt.getDistance() < 0.0f) {
+	   caj_phys_collision collision;
+	   collision.collidee = get_collider_id(physobjB, pt.m_index1);
+	   collision.collider = physobjA->parts->parts[0];
+	   collisions->push_back(collision);
+	 }
+       }
+     }
    }
 
   g_static_mutex_lock(&phys->mutex);
@@ -787,6 +860,7 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
       else physobj->collide_down_ticks = -1;
     }
   }
+  phys->collision_upds.push_back(collisions);
   g_static_mutex_unlock(&phys->mutex);
 
 }
@@ -921,7 +995,19 @@ static gboolean got_poke(GIOChannel *source, GIOCondition cond,
       }
     }
 
-   g_static_mutex_unlock(&phys->mutex);
+    int coll_upd_cnt = phys->collision_upds.size();
+    while(coll_upd_cnt-- > 0 && !phys->collision_upds.empty()) {
+      collisions_info *collisions = phys->collision_upds.front();
+      phys->collision_upds.pop_front();
+      g_static_mutex_unlock(&phys->mutex);
+      // the C++ STL standard apparently does now guarantee the array elements
+      // are stored contiguously in memory, so this should be safe...
+      world_update_collisions(phys->sim, &(*collisions->begin()), collisions->size());
+      g_static_mutex_lock(&phys->mutex);
+      delete collisions;
+    }
+
+    g_static_mutex_unlock(&phys->mutex);
   }
   if(cond & G_IO_NVAL) return FALSE; // blech;
   return TRUE;
@@ -951,6 +1037,12 @@ static void destroy_physics(struct simulator_ctx *sim, void *priv) {
     phys->dynamicsWorld->removeCollisionObject(obj);
     delete obj;
   }
+
+   while(!phys->collision_upds.empty()) {
+      collisions_info *collisions = phys->collision_upds.front();
+      phys->collision_upds.pop_front();
+      delete collisions;
+    }
 
   g_static_mutex_free(&phys->mutex);
  
