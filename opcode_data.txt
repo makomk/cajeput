@@ -117,3 +117,5 @@
 97 LIST2KEY: list int -> key func:llList2Key
 98 LIST2VEC: list int -> vect func:llList2Vector
 99 LIST2ROT: list int -> vect func:llList2Rot
+
+100 CAST_LIST2S: list -> str

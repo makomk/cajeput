@@ -105,7 +105,6 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 	st.error = 1; return;
       // FIXME - handle this
       }
-      printf("Adding local var %s %s\n", type_names[vtype], name);
       st.vars[name] = var;
     }
   }
@@ -294,13 +293,19 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
 	  expr->u.child[1] = enode_cast(expr->u.child[1], VM_TYPE_FLOAT);	
       }
     }
-    if(insn == 0) {
+    if((expr->node_type == NODE_EQUAL || expr->node_type == NODE_NEQUAL) &&
+       expr->u.child[0]->vtype == VM_TYPE_LIST && 
+       expr->u.child[1]->vtype == VM_TYPE_LIST) {
+      // we don't bother with a special instruction for this; not worth it.
+      expr->vtype = VM_TYPE_INT;
+    } else if(insn != 0) {
+      expr->vtype = get_insn_ret_type(insn);
+    } else {
       do_error(st, "ERROR: bad types passed to operator %i %s : %s %s\n",
 	       expr->node_type, node_names[expr->node_type],
 	       type_names[ltype], type_names[rtype]); 
       return;
     }
-    expr->vtype = get_insn_ret_type(insn);
     break;
     /* FIXME - need to implement a bunch of stuff */
   case NODE_NOT:
@@ -408,6 +413,7 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_STR): return INSN_CAST_F2S;
   case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_STR): return INSN_CAST_V2S;
   case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_STR): return INSN_CAST_R2S;
+  case MK_VM_TYPE_PAIR(VM_TYPE_LIST, VM_TYPE_STR): return INSN_CAST_LIST2S;
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -680,21 +686,40 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_L_AND:
   case NODE_SHR:
   case NODE_SHL:
-    insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
-			  expr->u.child[1]->vtype);
-    if(insn == 0) {
-      do_error(st, "INTERNAL ERROR: no insn for binop %i %s %s\n", 
-	       expr->node_type, type_names[expr->u.child[0]->vtype],
-	       type_names[expr->u.child[1]->vtype]);
-      return;
+    {
+      bool list_magic = false;
+      insn = get_insn_binop(expr->node_type, expr->u.child[0]->vtype, 
+			    expr->u.child[1]->vtype);
+      if((expr->node_type == NODE_EQUAL || expr->node_type == NODE_NEQUAL) &&
+	 expr->u.child[0]->vtype == VM_TYPE_LIST && 
+	 expr->u.child[1]->vtype == VM_TYPE_LIST) {
+	// we don't bother with a special instruction for this.
+	list_magic = true; 
+	insn = expr->node_type == NODE_EQUAL ? INSN_EQ_II : INSN_NEQ_II;
+      } else if(insn == 0) {
+	do_error(st, "INTERNAL ERROR: no insn for binop %i %s %s\n", 
+		 expr->node_type, type_names[expr->u.child[0]->vtype],
+		 type_names[expr->u.child[1]->vtype]);
+	return;
+      }
+      assemble_expr(vasm, st, expr->u.child[0]);
+      if(st.error != 0) return;
+      if(list_magic) vasm.insn(INSN_LISTLEN);
+      if(vasm.get_error() != NULL) {
+	do_error(st, "[left] ASSEMBLER ERROR: %s\n", vasm.get_error());
+	return;
+      }
+      assemble_expr(vasm, st, expr->u.child[1]);
+      if(st.error != 0) return;
+      if(list_magic) vasm.insn(INSN_LISTLEN);
+      if(vasm.get_error() != NULL) {
+	do_error(st, "[right] ASSEMBLER ERROR: %s\n", vasm.get_error());
+	return;
+      }
+      update_loc(st, expr);
+      vasm.insn(insn);
+      break;    
     }
-    assemble_expr(vasm, st, expr->u.child[0]);
-    if(st.error != 0) return;
-    assemble_expr(vasm, st, expr->u.child[1]);
-    if(st.error != 0) return;
-    update_loc(st, expr);
-    vasm.insn(insn);
-    break;    
   case NODE_CALL:
     // HACK
     if(strcmp(expr->u.call.name,"print") == 0 && expr->u.call.args != NULL) {
@@ -1090,6 +1115,12 @@ static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st,
     case VM_TYPE_STR:
       vasm.list_add_str(item->expr->u.s);
       break;
+    case VM_TYPE_INT:
+      vasm.list_add_int(item->expr->u.i);
+      break;
+    case VM_TYPE_FLOAT:
+      vasm.list_add_float(item->expr->u.f);
+      break;      
     default:
       do_error(st, "Unhandled type %s in list\n", 
 	       type_names[item->expr->vtype]);
@@ -1192,8 +1223,7 @@ int main(int argc, char** argv) {
 	st.error = 1; return 1;
 	// FIXME - handle this
       }
-      printf("Adding global var %s %s\n", type_names[g->vtype], g->name);
-      assert(g->vtype == var.type); // FIXME - something funny is going on..
+      assert(g->vtype == var.type);
       assert(var.type <= VM_TYPE_MAX); 
       st.globals[g->name] = var;
       

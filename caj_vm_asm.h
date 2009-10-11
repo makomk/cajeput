@@ -388,6 +388,26 @@ public:
     list_build.push_back(add_string(val));
   }
 
+  void list_add_int(int32_t val) {
+    unsigned char *data = (unsigned char*)malloc(4);
+    data[0] = (val >> 24) & 0xff;
+    data[1] = (val >> 16) & 0xff;
+    data[2] = (val >> 8) & 0xff;
+    data[3] = (val) & 0xff;
+    list_build.push_back(serial.add_heap_entry(VM_TYPE_INT,4,data));
+  }
+
+  void list_add_float(float val) {
+    union { int i; float f; } u; u.f = val;
+    unsigned char *data = (unsigned char*)malloc(4);
+    data[0] = (u.i >> 24) & 0xff;
+    data[1] = (u.i >> 16) & 0xff;
+    data[2] = (u.i >> 8) & 0xff;
+    data[3] = (u.i) & 0xff;
+    list_build.push_back(serial.add_heap_entry(VM_TYPE_FLOAT,4,data));
+  }
+
+
   uint32_t end_list() {
     int count = list_build.size();
     if(count >  VM_LIMIT_HEAP || count*4 >  VM_LIMIT_HEAP) {
@@ -481,20 +501,25 @@ public:
 	break;
       }
     case ICLASS_RDL_I:
-      // not verified fully - use rd_local_int wrapper
+      // not verified fully - use rd_local_int wrapper (FIXME)
       verify->push_val(VM_TYPE_INT);
       break;
     case ICLASS_WRL_I:
-      // not verified fully - use wr_local_int wrapper
+      // not verified fully - use wr_local_int wrapper (FIXME)
       verify->pop_val(VM_TYPE_INT);
       break;
     case ICLASS_RDL_P:
-      // FIXME - not right
-      verify->push_val(VM_TYPE_STR);
-      break;
+      {
+	uint16_t ival = GET_IVAL(val);
+	verify->check_rdl_p(ival);
+	break;
+      }
     case ICLASS_WRL_P:
-      // FIXME - not right
-      verify->pop_val(VM_TYPE_STR);
+      {
+	uint16_t ival = GET_IVAL(val);
+	verify->check_wrl_p(ival);
+	break;
+      }
       break;
     default:
       err = "Unknown instruction class"; return;

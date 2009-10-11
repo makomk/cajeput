@@ -1384,6 +1384,7 @@ static void step_script(script_state* st, int num_steps) {
 	  if(st->scram_flag != 0) goto abort_exec;
 	  break;
 	}
+      // FIXME - implement CAST_LIST2S
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
