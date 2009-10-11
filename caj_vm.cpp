@@ -1587,6 +1587,18 @@ void vm_call_event(script_state *st, int event_id, ...) {
     case VM_TYPE_FLOAT:
       *(float*)(st->stack_top--) = va_arg(args, double); // promoted from float
       break;
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+      {
+	char *s =  va_arg(args, char*);
+	int len = strlen(s);
+	heap_header* p =  script_alloc(st, len, func->arg_types[i]);
+	if(p != NULL) 
+	  memcpy(script_getptr(p), s, len);
+	st->stack_top -= ptr_stack_sz();
+	put_stk_ptr(st->stack_top+1,p);
+	break;
+      }
     default:
       printf("ERROR: unhandled arg type in vm_call_event\n"); 
       va_end(args); assert(0); abort(); return;

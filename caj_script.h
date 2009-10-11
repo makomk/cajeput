@@ -29,6 +29,7 @@
 #define CAJ_EVMASK_TOUCH_CONT 0x2 // continuous touch
 #define CAJ_EVMASK_COLLISION 0x4 // collision start/end
 #define CAJ_EVMASK_COLLISION_CONT 0x8 // continuous collision events
+#define CAJ_EVMASK_LINK_MESSAGE 0x10 // FIXME - potential race condition on rez?
 
 // more internal stuff
 #define CAJ_COLLISION_START 0

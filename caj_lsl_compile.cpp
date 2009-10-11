@@ -140,6 +140,8 @@ static expr_node* arg_implicit_cast(lsl_compile_state &st, expr_node *expr, uint
   if(expr->vtype == arg_type) return expr;
   if(expr->vtype == VM_TYPE_INT && arg_type == VM_TYPE_FLOAT) {
     return enode_cast(expr, arg_type);
+  } else if(expr->vtype == VM_TYPE_STR && arg_type == VM_TYPE_KEY) {
+    return enode_cast(expr, arg_type); // FIXME?
   } else {
     do_error(st, "ERROR: bad implicit cast from %s to %s\n",
 	     type_names[expr->vtype], type_names[arg_type]);

@@ -50,6 +50,7 @@ string llGetObjectName() { }
 string llGetObjectDesc() { }
 
 // bunch of stuff I need to implement
+llMessageLinked(integer linknum, integer num, string str, key id) { }
 vector llGetPos() { }
 rotation llGetRot() { }
 vector llGetLocalPos() { }

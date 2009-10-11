@@ -1201,6 +1201,7 @@ void world_update_collisions(struct simulator_ctx *sim,
     }
     new_collisions->insert(collision_pair(coll->collidee, coll->collider));
   }
+
   for(collision_state::iterator iter = sim->collisions->begin();
       iter != sim->collisions->end(); iter++) {
     world_obj *obj = world_object_by_localid(sim, iter->collidee);
@@ -1211,6 +1212,61 @@ void world_update_collisions(struct simulator_ctx *sim,
     send_prim_collision(sim, prim, CAJ_COLLISION_END, collider);
   }
 
-  // FIXME - TODO send collision end events
   delete sim->collisions; sim->collisions = new_collisions;
+}
+
+static void send_link_message(struct simulator_ctx* sim, 
+			       struct primitive_obj *prim, int sender_num, 
+			       int num, char *str, char *id) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->asset_type == ASSET_LSL_TEXT && inv->spriv != NULL &&
+       ((script_info*)inv->spriv)->priv != NULL) {
+      script_info* sinfo = (script_info*)inv->spriv;
+      sim->scripth.link_message(sim, sim->script_priv, sinfo->priv,
+				sender_num, num, str, id);
+    }
+  }
+}
+
+void world_script_link_message(struct simulator_ctx* sim, 
+			       struct primitive_obj *prim, int link_num, 
+			       int num, char *str, char *id) {
+  primitive_obj *root = world_get_root_prim(prim);
+  int sender_num = 0;
+  if(prim == root) {
+    // LL weirdness. Search me. FIXXE - check this against SL proper!
+    sender_num = root->num_children == 0 ? 0 : 1;
+  } else {
+    // FIXME - must be a more efficient way!
+    for(int i = 0; i < root->num_children; i++) {
+      if(root->children[i] == prim) {
+	sender_num = i + 2; break;
+      }
+    }
+  }
+  if(link_num < 0) {
+    switch(link_num) {
+    case LINK_SET:
+      send_link_message(sim, root, sender_num, num, str, id);
+      // fall through
+    case LINK_ALL_CHILDREN:
+      for(int i = 0; i < root->num_children; i++)
+	send_link_message(sim, root->children[i], sender_num, num, str, id);
+      break;
+    case LINK_THIS:
+      send_link_message(sim, prim, sender_num, num, str, id);
+      break;
+    case LINK_ALL_OTHERS:
+      // FIXME - TODO!!!
+      break;
+    }
+  } else if(link_num == 0 || link_num == 1) {
+    send_link_message(sim, root, sender_num, num, str, id);
+  } else {
+    link_num -= 2;
+    if(link_num < root->num_children)
+      send_link_message(sim, root->children[link_num], sender_num, num, str, id);
+  }
 }

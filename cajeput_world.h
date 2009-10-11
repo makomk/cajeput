@@ -237,6 +237,8 @@ struct primitive_obj {
 			user_ctx *user, world_obj *av, int touch_type);
     void (*collision_event)(simulator_ctx *sim, void *priv, void *script,
 			    world_obj *collider, int coll_type);
+    void (*link_message)(simulator_ctx *sim, void *priv, void *script,
+			 int sender_num,  int num, char *str, char *id);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
   };
@@ -244,6 +246,10 @@ struct primitive_obj {
   int caj_scripting_init(int api_version, struct simulator_ctx* sim, 
 			 void **priv, struct cajeput_script_hooks *hooks);
 
+  void world_script_link_message(struct simulator_ctx* sim, 
+				 struct primitive_obj *prim, int link_num, 
+				 int num, char *str, char *id);
+  
 
 // ----- PHYSICS GLUE -------------
 

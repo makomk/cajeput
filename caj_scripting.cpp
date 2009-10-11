@@ -98,9 +98,10 @@ struct list_head {
 #define EVENT_TOUCH_END 3
 #define EVENT_TIMER 4
 #define EVENT_CHANGED 5
-#define EVENT_COLLISION_START 6 // TODO!
+#define EVENT_COLLISION_START 6
 #define EVENT_COLLISION 7
 #define EVENT_COLLISION_END 8
+#define EVENT_LINK_MESSAGE 9
 
 // internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
@@ -118,8 +119,19 @@ struct compiler_output {
   compile_done_cb cb; void *cb_priv;
 };
 
-struct detected_event {
+struct generic_event {
   int event_id;
+
+  generic_event() {
+  }
+
+  generic_event(int event_id) : event_id(event_id) {
+  }
+
+  virtual ~generic_event() { }
+};
+
+struct detected_event : generic_event {
   uuid_t key, owner;
   char *name;
   caj_vector3 pos, vel;
@@ -137,6 +149,20 @@ struct detected_event {
   }
 };
 
+struct link_message_event : generic_event {
+  int sender_num, num;
+  char *str, *id;
+  link_message_event(int sender_num, int num, char *str, char *id) :
+    generic_event(EVENT_LINK_MESSAGE), sender_num(sender_num), num(num), 
+    str(strdup(str)), id(strdup(id)) {
+    
+  }
+
+  ~link_message_event() {
+    free(str); free(id);
+  }
+};
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -146,7 +172,7 @@ struct sim_script {
   double time; // for llGetTime etc
   double next_timer_event;
   detected_event *detected;
-  std::deque<detected_event*> pending_detect;
+  std::deque<generic_event*> pending_events;
   float timer_interval;
   uint32_t changed;
 
@@ -182,7 +208,7 @@ timer_sched::timer_sched(sim_script *scr_) : time(scr_->next_timer_event), scr(s
 #define CAJ_SMSG_RPC 6
 #define CAJ_SMSG_RPC_RETURN 7
 #define CAJ_SMSG_EVMASK 8
-#define CAJ_SMSG_DETECTED 9
+#define CAJ_SMSG_DETECTED 9 // FIXME - rename this to EVENT 
 #define CAJ_SMSG_RESTORE_SCRIPT 10
 
 typedef void(*script_rpc_func)(script_state *st, sim_script *sc, int func_id);
@@ -199,7 +225,7 @@ struct script_msg {
       script_state *st; int func_id;
     } rpc;
     int evmask;
-    detected_event *detected;
+    generic_event *event;
     caj_string cstr;
   } u;
 };
@@ -618,6 +644,15 @@ static void llGetRegionCorner_rpc(script_state *st, sim_script *scr, int func_id
 
 RPC_TO_MAIN(llGetRegionCorner);
 
+static void llMessageLinked_rpc(script_state *st, sim_script *scr, int func_id) {
+  int link_num, num; char *str, *id;
+  vm_func_get_args(st, func_id, &link_num, &num, &str, &id);
+  world_script_link_message(scr->simscr->sim, scr->prim, link_num, num, str, id);
+  free(str); free(id); rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llMessageLinked);
+
 static void script_upd_evmask(sim_script *scr) {
   int evmask = 0;
   if(vm_event_has_handler(scr->vm, EVENT_TOUCH_START) ||
@@ -634,7 +669,11 @@ static void script_upd_evmask(sim_script *scr) {
   if(vm_event_has_handler(scr->vm, EVENT_COLLISION)) {
     evmask |= CAJ_EVMASK_COLLISION_CONT;
   }
-script_msg *smsg = new script_msg();
+  if(vm_event_has_handler(scr->vm, EVENT_LINK_MESSAGE)) {
+    evmask |= CAJ_EVMASK_LINK_MESSAGE;
+  }
+
+  script_msg *smsg = new script_msg();
   smsg->msg_type = CAJ_SMSG_EVMASK;
   smsg->scr = scr;
   smsg->u.evmask = evmask;
@@ -691,23 +730,33 @@ static gpointer script_thread(gpointer data) {
 	} else if(scr->timer_fired) {
 	  scr->timer_fired = 0;
 	  vm_call_event(scr->vm,EVENT_TIMER);
-	} else if(!scr->pending_detect.empty()) {
+	} else if(!scr->pending_events.empty()) {
 	  // FIXME - coalesce detected events into one call somehow
 	  
-	  printf("DEBUG: handing pending detected event\n");
-	  scr->detected = scr->pending_detect.front();
-	  scr->pending_detect.pop_front();
-	  switch(scr->detected->event_id) {
+	  printf("DEBUG: handing pending queued event\n");
+	  generic_event *event = scr->pending_events.front();
+	  scr->pending_events.pop_front();
+	  switch(event->event_id) {
 	  case EVENT_TOUCH_START:
 	  case EVENT_TOUCH_END:
 	  case EVENT_TOUCH:
 	  case EVENT_COLLISION_START:
 	  case EVENT_COLLISION_END:
 	  case EVENT_COLLISION:
-	    vm_call_event(scr->vm, scr->detected->event_id, 1);
+	    scr->detected = static_cast<detected_event*>(event);
+	    vm_call_event(scr->vm, event->event_id, 1);
 	    break;
+	  case EVENT_LINK_MESSAGE:
+	    {
+	      link_message_event *lmsg = static_cast<link_message_event*>(event);
+	      vm_call_event(scr->vm,  EVENT_LINK_MESSAGE, lmsg->sender_num, 
+			    lmsg->num, lmsg->str, lmsg->id);
+	      delete lmsg;
+	      break;
+	    }
 	  default:
-	    printf("INTERNAL ERROR: unhandled detected event type - impossible!\n");
+	    printf("INTERNAL ERROR: unhandled event type - impossible!\n");
+	    delete event;
 	    break;
 	  }
 	}
@@ -805,11 +854,11 @@ static gpointer script_thread(gpointer data) {
 	awaken_script(msg->scr, &running);
 	break;
       case CAJ_SMSG_DETECTED:
-	if(msg->scr->pending_detect.size() >= MAX_QUEUED_EVENTS) {
+	if(msg->scr->pending_events.size() >= MAX_QUEUED_EVENTS) {
 	  printf("DEBUG: discarding script event due to queue size\n");
-	  delete msg->u.detected;
+	  delete msg->u.event;
 	} else {
-	  msg->scr->pending_detect.push_back(msg->u.detected);
+	  msg->scr->pending_events.push_back(msg->u.event);
 	  awaken_script(msg->scr, &running);
 	}
 	break;
@@ -1065,12 +1114,12 @@ static int get_evmask(simulator_ctx *sim, void *priv, void *script) {
   return scr->evmask;
 }
 
-static void send_detected_event(sim_scripts *simscr, sim_script *scr, 
-				detected_event *det) {
+static void send_event(sim_scripts *simscr, sim_script *scr, 
+				generic_event *event) {
   script_msg *msg = new script_msg();
   msg->msg_type = CAJ_SMSG_DETECTED;
   msg->scr = scr;
-  msg->u.detected = det;
+  msg->u.event = event;
   send_to_script(simscr, msg);
 }
 
@@ -1095,7 +1144,7 @@ static void handle_touch(simulator_ctx *sim, void *priv, void *script,
     det->name = strdup(user_get_name(user));
     det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
     user_get_uuid(user, det->key);
-    send_detected_event(simscr, scr, det);
+    send_event(simscr, scr, det);
   }
 }
 
@@ -1128,8 +1177,17 @@ static void handle_collision(simulator_ctx *sim, void *priv, void *script,
     det->rot = obj->rot; 
     det->vel = obj->velocity;
     uuid_copy(det->key, obj->id);
-    send_detected_event(simscr, scr, det);
+    send_event(simscr, scr, det);
   }
+}
+
+static void handle_link_message(simulator_ctx *sim, void *priv, void *script,
+				int sender_num,  int num, char *str, char *id) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  if((scr->evmask & CAJ_EVMASK_LINK_MESSAGE) == 0)  return;
+  link_message_event *event = new link_message_event(sender_num, num, str, id);
+  send_event(simscr, scr, event);
 }
 
 static gboolean script_poll_timer(gpointer data) {
@@ -1211,6 +1269,11 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_event(simscr->vmw, "collision_end", VM_TYPE_NONE, 
 		     EVENT_COLLISION_END, 1, VM_TYPE_INT);
 
+  vm_world_add_event(simscr->vmw, "link_message", VM_TYPE_NONE, 
+		     EVENT_LINK_MESSAGE, 4, VM_TYPE_INT, VM_TYPE_INT,
+		     VM_TYPE_STR, VM_TYPE_KEY);
+  
+
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
   vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
@@ -1260,6 +1323,10 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetRegionName", VM_TYPE_STR,
 		    llGetRegionName_cb, 0);
 
+  vm_world_add_func(simscr->vmw, "llMessageLinked", VM_TYPE_NONE,
+		    llMessageLinked_cb, 4, VM_TYPE_INT, VM_TYPE_INT, 
+		    VM_TYPE_STR, VM_TYPE_KEY);
+
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);
   if(enable_unsafe_funcs) {
@@ -1294,6 +1361,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->get_evmask = get_evmask;
   hooks->touch_event = handle_touch;
   hooks->collision_event = handle_collision;
+  hooks->link_message = handle_link_message;
 
   return 1;
 }
