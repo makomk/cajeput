@@ -1259,6 +1259,16 @@ void world_script_link_message(struct simulator_ctx* sim,
       send_link_message(sim, prim, sender_num, num, str, id);
       break;
     case LINK_ALL_OTHERS:
+      {
+	int skip = sender_num - 2;
+	if(skip >= 0) {
+	  send_link_message(sim, root, sender_num, num, str, id);
+	}
+	for(int i = 0; i < root->num_children; i++) {
+	  if(i != skip)
+	    send_link_message(sim, root->children[i], sender_num, num, str, id);
+	}
+      }
       // FIXME - TODO!!!
       break;
     }
