@@ -126,7 +126,10 @@ void osglue_get_texture(struct simgroup_ctx *sgrp, struct texture_desc *texture)
   assert(grid->assetserver != NULL);
 
   uuid_unparse(texture->asset_id, asset_id);
-  snprintf(url, 255, "%sassets/%s/data", grid->assetserver, asset_id);
+  // FIXME - should be "%sassets/%s/data", but the OpenSim asset server
+  // wrongly closes the connection without sending a response if the asset
+  // doesn't exist, and this causes libsoup to go into an infinite retry loop!
+  snprintf(url, 255, "%sassets/%s/", grid->assetserver, asset_id);
   printf("DEBUG: requesting texture asset %s\n", url);
 
   SoupMessage *msg = soup_message_new ("GET", url);
