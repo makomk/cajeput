@@ -788,6 +788,9 @@ static gpointer script_thread(gpointer data) {
 	GTimeVal tval;
 	// FIXME - slightly inaccurate. Should we use GTimeVal throughout?
 	g_get_current_time(&tval);
+	// g_time_val_add can't do longer intervals than about 2147 seconds
+	// on 32-bit systems. Epic fail.
+	if(wait > 600) wait = 600;
 	g_time_val_add(&tval, G_USEC_PER_SEC*wait);
 	if(wait <= 0.0)
 	  msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
