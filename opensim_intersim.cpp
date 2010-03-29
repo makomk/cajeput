@@ -553,7 +553,7 @@ void osglue_agent_rest_handler(SoupServer *server,
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
   const char *reqtype = "???";
   uuid_t agent_id; uint64_t region_handle = 0;
-  char *s; char buf[40]; char* cmd = NULL;
+  const char *s; char buf[40]; const char* cmd = NULL;
   JsonParser *parser = NULL;
   if(msg->method == SOUP_METHOD_POST)
     reqtype = "POST";

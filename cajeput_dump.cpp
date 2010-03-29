@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h> // HACK - remove this!
+#include <stdio.h>
 
 static int dump_write_u32(int fd, uint32_t val) {
   unsigned char buf[4];

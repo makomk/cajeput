@@ -24,6 +24,7 @@
 #include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_int.h"
+#include <stdio.h>
 
 static void event_queue_get_resp(SoupMessage *msg, user_ctx* ctx) {
     caj_llsd *resp = llsd_new_map();

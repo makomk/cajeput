@@ -24,6 +24,8 @@
 #include "cajeput_core.h"
 #include "cajeput_int.h"
 #include <libsoup/soup.h>
+#include <stdio.h>
+#include <string.h>
 
 // -- START of caps code --
 
@@ -228,7 +230,7 @@ static void update_script_compiled_cb(void *priv, int success,
     errors = llsd_new_array();
     const char *outp = output;
     for(;;) {
-      char *next = strchr(outp,'\n'); if(next == NULL) break;
+      const char *next = strchr(outp,'\n'); if(next == NULL) break;
       int len = next-outp;
       char *line = (char*)malloc(len+1);
       memcpy(line, outp, len); line[len] = 0;

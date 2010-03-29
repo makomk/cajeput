@@ -33,6 +33,8 @@
 #include "terrain_compress.h"
 #include <stdlib.h>
 #include <cassert>
+#include <stdio.h>
+
 
 #define BUF_SIZE 2048
 

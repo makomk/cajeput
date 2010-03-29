@@ -28,6 +28,7 @@
 #include "cajeput_grid_glue.h"
 #include "caj_helpers.h"
 #include <cassert>
+#include <stdio.h>
 
 const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
 const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",

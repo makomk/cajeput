@@ -26,6 +26,7 @@
 #include "cajeput_prim.h"
 #include "caj_script.h"
 #include <cassert>
+#include <stdio.h>
 
 struct script_info {
 private:
