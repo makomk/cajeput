@@ -20,6 +20,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// FIXME FIXME TODO - finish support for new user server.
+
 #include "cajeput_core.h"
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
@@ -414,9 +416,10 @@ struct validate_session_state {
   validate_session_cb callback;
   void *priv;
   simgroup_ctx *sgrp;
+  char *agent_id;
 };
 
-static void got_validate_session_resp(SoupSession *session, SoupMessage *msg, 
+static void got_validate_session_resp_v1(SoupSession *session, SoupMessage *msg, 
 				   gpointer user_data) {
   GHashTable *hash; char *s;
   int is_ok = 0;
@@ -439,7 +442,7 @@ static void got_validate_session_resp(SoupSession *session, SoupMessage *msg,
   delete vs;
 }
 
-void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
+void osglue_validate_session_v1(struct simgroup_ctx* sgrp, const char* agent_id,
 			     const char *session_id, grid_glue_ctx* grid,
 			     validate_session_cb callback, void *priv)  {
   GHashTable *hash;
@@ -464,13 +467,150 @@ void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
   vs_state->callback = callback;
   vs_state->priv = priv;
   vs_state->sgrp = sgrp;
+  vs_state->agent_id = NULL;
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, val_msg,
-			 got_validate_session_resp, vs_state);
+			 got_validate_session_resp_v1, vs_state);
   				   
 }
 
+static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg, 
+				   gpointer user_data) {
+  int is_ok = 0; int correct = 0;
+  validate_session_state* vs = (validate_session_state*) user_data;
+  printf("DEBUG: got check_auth_session response from presence server\n");
+  caj_shutdown_release(vs->sgrp);
+
+  if(msg->status_code != 200) {
+    printf("Presence request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    is_ok = FALSE;
+  } else {
+
+    xmlDocPtr doc; xmlNodePtr node;
+
+    doc = xmlReadMemory(msg->response_body->data,
+			msg->response_body->length,
+			"grid_resp.xml", NULL, 0);
+    if(doc == NULL) {
+      printf("ERROR: couldn't parse presence server XML response\n");
+      goto out;
+    }
+
+    bool retval = false; char *status;
+    node = xmlDocGetRootElement(doc);
+    if(strcmp((char*)node->name, "ServerResponse") != 0) {
+      printf("ERROR: unexpected root node %s\n",(char*)node->name);
+      goto out2;
+    }
+
+    /* OK. This is the fun bit. If the session exists, we get a response like:
+
+       <?xml version="1.0"?><ServerResponse><result type="List"><UserID>2a8353e3-0fb0-4117-b49f-9daad6f777c0</UserID><RegionID>01bd2887-e158-443d-ab1a-08ee45053440</RegionID><online>True</online><login>3/29/2010 10:49:26 PM</login><logout>1/1/1970 12:00:00 AM</logout><position>&lt;119.3307, 127.6954, 25.45109&gt;</position><lookAt>&lt;-0.9945475, 0.1042844, 0&gt;</lookAt><HomeRegionID>01bd2887-e158-443d-ab1a-08ee45053440</HomeRegionID><HomePosition>&lt;139.3684, 130.0514, 23.69808&gt;</HomePosition><HomeLookAt>&lt;0.9991013, 0.04238611, 0&gt;</HomeLookAt></result></ServerResponse>
+
+       However, if it doesn't, we instead get something like
+
+       <?xml version="1.0"?><ServerResponse><result>null</result></ServerResponse>
+
+       This is a pain in the backside to parse with every XML library known to man or woman. So we cheat instead.
+    */
+
+    node = node->children; 
+    while(node != NULL && (node->type == XML_TEXT_NODE || 
+			   node->type == XML_COMMENT_NODE))
+      node = node->next;
+
+    if(node == NULL || strcasecmp((char*)node->name, "result") != 0) {
+      printf("ERROR: bad success response from presence server\n");
+      goto out2;
+    }
+
+    node = node->children;
+
+    while(node != NULL) {
+      while(node != NULL && (node->type == XML_TEXT_NODE || 
+			     node->type == XML_COMMENT_NODE))
+	node = node->next;
+      if(node == NULL) break;
+
+      if(strcasecmp((char*)node->name, "online") == 0) {
+	correct |= 0x1;
+	status = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if (status != NULL && strcasecmp(status, "True") == 0)
+	  correct |= 0x10;
+	else printf("DEBUG: session invalid, user offline\n");
+	xmlFree(status);
+      } else if(strcasecmp((char*)node->name, "UserID") == 0) {
+	correct |= 0x2;
+	status = (char*)xmlNodeListGetString(doc, node->children, 1);
+	if (status != NULL && strcasecmp(status, vs->agent_id) == 0)
+	  correct |= 0x20;
+	else printf("DEBUG: session invalid, agent ID mismatch\n");
+	xmlFree(status);	
+      }
+      node = node->next;
+    }
+
+    if(correct == 0) {
+      printf("DEBUG: session invalid, bad session ID or bad response\n");
+      is_ok = FALSE;
+    } else if(correct == 0x33) {
+      printf("DEBUG: session validated OK\n");
+      is_ok = TRUE;
+    } else {
+      is_ok = FALSE;
+      if((correct & 0xf0) != 0x30)
+	printf("DEBUG: bad presence response?!\n");
+    }
+
+    // FIXME - TODO    
+  
+  out2:
+    xmlFreeDoc(doc);
+  }
+
+ out:
+  printf("DEBUG: session validation conclusion: %s\n", is_ok?"OK":"FAILED");
+  vs->callback(vs->priv, is_ok);
+  free(vs->agent_id);
+  delete vs;
+}
+
+void osglue_validate_session_v2(struct simgroup_ctx* sgrp, const char* agent_id,
+			     const char *session_id, grid_glue_ctx* grid,
+			     validate_session_cb callback, void *priv)  {
+  char user_uri[256]; char *req_body; char sess_id;
+  SoupMessage *msg;
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(user_uri,256, "%spresence", grid->gridserver);
+
+  req_body = soup_form_encode("SessionID", session_id,
+			      "VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "METHOD", "getagent",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, user_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  validate_session_state *vs_state = new validate_session_state();
+  vs_state->callback = callback;
+  vs_state->priv = priv;
+  vs_state->sgrp = sgrp;
+  vs_state->agent_id = strdup(agent_id);
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg,
+			 got_validate_session_resp_v2, vs_state);
+}
+
+void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
+			     const char *session_id, grid_glue_ctx* grid,
+				validate_session_cb callback, void *priv) {
+  // FIXME!
+  osglue_validate_session_v2(sgrp, agent_id, session_id, grid, callback, priv);
+}
 
 static void xmlrpc_expect_user(SoupServer *server,
 			       SoupMessage *msg,
@@ -512,7 +652,7 @@ static void xmlrpc_expect_user(SoupServer *server,
     state->args = args;
     state->sim = sim;
     osglue_validate_session(sgrp, agent_id, session_id, grid,
-			    xmlrpc_expect_user_2, state);
+			       xmlrpc_expect_user_2, state);
   }
 
   //soup_message_set_status(msg,500);  

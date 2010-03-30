@@ -185,10 +185,25 @@ static void agent_POST_stage2(void *priv, int is_ok) {
 
   s = helper_json_get_string(object, "destination_handle");
   if(s == NULL) {
-    printf("DEBUG agent POST: couldn't get region handle\n");
-    is_ok = 0; goto out;
+    // newer versions use destination_x and destination_y
+
+    uint32_t region_x, region_y;
+    s = helper_json_get_string(object, "destination_x");
+    if(s == NULL) {
+      printf("DEBUG agent POST: couldn't get region X pos\n");
+      is_ok = 0; goto out;
+    }
+    region_x = atol(s);
+    s = helper_json_get_string(object, "destination_y");
+    if(s == NULL) {
+      printf("DEBUG agent POST: couldn't get region Y pos\n");
+      is_ok = 0; goto out;
+    }
+    region_y = atol(s);
+    region_handle = ((uint64_t)region_x << 32) | region_y;
+  } else {
+    region_handle = atoll(s);
   }
-  region_handle = atoll(s);
   if(region_handle == 0) {
     printf("DEBUG agent POST: bogus region handle\n");
     is_ok = 0; goto out;    
@@ -337,10 +352,23 @@ static void agent_PUT_handler(SoupServer *server,
   // FIXME - code duplication with PUT handler
   s = helper_json_get_string(object, "destination_handle");
   if(s == NULL) {
-    printf("DEBUG agent PUT: couldn't get region handle\n");
-    is_ok = 0; goto out;
+    uint32_t region_x, region_y;
+    s = helper_json_get_string(object, "destination_x");
+    if(s == NULL) {
+      printf("DEBUG agent PUT: couldn't get region X pos\n");
+      is_ok = 0; goto out;
+    }
+    region_x = atol(s);
+    s = helper_json_get_string(object, "destination_y");
+    if(s == NULL) {
+      printf("DEBUG agent PUT: couldn't get region Y pos\n");
+      is_ok = 0; goto out;
+    }
+    region_y = atol(s);
+    region_handle = ((uint64_t)region_x << 32) | region_y;
+  } else {
+    region_handle = atoll(s);
   }
-  region_handle = atoll(s);
   if(region_handle == 0) {
     printf("DEBUG agent PUT: bogus region handle\n");
     is_ok = 0; goto out;    
@@ -866,7 +894,16 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 
   sprintf(buf,"%llu",(long long unsigned)tp->region_handle);
   helper_json_add_string(obj,"destination_handle",buf);
+
+  // for newer OpenSim versions
+  sprintf(buf,"%lu",(unsigned long)((tp->region_handle >> 32) & 0xffffffff));
+  helper_json_add_string(obj,"destination_x",buf);
+  sprintf(buf,"%lu",(unsigned long)(tp->region_handle & 0xffffffff));
+  helper_json_add_string(obj,"destination_y",buf);
+  
+
   //helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
+
   
   {
     char *my_ip_addr = sim_get_ip_addr(sim);
@@ -970,6 +1007,13 @@ void osglue_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
   helper_json_add_bool(obj,"child",true);
   sprintf(buf,"%llu",(long long unsigned)tp->region_handle);
   helper_json_add_string(obj,"destination_handle",buf);
+
+  // for newer OpenSim versions
+  sprintf(buf,"%lu",(unsigned long)((tp->region_handle >> 32) & 0xffffffff));
+  helper_json_add_string(obj,"destination_x",buf);
+  sprintf(buf,"%lu",(unsigned long)(tp->region_handle & 0xffffffff));
+  helper_json_add_string(obj,"destination_y",buf);
+
   helper_json_add_string(obj,"start_pos","<128, 128, 1.5>"); // FIXME
 
   // FIXME - do we really need to reuse existing caps?
