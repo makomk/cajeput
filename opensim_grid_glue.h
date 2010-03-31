@@ -31,7 +31,7 @@ struct user_name {
 };
 
 struct grid_glue_ctx {
-  int old_xmlrpc_grid_proto;
+  int old_xmlrpc_grid_proto, new_userserver;
   simgroup_ctx *sgrp;
   gchar *userserver, *gridserver, *assetserver;
   gchar *inventoryserver;

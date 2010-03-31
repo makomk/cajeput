@@ -608,8 +608,10 @@ void osglue_validate_session_v2(struct simgroup_ctx* sgrp, const char* agent_id,
 void osglue_validate_session(struct simgroup_ctx* sgrp, const char* agent_id,
 			     const char *session_id, grid_glue_ctx* grid,
 				validate_session_cb callback, void *priv) {
-  // FIXME!
-  osglue_validate_session_v2(sgrp, agent_id, session_id, grid, callback, priv);
+  if(grid->new_userserver)
+    osglue_validate_session_v2(sgrp, agent_id, session_id, grid, callback, priv);
+  else
+    osglue_validate_session_v1(sgrp, agent_id, session_id, grid, callback, priv);
 }
 
 static void xmlrpc_expect_user(SoupServer *server,
@@ -1905,6 +1907,8 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   grid->sgrp = sgrp;
   grid->old_xmlrpc_grid_proto = 
     sgrp_config_get_bool(grid->sgrp,"grid","grid_server_is_xmlrpc",NULL);
+  grid->new_userserver = 
+    sgrp_config_get_bool(grid->sgrp,"grid","new_userserver",NULL);
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 
