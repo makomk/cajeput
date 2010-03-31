@@ -123,6 +123,14 @@ const wearable_desc* user_get_wearables(struct user_ctx* user) {
   return user->wearables;
 }
 
+void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
+  if(user->av != NULL) {
+    *pos = user->av->ob.world_pos;
+  } else {
+    pos->x = 0.0f; pos->y = 0.0f; pos->z = 0.0f;
+  }
+}
+
 float user_get_draw_dist(struct user_ctx *user) {
   return user->draw_dist;
 }
@@ -814,7 +822,7 @@ void user_remove_int(user_ctx **user) {
   if(ctx->av != NULL) {
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
       // FIXME - should set look_at correctly
-      sgrp->gridh.user_logoff(sgrp, ctx->sim, ctx->user_id,
+      sgrp->gridh.user_logoff(sgrp, ctx->sim, ctx->user_id, ctx->session_id,
 			      &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
     }
     world_delete_avatar(ctx->sim, ctx->av);
@@ -871,8 +879,9 @@ void user_session_close(user_ctx* ctx, int slowly) {
   if(ctx->av != NULL) {
     // FIXME - code duplication
     if(!(ctx->flags & (AGENT_FLAG_CHILD|AGENT_FLAG_TELEPORT_COMPLETE))) {
-      ctx->sgrp->gridh.user_logoff(ctx->sgrp, ctx->sim, ctx->user_id,
-			     &ctx->av->ob.world_pos, &ctx->av->ob.world_pos);
+      ctx->sgrp->gridh.user_logoff(ctx->sgrp, ctx->sim, ctx->user_id, 
+				   ctx->session_id, &ctx->av->ob.world_pos,
+				   &ctx->av->ob.world_pos);
     }
     world_delete_avatar(ctx->sim, ctx->av);
     ctx->av = NULL;

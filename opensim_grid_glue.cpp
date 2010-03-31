@@ -786,7 +786,7 @@ static void xmlrpc_handler (SoupServer *server,
   g_free(method_name);
 }
 
-static void got_user_logoff_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+static void got_user_logoff_resp_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
   // GRID_PRIV_DEF(sim);
   GHashTable *hash = NULL;
@@ -808,10 +808,9 @@ static void got_user_logoff_resp(SoupSession *session, SoupMessage *msg, gpointe
 }
 
 
-static void user_logoff(struct simgroup_ctx *sgrp,
-			struct simulator_ctx* sim,
-			const uuid_t user_id, const caj_vector3 *pos,
-			const caj_vector3 *look_at) {
+static void user_logoff_v1(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
+			   const uuid_t user_id, const uuid_t session_id,
+			   const caj_vector3 *pos, const caj_vector3 *look_at) {
   char buf[40];
   uuid_t u;
   GHashTable *hash;
@@ -851,7 +850,58 @@ static void user_logoff(struct simgroup_ctx *sgrp,
   }
 
   caj_queue_soup_message(sgrp, msg,
-			 got_user_logoff_resp, sim);
+			 got_user_logoff_resp_v1, sim);
+  sim_shutdown_hold(sim); // FIXME
+}
+
+
+static void got_user_logoff_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
+  // GRID_PRIV_DEF(sim);
+  sim_shutdown_release(sim);
+
+  // FIXME - TODO!!!
+}
+
+// FIXME - need to do presence updates on sim entry too!
+
+static void user_logoff_v2(struct simgroup_ctx *sgrp,
+			   struct simulator_ctx* sim,
+			   const uuid_t user_id, const uuid_t session_id,
+			   const caj_vector3 *pos, const caj_vector3 *look_at) {
+  char presence_uri[256]; char *req_body;
+  char session_id_str[40], pos_str[60], look_at_str[60];
+  char zero_uuid_str[40];
+  uuid_t zero_uuid;
+  // GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF(sim);
+
+  uuid_clear(zero_uuid);
+  uuid_unparse(zero_uuid, zero_uuid_str);
+
+  uuid_unparse(session_id, session_id_str);
+
+  snprintf(pos_str, 60, "<%f, %f, %f>", pos->x, pos->y, pos->z);
+  snprintf(look_at_str, 60, "<%f, %f, %f>", 
+	   look_at->x, look_at->y, look_at->z);
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "METHOD", "logout",
+			      "SessionID", session_id_str,
+			      "Position", pos_str,
+			      "LookAt", look_at_str,
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, presence_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_queue_soup_message(sgrp, msg,
+			 got_user_logoff_resp_v2, sim);
   sim_shutdown_hold(sim); // FIXME
 }
 
@@ -889,10 +939,61 @@ static void user_entered_callback_resp(SoupSession *session, SoupMessage *msg, g
 
 }
 
+
+static void got_presence_upd_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
+  // GRID_PRIV_DEF(sim);
+  sim_shutdown_release(sim);
+
+  // FIXME - TODO!!!
+}
+
+static void user_update_presence_v2(struct simgroup_ctx *sgrp,
+				    simulator_ctx *sim, user_ctx *user) {
+  char presence_uri[256]; char *req_body;
+  char session_id_str[40], region_id_str[40];
+  char pos_str[60], look_at_str[60];
+  uuid_t u; caj_vector3 pos;
+  // GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF(sim);
+
+  user_get_session_id(user, u);
+  uuid_unparse(u, session_id_str);
+
+  sim_get_region_uuid(sim, u);
+  uuid_unparse(u, region_id_str);
+
+  user_get_position(user, &pos);
+  snprintf(pos_str, 60, "<%f, %f, %f>", pos.x, pos.y, pos.z);
+  snprintf(look_at_str, 60, "<%f, %f, %f>", 
+	   0.0, 0.0, 0.0); // FIXME!
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "METHOD", "report",
+			      "SessionID", session_id_str,
+			      "RegionID", region_id_str,
+			      "Position", pos_str,
+			      "LookAt", look_at_str,
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, presence_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_queue_soup_message(sgrp, msg,
+			 got_presence_upd_resp_v2, sim);
+  sim_shutdown_hold(sim); // FIXME
+}
+
 static void user_entered(struct simgroup_ctx *sgrp,
 			 simulator_ctx *sim, user_ctx *user,
 			 void *user_priv) {
   USER_PRIV_DEF(user_priv);
+  GRID_PRIV_DEF(sim);
 
   if(user_glue->enter_callback_uri != NULL) {
     printf("DEBUG: calling back to %s on avatar entry\n",
@@ -911,6 +1012,11 @@ static void user_entered(struct simgroup_ctx *sgrp,
     free(user_glue->enter_callback_uri);
     user_glue->enter_callback_uri = NULL;  
     
+  }
+
+  // FIXME - add support for old protocol too? (Less essential.)
+  if(grid->new_userserver) {
+    user_update_presence_v2(sgrp, sim, user);
   }
 }
 
@@ -2053,7 +2159,6 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
     hooks->map_region_by_name = map_region_by_name_v2;
   }
   hooks->user_created = user_created;
-  hooks->user_logoff = user_logoff;
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
   hooks->do_teleport = do_teleport;
@@ -2064,9 +2169,11 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   if(grid->new_userserver) {
     hooks->uuid_to_name = uuid_to_name_v2;
     hooks->user_profile_by_id = user_profile_by_id_v2;
+    hooks->user_logoff = user_logoff_v2;
   } else {
     hooks->uuid_to_name = uuid_to_name_v1;
     hooks->user_profile_by_id = user_profile_by_id_v1;
+    hooks->user_logoff = user_logoff_v1;
   }
 
   hooks->add_inventory_item = add_inventory_item;

@@ -70,8 +70,8 @@ struct cajeput_grid_hooks {
 
   /* user is logging off */
   void(*user_logoff)(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
-		     const uuid_t user_id, const caj_vector3 *pos,
-		     const caj_vector3 *look_at);
+		     const uuid_t user_id, const uuid_t session_id,
+		     const caj_vector3 *pos, const caj_vector3 *look_at);
 
   void(*cleanup)(struct simgroup_ctx* sgrp);
 

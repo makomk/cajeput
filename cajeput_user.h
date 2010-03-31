@@ -104,6 +104,8 @@ const char* user_get_name(struct user_ctx *user);
 const caj_string* user_get_texture_entry(struct user_ctx *user);
 const caj_string* user_get_visual_params(struct user_ctx *user);
 
+void user_get_position(struct user_ctx* user, caj_vector3 *pos);
+
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
 void user_clear_flag(struct user_ctx *user, uint32_t flag);
