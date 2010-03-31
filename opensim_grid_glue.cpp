@@ -497,7 +497,7 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
       goto out;
     }
 
-    bool retval = false; char *status;
+    char *status;
     node = xmlDocGetRootElement(doc);
     if(strcmp((char*)node->name, "ServerResponse") != 0) {
       printf("ERROR: unexpected root node %s\n",(char*)node->name);
@@ -579,7 +579,7 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
 void osglue_validate_session_v2(struct simgroup_ctx* sgrp, const char* agent_id,
 			     const char *session_id, grid_glue_ctx* grid,
 			     validate_session_cb callback, void *priv)  {
-  char user_uri[256]; char *req_body; char sess_id;
+  char user_uri[256]; char *req_body;
   SoupMessage *msg;
 
   // FIXME - don't use fixed-size buffer 
@@ -1214,7 +1214,7 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
   }
 
   xmlFreeDoc(doc);
-  printf("DEBUG: got %i map blocks\n", num_blocks);
+  printf("DEBUG: got %i map blocks\n", (int)num_blocks);
   st->cb(st->cb_priv, blocks, num_blocks);
   for(size_t i = 0; i < num_blocks; i++) {
     free(blocks[i].name); free(blocks[i].sim_ip);
@@ -1375,7 +1375,6 @@ static void got_map_single_resp_v2(SoupSession *session, SoupMessage *msg, gpoin
   struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
-  char *s; //uuid_t u;
 
   caj_shutdown_release(st->sgrp);
 
@@ -1827,7 +1826,7 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
 }
 
 
-static void user_profile_by_id(struct simgroup_ctx *sgrp, uuid_t id, 
+static void user_profile_by_id_v1(struct simgroup_ctx *sgrp, uuid_t id, 
 			       caj_user_profile_cb cb, void *cb_priv) {
   char buf[40];
   GHashTable *hash;
@@ -1854,37 +1853,167 @@ static void user_profile_by_id(struct simgroup_ctx *sgrp, uuid_t id,
 			 got_user_by_id_resp, new user_by_id_state(sgrp,cb,cb_priv));
 }		       
 
-struct uuid_to_name_state {
+static void user_profile_by_id_v2(struct simgroup_ctx *sgrp, uuid_t id, 
+			       caj_user_profile_cb cb, void *cb_priv) {
+  // FIXME - TODO (as soon as OpenSim gets it working itself, anyway)
+  cb(NULL, cb_priv);
+}
+
+struct uuid_to_name_state_v1 {
   uuid_t uuid;
   void(*cb)(uuid_t uuid, const char* first, 
 	    const char* last, void *priv);
   void *cb_priv;
 
-  uuid_to_name_state(void(*cb2)(uuid_t uuid, const char* first, 
+  uuid_to_name_state_v1(void(*cb2)(uuid_t uuid, const char* first, 
 				const char* last, void *priv),
 		     void *cb_priv2, uuid_t uuid2) : cb(cb2), cb_priv(cb_priv2) {
     uuid_copy(uuid, uuid2);
   };
 };
 
-static void uuid_to_name_cb(caj_user_profile* profile, void *priv) {
-  uuid_to_name_state* st = (uuid_to_name_state*)priv;
+
+static void uuid_to_name_cb_v1(caj_user_profile* profile, void *priv) {
+  uuid_to_name_state_v1* st = (uuid_to_name_state_v1*)priv;
   if(profile == NULL) {
     st->cb(st->uuid,NULL,NULL,st->cb_priv);
   } else {
     st->cb(st->uuid,profile->first,profile->last,st->cb_priv);
   }
+  delete st;  
+}
+
+static void uuid_to_name_v1(struct simgroup_ctx *sgrp, uuid_t id, 
+			    void(*cb)(uuid_t uuid, const char* first, 
+				      const char* last, void *priv),
+			    void *cb_priv) {
+  // FIXME - use cached UUID->name mappings once we have some
+  user_profile_by_id_v1(sgrp, id, uuid_to_name_cb_v1, 
+			new uuid_to_name_state_v1(cb,cb_priv,id));
+}
+
+struct uuid_to_name_state_v2 {
+  uuid_t uuid;
+  void(*cb)(uuid_t uuid, const char* first, 
+	    const char* last, void *priv);
+  void *cb_priv;
+  struct simgroup_ctx *sgrp;
+
+  uuid_to_name_state_v2(void(*cb2)(uuid_t uuid, const char* first, 
+				const char* last, void *priv),
+			void *cb_priv2, uuid_t uuid2,
+			struct simgroup_ctx *sgrp2) : 
+    cb(cb2), cb_priv(cb_priv2), sgrp(sgrp2) {
+    uuid_copy(uuid, uuid2);
+  };
+};
+
+
+
+static void uuid_to_name_cb_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  char *first_name = NULL, *last_name = NULL;
+  xmlDocPtr doc; xmlNodePtr node;
+  struct uuid_to_name_state_v2 *st = (uuid_to_name_state_v2*)user_data;
+  struct map_block_info info;
+  //GRID_PRIV_DEF(st->sim);
+
+  caj_shutdown_release(st->sgrp);
+
+  if(msg->status_code != 200) {
+    printf("UUID to name failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto out_fail;
+  }
+
+  // FIXME - TODO
+  printf("DEBUG: got UUID to name response ~%s~\n", msg->response_body->data);
+
+  doc = xmlReadMemory(msg->response_body->data,
+		      msg->response_body->length,
+		      "account_resp.xml", NULL, 0);
+  if(doc == NULL) {
+    printf("ERROR: couldn't parse account server XML response\n");
+    goto out_fail;
+  }
+
+  
+  node = xmlDocGetRootElement(doc);
+  if(strcmp((char*)node->name, "ServerResponse") != 0) {
+    printf("ERROR: bad getaccount XML response\n");
+    goto out_xmlfree_fail;
+  }
+  node = node->children;
+  if(strcmp((char*)node->name, "result") != 0) {
+    printf("ERROR: bad getaccount XML response\n");
+    goto out_xmlfree_fail;
+  }
+
+  /* <?xml version="1.0"?><ServerResponse><result type="List"><FirstName>Test</FirstName><LastName>User</LastName><Email></Email><PrincipalID>2a8353e3-0fb0-4117-b49f-9daad6f777c0</PrincipalID><ScopeID>00000000-0000-0000-0000-000000000000</ScopeID><Created>1250586006</Created><UserLevel>0</UserLevel><UserFlags>0</UserFlags><UserTitle></UserTitle><ServiceURLs>AssetServerURI*;InventoryServerURI*;GatewayURI*;HomeURI*;</ServiceURLs></result></ServerResponse> */
+
+  for(xmlNodePtr child = node->children; child != NULL; child = child->next) {
+    if(strcmp((char*)child->name,"FirstName") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(first_name == NULL) first_name = val; 
+      else xmlFree(val);
+    } else if(strcmp((char*)child->name,"LastName") == 0) {
+      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
+      if(last_name == NULL) last_name = val; 
+      else xmlFree(val);
+    }
+    // we ignore the other stuff
+  }
+
+  if(first_name == NULL || last_name == NULL) {
+    printf("DEBUG: UUID to name lookup failed\n");
+    xmlFree(first_name); xmlFree(last_name);
+    goto out_xmlfree_fail;
+  }
+
+  st->cb(st->uuid, first_name, last_name, st->cb_priv);
+  xmlFree(first_name); xmlFree(last_name);
+  xmlFreeDoc(doc); delete st; return;
+  
+
+ out_xmlfree_fail:
+  xmlFreeDoc(doc);
+ out_fail:
+  st->cb(st->uuid, NULL, NULL, st->cb_priv);
   delete st;
 }
 
-static void uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id, 
-			 void(*cb)(uuid_t uuid, const char* first, 
-				   const char* last, void *priv),
-			 void *cb_priv) {
-  // FIXME - use cached UUID->name mappings once we have some
-  user_profile_by_id(sgrp, id, uuid_to_name_cb, 
-		     new uuid_to_name_state(cb,cb_priv,id));
-  //cb(id, NULL, NULL, cb_priv); // FIXME!!!  
+static void uuid_to_name_v2(struct simgroup_ctx *sgrp, uuid_t id, 
+			    void(*cb)(uuid_t uuid, const char* first, 
+				      const char* last, void *priv),
+			    void *cb_priv) {
+  // FIXME - TODO!
+  //cb(id, NULL, NULL, cb_priv);
+
+  char accounts_uri[256]; char *req_body;
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  char av_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  uuid_unparse(id, av_uuid_str);
+  
+  snprintf(accounts_uri,256, "%saccounts", grid->userserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, accounts_uri,
+			      "VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "ScopeID", zero_uuid_str,
+			      "METHOD", "getaccount",
+			      "UserID", av_uuid_str,
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, accounts_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg, uuid_to_name_cb_v2, 
+			 new uuid_to_name_state_v2(cb,cb_priv,id,sgrp));
+
 }
 
 static void cleanup(struct simgroup_ctx* sgrp) {
@@ -1931,8 +2060,14 @@ int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp,
   hooks->fetch_inventory_folder = fetch_inventory_folder;
   hooks->fetch_inventory_item = fetch_inventory_item;
   hooks->fetch_system_folders = fetch_system_folders;
-  hooks->uuid_to_name = uuid_to_name;
-  hooks->user_profile_by_id = user_profile_by_id;
+
+  if(grid->new_userserver) {
+    hooks->uuid_to_name = uuid_to_name_v2;
+    hooks->user_profile_by_id = user_profile_by_id_v2;
+  } else {
+    hooks->uuid_to_name = uuid_to_name_v1;
+    hooks->user_profile_by_id = user_profile_by_id_v1;
+  }
 
   hooks->add_inventory_item = add_inventory_item;
 
