@@ -161,12 +161,33 @@ static void fill_in_child_caps(user_ctx *user, JsonNode *node) {
   }
 }
 
+static void set_wearables_from_json(user_ctx *user, JsonNode *node) {
+  JsonArray *arr; int len;
+   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
+     return;
+   arr = json_node_get_array(node);
+   if(arr == NULL) return;
+   len = json_array_get_length(arr);
+
+   for(int i = 0; i+1 < len; i += 2) {
+     uuid_t item_id, asset_id;
+     if(helper_json_to_uuid(json_array_get_element(arr, i), item_id) ||
+	helper_json_to_uuid(json_array_get_element(arr, i+1), asset_id)) {
+       printf("ERROR: failed to extract wearable %i from JSON\n",i/2);
+     } else {
+       user_set_wearable(user, i/2, item_id, asset_id);
+     }
+   }
+
+   printf("DEBUG: set wearables from JSON\n");
+}
+
 static void agent_POST_stage2(void *priv, int is_ok) {
   int is_child = 0; uint64_t region_handle;
   char seed_cap[50]; const char *caps_path, *s;
   agent_POST_state* st = (agent_POST_state*)priv;
   JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
-  struct sim_new_user uinfo;
+  struct sim_new_user uinfo; JsonNode *node;
   user_ctx *user; simulator_ctx *sim;
  
   soup_server_unpause_message(st->server,st->msg);
@@ -230,19 +251,39 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   }
   uinfo.circuit_code = atol(s);
   if(helper_json_get_boolean(object, "child", &is_child)) {
-    printf("DEBUG agent POST: \"child\" attribute missing\n");
-    is_ok = 0; goto out;    
+    // HACK - this is now used for initial login, but without the "child"
+    // element!
+    printf("DEBUG agent POST: \"child\" attribute missing (non-fatal)\n");
+    //is_ok = 0; goto out;    
+    is_child = FALSE; 
   }
+
+  // FIXME FIXME: fill in start position if this is the initial login.
   
   // WTF? Why such an odd path?
   snprintf(seed_cap,50,"%s0000/",caps_path);
   uinfo.seed_cap = seed_cap;
-  uinfo.is_child = 1;
+  uinfo.is_child = is_child;
   user = sim_prepare_new_user(sim, &uinfo);
 
   if(user != NULL) {
     fill_in_child_caps(user, json_object_get_member(object,"children_seeds"));
     add_child_cap(user, region_handle, caps_path);
+
+    // used for the initial login
+    node = json_object_get_member(object,"wearables");
+    if(node != NULL) {
+      set_wearables_from_json(user, node);
+    }
+
+    caj_vector3 start_pos;
+
+    s = helper_json_get_string(object, "start_pos");
+    if(s != NULL && sscanf(s, "<%f, %f, %f>",&start_pos.x,
+			   &start_pos.y, &start_pos.z) == 3) {
+      // FIXME - what about look_at? Is it not sent?
+      user_set_start_pos(user, &start_pos, &start_pos);
+    }
   }
 
  out:
@@ -299,27 +340,6 @@ static void agent_POST_handler(SoupServer *server,
   soup_message_set_status(msg,400);
   soup_message_set_response(msg,"text/plain",SOUP_MEMORY_STATIC,
 			    "false",5);  
-}
-
-static void set_wearables_from_json(user_ctx *user, JsonNode *node) {
-  JsonArray *arr; int len;
-   if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
-     return;
-   arr = json_node_get_array(node);
-   if(arr == NULL) return;
-   len = json_array_get_length(arr);
-
-   for(int i = 0; i+1 < len; i += 2) {
-     uuid_t item_id, asset_id;
-     if(helper_json_to_uuid(json_array_get_element(arr, i), item_id) ||
-	helper_json_to_uuid(json_array_get_element(arr, i+1), asset_id)) {
-       printf("ERROR: failed to extract wearable %i from JSON\n",i/2);
-     } else {
-       user_set_wearable(user, i/2, item_id, asset_id);
-     }
-   }
-
-   printf("DEBUG: set wearables from JSON\n");
 }
 
 static void agent_PUT_handler(SoupServer *server,
