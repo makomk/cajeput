@@ -488,22 +488,13 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
     printf("Presence request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     is_ok = FALSE;
   } else {
-
-    xmlDocPtr doc; xmlNodePtr node;
-
-    doc = xmlReadMemory(msg->response_body->data,
-			msg->response_body->length,
-			"grid_resp.xml", NULL, 0);
-    if(doc == NULL) {
+    os_robust_xml *rxml, *resnode, *node;
+  
+    rxml = os_robust_xml_deserialise(msg->response_body->data,
+				     msg->response_body->length);
+    if(rxml == NULL) {
       printf("ERROR: couldn't parse presence server XML response\n");
       goto out;
-    }
-
-    char *status;
-    node = xmlDocGetRootElement(doc);
-    if(strcmp((char*)node->name, "ServerResponse") != 0) {
-      printf("ERROR: unexpected root node %s\n",(char*)node->name);
-      goto out2;
     }
 
     /* OK. This is the fun bit. If the session exists, we get a response like:
@@ -517,58 +508,43 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
        This is a pain in the backside to parse with every XML library known to man or woman. So we cheat instead.
     */
 
-    node = node->children; 
-    while(node != NULL && (node->type == XML_TEXT_NODE || 
-			   node->type == XML_COMMENT_NODE))
-      node = node->next;
+    resnode = os_robust_xml_lookup(rxml, "result");
 
-    if(node == NULL || strcasecmp((char*)node->name, "result") != 0) {
-      printf("ERROR: bad success response from presence server\n");
+    if(resnode == NULL) {
+      printf("ERROR: bad response from presence server\n");
       goto out2;
     }
 
-    node = node->children;
-
-    while(node != NULL) {
-      while(node != NULL && (node->type == XML_TEXT_NODE || 
-			     node->type == XML_COMMENT_NODE))
-	node = node->next;
-      if(node == NULL) break;
-
-      if(strcasecmp((char*)node->name, "online") == 0) {
-	correct |= 0x1;
-	status = (char*)xmlNodeListGetString(doc, node->children, 1);
-	if (status != NULL && strcasecmp(status, "True") == 0)
-	  correct |= 0x10;
-	else printf("DEBUG: session invalid, user offline\n");
-	xmlFree(status);
-      } else if(strcasecmp((char*)node->name, "UserID") == 0) {
-	correct |= 0x2;
-	status = (char*)xmlNodeListGetString(doc, node->children, 1);
-	if (status != NULL && strcasecmp(status, vs->agent_id) == 0)
-	  correct |= 0x20;
-	else printf("DEBUG: session invalid, agent ID mismatch\n");
-	xmlFree(status);	
-      }
-      node = node->next;
+    if(resnode->node_type != OS_ROBUST_XML_LIST) {
+      printf("DEBUG: validate session: session does not exist\n");
+      is_ok = FALSE; goto out2;
     }
 
-    if(correct == 0) {
-      printf("DEBUG: session invalid, bad session ID or bad response\n");
-      is_ok = FALSE;
-    } else if(correct == 0x33) {
-      printf("DEBUG: session validated OK\n");
-      is_ok = TRUE;
-    } else {
-      is_ok = FALSE;
-      if((correct & 0xf0) != 0x30)
-	printf("DEBUG: bad presence response?!\n");
+    node = os_robust_xml_lookup(resnode, "online");
+    if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+      printf("ERROR: bad response from presence server (no <online>)\n");
+      goto out2;
+    } else if(strcasecmp(node->u.s, "True") != 0) {
+      printf("DEBUG: session invalid, user offline\n");
+      is_ok = FALSE; goto out2;
     }
+
+    node = os_robust_xml_lookup(resnode, "UserID");
+    if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+      printf("ERROR: bad response from presence server (no <UserID>)\n");
+      goto out2;
+    } else if(strcasecmp(node->u.s, vs->agent_id) != 0) {
+      printf("DEBUG: session invalid, agent ID mismatch\n");
+      is_ok = FALSE; goto out2;
+    }
+
+    printf("DEBUG: session validated OK\n");
+    is_ok = TRUE;
 
     // FIXME - TODO    
   
   out2:
-    xmlFreeDoc(doc);
+    os_robust_xml_free(rxml);
   }
 
  out:
