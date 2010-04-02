@@ -57,7 +57,7 @@ caj_llsd_test: caj_llsd.c caj_llsd.h caj_llsd_test.c
 
 include depend.make
 
-CAJEPUT_OBJS=opensim_grid_glue.o caj_omv_udp.o cajeput_main.o cajeput_caps.o sl_messages.o sl_udp_proto.o caj_llsd.o physics_bullet.o cajeput_inventory.o cajeput_assets.o opensim_inventory_glue.o opensim_asset_glue.o opensim_xml_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_types.o caj_vm.o cajeput_dump.o cajeput_world.o cajeput_user.o libopenjpeg/openjpeg.a
+CAJEPUT_OBJS=opensim_robust_xml.o opensim_grid_glue.o caj_omv_udp.o cajeput_main.o cajeput_caps.o sl_messages.o sl_udp_proto.o caj_llsd.o physics_bullet.o cajeput_inventory.o cajeput_assets.o opensim_inventory_glue.o opensim_asset_glue.o opensim_xml_glue.o opensim_intersim.o cajeput_j2k.o terrain_compress.o cajeput_anims.o cajeput_evqueue.o cajeput_hooks.o caj_parse_nini.o caj_scripting.o caj_types.o caj_vm.o cajeput_dump.o cajeput_world.o cajeput_user.o libopenjpeg/openjpeg.a
 
 cajeput_sim: $(CAJEPUT_OBJS)
 	$(CXX) $(CXXFLAGS) -o cajeput_sim $(CAJEPUT_OBJS) $(GLIB_LIBS) -luuid $(BULLET_LIBS)

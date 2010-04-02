@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include "opensim_grid_glue.h"
+#include "opensim_robust_xml.h"
 #include <cassert>
 #include <netinet/ip.h>
 #include <libxml/parser.h>
@@ -172,37 +173,38 @@ static void do_grid_login_v1(struct simgroup_ctx *sgrp,
   // TODO
 }
 
+// FIXME - merge this to where it's actually used?
 static bool check_grid_success_response(SoupMessage *msg) {
-  xmlDocPtr doc; xmlNodePtr node;
+  os_robust_xml *rxml, *node;
+  
   if(msg->status_code != 200) return false;
-  doc = xmlReadMemory(msg->response_body->data,
-		      msg->response_body->length,
-		      "grid_resp.xml", NULL, 0);
-  if(doc == NULL) {
+
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
     printf("ERROR: couldn't parse gridserver XML response\n");
     return false;
   }
 
-  bool retval = false; char *status;
-  node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "ServerResponse") != 0) {
-    printf("ERROR: unexpected root node %s\n",(char*)node->name);
+  bool retval = false;
+
+  node = os_robust_xml_lookup(rxml, "Result");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+    printf("ERROR: bad gridserver XML response, no Result\n");
     goto out;
   }
-  node = node->children; 
-  while(node != NULL && (node->type == XML_TEXT_NODE || 
-			 node->type == XML_COMMENT_NODE))
-    node = node->next;
-  if(node == NULL || strcmp((char*)node->name, "Result") != 0) {
-    printf("ERROR: bad success response from grid server\n");
-    goto out;
+  if(strcasecmp(node->u.s, "Success") == 0) {
+    retval = TRUE;
+  } else {
+    retval = FALSE;
+    node = os_robust_xml_lookup(rxml, "Message");
+    if(node != NULL && node->node_type == OS_ROBUST_XML_STR) {
+      printf("ERROR from grid: %s\n", node->u.s);
+    }
   }
-  status = (char*)xmlNodeListGetString(doc, node->children, 1);
-  retval = (status != NULL && strcasecmp(status, "Success") == 0);
-  xmlFree(status);
-  
+
  out:
-  xmlFreeDoc(doc); return retval;
+  os_robust_xml_free(rxml); return retval;
 }
 
 
