@@ -1986,7 +1986,7 @@ struct uuid_to_name_state_v2 {
 
 static void uuid_to_name_cb_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   char *first_name = NULL, *last_name = NULL;
-  xmlDocPtr doc; xmlNodePtr node;
+  os_robust_xml *rxml, *resnode, *node;
   struct uuid_to_name_state_v2 *st = (uuid_to_name_state_v2*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
@@ -2001,54 +2001,51 @@ static void uuid_to_name_cb_v2(SoupSession *session, SoupMessage *msg, gpointer 
   // FIXME - TODO
   printf("DEBUG: got UUID to name response ~%s~\n", msg->response_body->data);
 
-  doc = xmlReadMemory(msg->response_body->data,
-		      msg->response_body->length,
-		      "account_resp.xml", NULL, 0);
-  if(doc == NULL) {
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
     printf("ERROR: couldn't parse account server XML response\n");
     goto out_fail;
   }
 
   
-  node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "ServerResponse") != 0) {
+  resnode = os_robust_xml_lookup(rxml, "result");
+  if(resnode == NULL) {
     printf("ERROR: bad getaccount XML response\n");
     goto out_xmlfree_fail;
   }
-  node = node->children;
-  if(strcmp((char*)node->name, "result") != 0) {
-    printf("ERROR: bad getaccount XML response\n");
+
+  if(resnode->node_type != OS_ROBUST_XML_LIST) {
+    // indicates the UUID doesn't exist
+    printf("DEBUG: UUID to name lookup failed\n");
     goto out_xmlfree_fail;
   }
 
   /* <?xml version="1.0"?><ServerResponse><result type="List"><FirstName>Test</FirstName><LastName>User</LastName><Email></Email><PrincipalID>2a8353e3-0fb0-4117-b49f-9daad6f777c0</PrincipalID><ScopeID>00000000-0000-0000-0000-000000000000</ScopeID><Created>1250586006</Created><UserLevel>0</UserLevel><UserFlags>0</UserFlags><UserTitle></UserTitle><ServiceURLs>AssetServerURI*;InventoryServerURI*;GatewayURI*;HomeURI*;</ServiceURLs></result></ServerResponse> */
 
-  for(xmlNodePtr child = node->children; child != NULL; child = child->next) {
-    if(strcmp((char*)child->name,"FirstName") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(first_name == NULL) first_name = val; 
-      else xmlFree(val);
-    } else if(strcmp((char*)child->name,"LastName") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(last_name == NULL) last_name = val; 
-      else xmlFree(val);
-    }
-    // we ignore the other stuff
+  node = os_robust_xml_lookup(resnode, "FirstName");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: UUID to name lookup failed, bad/missing FirstName\n");
+    goto out_xmlfree_fail;    
   }
+  first_name = node->u.s;
 
-  if(first_name == NULL || last_name == NULL) {
-    printf("DEBUG: UUID to name lookup failed\n");
-    xmlFree(first_name); xmlFree(last_name);
-    goto out_xmlfree_fail;
+  node = os_robust_xml_lookup(resnode, "LastName");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: UUID to name lookup failed, bad/missing LastName\n");
+    goto out_xmlfree_fail;    
   }
+  last_name = node->u.s;
+
+  // we ignore the other stuff
+
 
   st->cb(st->uuid, first_name, last_name, st->cb_priv);
-  xmlFree(first_name); xmlFree(last_name);
-  xmlFreeDoc(doc); delete st; return;
+  os_robust_xml_free(rxml); delete st; return;
   
 
  out_xmlfree_fail:
-  xmlFreeDoc(doc);
+  os_robust_xml_free(rxml);
  out_fail:
   st->cb(st->uuid, NULL, NULL, st->cb_priv);
   delete st;
