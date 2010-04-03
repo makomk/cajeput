@@ -42,5 +42,8 @@ struct os_robust_xml {
 os_robust_xml *os_robust_xml_deserialise(const char *data, int len);
 void os_robust_xml_free(os_robust_xml *rxml);
 os_robust_xml *os_robust_xml_lookup(os_robust_xml *rxml,  const char* key);
+void os_robust_xml_iter_begin(GHashTableIter *iter, os_robust_xml *rxml);
+int os_robust_xml_iter_next(GHashTableIter *iter, const char** key,
+			    os_robust_xml **value);
 
 #endif /* !defined(OPENSIM_ROBUST_XML_H) */

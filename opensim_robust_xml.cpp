@@ -47,6 +47,17 @@ os_robust_xml *os_robust_xml_lookup(os_robust_xml *rxml, const char* key) {
   return (os_robust_xml*)g_hash_table_lookup(rxml->u.hashtbl, (const xmlChar*)key);
 }
 
+void os_robust_xml_iter_begin(GHashTableIter *iter, os_robust_xml *rxml) {
+  assert(rxml != NULL); assert(rxml->node_type == OS_ROBUST_XML_LIST);
+  g_hash_table_iter_init(iter, rxml->u.hashtbl);
+}
+
+int os_robust_xml_iter_next(GHashTableIter *iter, const char** key,
+			    os_robust_xml **value) {
+  // FIXME - dubious casting...
+  return g_hash_table_iter_next(iter, (gpointer*)key, (gpointer*)value);
+}
+
 static void rxml_destroy_key(gpointer data) {
   xmlFree(data);
 }

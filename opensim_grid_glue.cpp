@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -1169,83 +1169,86 @@ static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x
 			 got_map_block_resp_v1, new map_block_state(sgrp,cb,cb_priv));
 }
 
-static bool unpack_v2_region_entry(xmlDocPtr doc, xmlNodePtr node, 
-				map_block_info *block) {
-  int got_flags = 0;
+static bool unpack_v2_region_entry(os_robust_xml *node, map_block_info *block) {
+  os_robust_xml* child;
   block->name = NULL; block->sim_ip = NULL;
-  for(xmlNodePtr child = node->children; child != NULL; child = child->next) {
-    if(child->type != XML_ELEMENT_NODE) continue;
-    if(strcmp((char*)child->name, "uuid") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL && uuid_parse(val, block->region_id) == 0)
-	got_flags |= 0x1;
-      free(val);
-    } else if(strcmp((char*)child->name,"locX") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL) {
-	block->x = atoi(val)/256; got_flags |= 0x2;
-      }
-      free(val);
-    } else if(strcmp((char*)child->name,"locY") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL) {
-	block->y = atoi(val)/256; got_flags |= 0x4;
-      }
-      free(val);
-    } else if(strcmp((char*)child->name,"regionName") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(block->name == NULL) block->name = val; 
-      else xmlFree(val);
-      got_flags |= 0x8;
-    } else if(strcmp((char*)child->name,"serverIP") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(block->sim_ip == NULL) block->sim_ip = val;
-      else xmlFree(val);
-      got_flags |= 0x10;
-    } else if(strcmp((char*)child->name,"serverHttpPort") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL) {
-	block->http_port = atoi(val); got_flags |= 0x20;
-      }
-      free(val);
-    } else if(strcmp((char*)child->name,"serverPort") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL) {
-	block->sim_port = atoi(val); got_flags |= 0x40;
-      }
-      free(val);
-    } else if(strcmp((char*)child->name, "regionMapTexture") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL && uuid_parse(val, block->map_image) == 0)
-	got_flags |= 0x80;
-      free(val);
-    } else if(strcmp((char*)child->name,"access") == 0) {
-      char *val = (char*)xmlNodeListGetString(doc, child->children, 1);
-      if(val != NULL) {
-	block->access = atoi(val); got_flags |= 0x100;
-      }
-      free(val);
-    } 
-    // we ignore serverURI, regionSecret
+
+  if(node->node_type != OS_ROBUST_XML_LIST)
+    return false; // probably a failed lookup
+
+  child = os_robust_xml_lookup(node, "uuid");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR ||
+     uuid_parse(child->u.s, block->region_id) != 0) {
+    printf("DEBUG: bad/missing uuid in region entry from gridserver\n");
+    return false;
   }
-  if(got_flags == 0) {
-    // sometimes we get handed a block with nothing in.
-    // FIXME - should check block has the type="List" attribute to avoid this.
-    xmlFree(block->name); xmlFree(block->sim_ip); return false;
-  } else if(got_flags != 0x1ff || block->name == NULL || block->sim_ip == NULL) {
-    printf("ERROR: incomplete map block from server, flags 0x%x\n", got_flags);
-    xmlFree(block->name); xmlFree(block->sim_ip); return false;
-  } else {
-    printf("DEBUG: processed map block data\n");
-    // not sent, legacy info
-    block->water_height = 20; block->num_agents = 0;
-    block->flags = 0; // should this be sent?
-    return true;
+
+  child = os_robust_xml_lookup(node, "locX");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing locX in region entry from gridserver\n");
+    return false;
   }
+  block->x = atoi(child->u.s)/256;
+
+  child = os_robust_xml_lookup(node, "locY");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing locY in region entry from gridserver\n");
+    return false;
+  }
+  block->y = atoi(child->u.s)/256;
+
+  child = os_robust_xml_lookup(node, "regionName");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing regionName in region entry from gridserver\n");
+    return false;
+  }
+  block->name = child->u.s;
+
+  child = os_robust_xml_lookup(node, "serverIP");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing serverIP in region entry from gridserver\n");
+    return false;
+  }
+  block->sim_ip = child->u.s;
+
+  child = os_robust_xml_lookup(node, "serverHttpPort");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing serverHttpPort in region entry from gridserver\n");
+    return false;
+  }
+  block->http_port = atoi(child->u.s);
+
+  child = os_robust_xml_lookup(node, "serverPort");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing serverPort in region entry from gridserver\n");
+    return false;
+  }
+  block->sim_port = atoi(child->u.s);
+
+  child = os_robust_xml_lookup(node, "regionMapTexture");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR ||
+     uuid_parse(child->u.s, block->map_image) != 0) {
+    printf("DEBUG: bad/missing regionMapTexture in region entry from gridserver\n");
+    return false;
+  }
+ 
+  child = os_robust_xml_lookup(node, "access");
+  if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
+    printf("DEBUG: missing access in region entry from gridserver\n");
+    return false;
+  }
+  block->access = atoi(child->u.s);
+
+  printf("DEBUG: processed map block data\n");
+  // not sent, legacy info
+  block->water_height = 20; block->num_agents = 0;
+  block->flags = 0; // should this be sent?
+  return true;
 }
 
 static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
-  xmlDocPtr doc; xmlNodePtr node;
+  os_robust_xml *rxml, *node;
+  GHashTableIter iter;
   struct map_block_state *st = (map_block_state*)user_data;
   //GRID_PRIV_DEF(st->sim);
   struct map_block_info *blocks;
@@ -1260,24 +1263,16 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
 
   printf("DEBUG: got map block response: ~%s~\n", msg->response_body->data);
   
-  doc = xmlReadMemory(msg->response_body->data,
-		      msg->response_body->length,
-		      "grid_resp.xml", NULL, 0);
-  if(doc == NULL) {
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
     printf("ERROR: couldn't parse gridserver XML response\n");
     goto out_fail;
   }
 
-  node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "ServerResponse") != 0) {
-    printf("ERROR: bad gridserver XML response\n");
-    goto out_xmlfree_fail;
-  }
-
   blocks = (map_block_info*)calloc(alloc_blocks, sizeof(map_block_info));
-  for(node = node->children; node != NULL; node = node->next) {
-    if(node->type != XML_ELEMENT_NODE) continue;
-    // FIXME - should check if it has the type="List" attribute.
+  os_robust_xml_iter_begin(&iter, rxml);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
 
     printf("DEBUG: processing map block data\n");
 
@@ -1293,21 +1288,23 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
     printf("DEBUG: still processing map block data\n");
 
     map_block_info *block = &blocks[num_blocks]; 
-    if(unpack_v2_region_entry(doc, node, block)) num_blocks++;
+    if(unpack_v2_region_entry(node, block)) num_blocks++;
      
   }
 
-  xmlFreeDoc(doc);
   printf("DEBUG: got %i map blocks\n", (int)num_blocks);
   st->cb(st->cb_priv, blocks, num_blocks);
+#if 0 // no longer wanted due to code changes
   for(size_t i = 0; i < num_blocks; i++) {
     free(blocks[i].name); free(blocks[i].sim_ip);
   }
+#endif
+  os_robust_xml_free(rxml);
   free(blocks); delete st; 
   return;
 
  out_xmlfree_fail:
-  xmlFreeDoc(doc);
+  os_robust_xml_free(rxml);
  out_fail:
   st->cb(st->cb_priv, NULL, 0);
   delete st;
@@ -1455,7 +1452,7 @@ static void req_region_info_v1(struct simgroup_ctx* sgrp, uint64_t handle,
 }
 
 static void got_map_single_resp_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
-  xmlDocPtr doc; xmlNodePtr node;
+  os_robust_xml *rxml, *node;
   struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
   //GRID_PRIV_DEF(st->sim);
@@ -1470,34 +1467,27 @@ static void got_map_single_resp_v2(SoupSession *session, SoupMessage *msg, gpoin
   // FIXME - TODO
   printf("DEBUG: got region info response ~%s~\n", msg->response_body->data);
 
-  doc = xmlReadMemory(msg->response_body->data,
-		      msg->response_body->length,
-		      "grid_resp.xml", NULL, 0);
-  if(doc == NULL) {
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
     printf("ERROR: couldn't parse gridserver XML response\n");
     goto out_fail;
   }
 
   
-  node = xmlDocGetRootElement(doc);
-  if(strcmp((char*)node->name, "ServerResponse") != 0) {
-    printf("ERROR: bad get_region_by_position XML response\n");
-    goto out_xmlfree_fail;
-  }
-  node = node->children;
-  if(strcmp((char*)node->name, "result") != 0) {
+  node = os_robust_xml_lookup(rxml, "result");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_LIST) {
     printf("ERROR: bad get_region_by_position XML response\n");
     goto out_xmlfree_fail;
   }
 
-  if(unpack_v2_region_entry(doc, node, &info)) {
+  if(unpack_v2_region_entry(node, &info)) {
     st->cb(st->cb_priv, &info);
-    xmlFree(info.name); xmlFree(info.sim_ip);
-    xmlFreeDoc(doc); delete st; return;
+    os_robust_xml_free(rxml); delete st; return;
   }
 
  out_xmlfree_fail:
-  xmlFreeDoc(doc);
+  os_robust_xml_free(rxml);
  out_fail:
   st->cb(st->cb_priv, NULL);
   delete st;
