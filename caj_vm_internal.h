@@ -71,6 +71,7 @@ class asm_verify {
 
   void combine_verify(asm_verify *v2) {
     if(err != NULL) return;
+    assert(ptr_size == v2->ptr_size);
     if(stack_types.size() != v2->stack_types.size()) {
       dump_stack("First "); v2->dump_stack("Second ");
       err = "Stack mismatch"; return;
@@ -89,7 +90,8 @@ class asm_verify {
       err = "Pop on empty stack"; return 0;
     }
     uint8_t stype = stack_types.back();
-    stack_types.pop_back();
+    // can't really do a raw pop, since it won't update stack_used!
+    pop_val(stype);
     return stype;
   }
 
@@ -113,6 +115,7 @@ class asm_verify {
     case VM_TYPE_STR:
     case VM_TYPE_KEY:
     case VM_TYPE_LIST:
+    case VM_TYPE_PTR:
       stack_used -= ptr_size; break;
     default: assert(0); break;
     }
@@ -143,6 +146,8 @@ class asm_verify {
     case VM_TYPE_KEY:
     case VM_TYPE_LIST:
       stack_used += ptr_size; break;
+    case VM_TYPE_PTR:
+      err = "Tried to push untyped pointer onto stack?!"; break;
     default: printf("ERROR: Unknown vtype %i?!\n",vtype); assert(0); break;
     }
 

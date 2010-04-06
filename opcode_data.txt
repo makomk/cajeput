@@ -32,7 +32,7 @@
 27 GEQ_II: int >= int -> int
 28 LEQ_II: int <= int -> int
 29 DROP_I: int ->
-30 DROP_P: str ->  // FIXME - bad type!
+30 DROP_P: ptr ->
 31 DROP_I3: vect ->
 32 DROP_I4: rot ->
 33 PRINT_I: int ->
@@ -119,3 +119,17 @@
 99 LIST2ROT: list int -> vect func:llList2Rot
 
 100 CAST_LIST2S: list -> str
+
+// TODO - implement these
+// Note that key and string must be distinct ops in order
+// to ensure that list entries have the correct types.
+101 CAST_I2L: int -> list
+102 CAST_F2L: float -> list
+103 CAST_S2L: str -> list
+104 CAST_K2L: key -> list
+105 CAST_V2L: vect -> list
+106 CAST_R2L: rot -> list
+
+// TODO - implement these!
+107 CAST_S2I: str -> int
+108 CAST_S2F: str -> float

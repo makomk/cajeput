@@ -25,7 +25,7 @@ float llGetGMTclock( ) { }
 // float llFabs(float val) { }
 
 //  llDetected* functions, not all implemented
-integer llDetectedType( integer number ) { } // ???
+integer llDetectedType( integer number ) { } // FIXME - TODO
 string llDetectedName( integer number ) { }
 key llDetectedKey( integer number ) { }
 key llDetectedOwner( integer number ) { }
@@ -48,6 +48,16 @@ osTeleportAgent( key avatar, string region,
 
 string llGetObjectName() { }
 string llGetObjectDesc() { }
+
+// FIXME - how to implement this
+float llFrand(float mag) { }
+
+// FIXME - will be really fun to implement
+integer llListen(integer channel, string name, key id, string message) { }
+llListenRemove(integer listen_id) { }
+llDialog(key avatar, string message, list buttons, integer chat_channel) { }
+integer llListFindList(list src, list test) { }
+list llParseString2List(string src, list seperators, list spacers) { }
 
 // bunch of stuff I need to implement
 llMessageLinked(integer linknum, integer num, string str, key id) { }

@@ -72,6 +72,7 @@ private:
   const char* err;
   asm_verify* verify;
   int cond_flag;
+  long empty_list_entry; // FIXME - HACK
 
   std::vector<uint16_t> bytecode;
 
@@ -112,7 +113,8 @@ private:
   }
 
 public:
-  vm_asm() : func_start(0), err(NULL), verify(NULL), cond_flag(0) {
+  vm_asm() : func_start(0), err(NULL), verify(NULL), cond_flag(0),
+    empty_list_entry(-1){
     bytecode.push_back(INSN_QUIT);
   }
 
@@ -274,6 +276,12 @@ public:
     }
   }
 
+  void dump_stack(const char*prefix) {
+    if(err != NULL) return;
+    assert(verify != NULL);
+    verify->dump_stack(prefix);
+  }
+
   void begin_call(const vm_function *func) {
     if(err != NULL) return;
     if(func_start == 0) { err = "Call outside of func"; return; }
@@ -293,6 +301,8 @@ public:
     case VM_TYPE_STR:
     case VM_TYPE_KEY:
       const_str(""); break;
+    case VM_TYPE_LIST:
+      empty_list(); break;
     case VM_TYPE_VECT:
       const_int(0); const_int(0); const_int(0);
       break;
@@ -601,6 +611,17 @@ public:
     insn(MAKE_INSN(ICLASS_RDG_P, add_const_str(val)));
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
+
+  uint16_t empty_list(void) {
+    // FIXME - HACK
+    if(empty_list_entry < 0) {
+      begin_list();
+      empty_list_entry = add_global_ptr(end_list(), VM_TYPE_LIST);
+    }
+    insn(MAKE_INSN(ICLASS_RDG_P, empty_list_entry));
+    return verify == NULL ? 0 : verify->stack_types.size() - 1;
+  }
+
 
   void clear_stack(void) {
     if(err != NULL) return;

@@ -31,6 +31,8 @@ struct lsl_compile_state {
 };
 
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
+static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
+			      expr_node *expr);
 
 static void update_loc(lsl_compile_state &st, expr_node *expr) {
   st.line_no = expr->loc.first_line;
@@ -91,6 +93,9 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 	break;
       case VM_TYPE_STR:
 	var.offset = vasm.const_str("");
+	break;
+      case VM_TYPE_LIST:
+	var.offset = vasm.empty_list();
 	break;
       case VM_TYPE_VECT:
 	var.offset = vasm.const_int(0); 
@@ -416,6 +421,15 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_STR): return INSN_CAST_V2S;
   case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_STR): return INSN_CAST_R2S;
   case MK_VM_TYPE_PAIR(VM_TYPE_LIST, VM_TYPE_STR): return INSN_CAST_LIST2S;
+  case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_LIST): return INSN_CAST_I2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_LIST): return INSN_CAST_F2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_LIST): return INSN_CAST_S2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_KEY, VM_TYPE_LIST): return INSN_CAST_K2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_LIST): return INSN_CAST_V2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_LIST): return INSN_CAST_R2L;
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_INT): return INSN_CAST_S2I;
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_FLOAT): return INSN_CAST_S2F;
+    
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -762,7 +776,8 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	  if(st.error != 0) return;
 	}
 	update_loc(st, expr);
-	// printf("DEBUG: doing call to fake func %s\n", expr->u.call.name);
+	// printf("DEBUG: doing call to fake func %s opcode %i\n",
+	//        expr->u.call.name, (int)iter->second->insn_ptr);
 	vasm.insn(iter->second->insn_ptr);
       } else {
 	//printf("DEBUG: beginning call to %s\n", expr->u.call.name);
@@ -844,6 +859,40 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       if(!is_post && expr->vtype != VM_TYPE_NONE) 
 	vasm.insn(dup_insn);
       write_var(vasm, st, var);
+    }
+    break;
+  case NODE_LIST:
+    {
+      if(expr->u.list == NULL) {
+	vasm.empty_list(); // special case that should disappear
+      } else if(expr->u.list->next == NULL && 
+		expr->u.list->expr->node_type != NODE_CONST) {
+	// another special case that should disappear
+	expr_node *child = expr->u.list->expr;
+
+	insn = get_insn_cast(child->vtype, VM_TYPE_LIST);
+	if(child->vtype == VM_TYPE_LIST) {
+	  insn = INSN_NOOP;
+	} else if(insn == 0) {
+	  do_error(st, "ERROR: couldn't cast %s to list\n", 
+		   type_names[child->vtype]);
+	  st.error = 1; return;
+	}
+
+	assemble_expr(vasm, st, child);
+	if(st.error != 0) return;
+	update_loc(st, expr);
+	if(insn != INSN_NOOP)
+	  vasm.insn(insn);
+      } else {
+	// TODO: handle non-constant lists (FIXME!)
+	uint32_t ptr = constify_list(vasm, st, expr);
+	if(st.error != 0) return;
+	update_loc(st, expr);
+	// TODO: merge identical list constants
+	uint16_t global_const = vasm.add_global_ptr(ptr, VM_TYPE_LIST); 
+	vasm.insn(MAKE_INSN(ICLASS_RDG_P, global_const));
+      }
     }
     break;
   default:
@@ -1199,6 +1248,7 @@ int main(int argc, char** argv) {
 	var.offset = vasm.add_global_float(g->val == NULL ? 0.0f : g->val->u.f); 
 	break;
       case VM_TYPE_STR:
+      case VM_TYPE_KEY:
 	var.offset = vasm.add_global_ptr(vasm.add_string(g->val == NULL ? "" : g->val->u.s),
 					 VM_TYPE_STR); 
 	break;
