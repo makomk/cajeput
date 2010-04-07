@@ -137,12 +137,21 @@ struct detected_event : generic_event {
   caj_vector3 pos, vel;
   caj_quat rot;
   int det_type;
+  struct caj_touch_info touch; // FIXME make optional
   
   detected_event() : name(NULL), det_type(0) {
     uuid_clear(key); uuid_clear(owner);
     pos.x = 0.0f; pos.y = 0.0f; pos.z = 0.0f;
     vel.x = 0.0f; vel.y = 0.0f; vel.z = 0.0f;
     rot.x = 0.0f; rot.y = 0.0f; rot.z = 0.0f; rot.w = 1.0f;
+
+    // FIXME - check these!
+    touch.uv.x = -1.0f; touch.uv.y = -1.0f; touch.uv.z = 0.0f;
+    touch.st.x = -1.0f; touch.st.y = -1.0f; touch.st.z = 0.0f;
+    touch.face_index = -1;
+    touch.pos.x = 0.0f; touch.pos.y = 0.0f; touch.pos.z = 0.0f;
+    touch.normal.x = 0.0f; touch.normal.y = 0.0f; touch.normal.z = 0.0f;
+    touch.binormal.x = 0.0f; touch.binormal.y = 0.0f; touch.binormal.z = 0.0f;
   }
 
   ~detected_event() {
@@ -723,6 +732,46 @@ static void llDetectedVel_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llDetectedTouchFace_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_int_ret(st, func_id, scr->detected->touch.face_index);
+  } else {
+    vm_func_set_int_ret(st, func_id, -1);
+  }
+  vm_func_return(st, func_id);
+}
+
+static void llDetectedTouchUV_cb(script_state *st, void *sc_priv, int func_id) {
+  caj_vector3 null_v; 
+  null_v.x = -1.0f; null_v.y = -1.0f; null_v.z = 0.0f;
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_vect_ret(st, func_id, &scr->detected->touch.uv);
+  } else {
+    vm_func_set_vect_ret(st, func_id, &null_v);
+  }
+  vm_func_return(st, func_id);
+}
+
+static void llDetectedTouchST_cb(script_state *st, void *sc_priv, int func_id) {
+  caj_vector3 null_v; 
+  null_v.x = -1.0f; null_v.y = -1.0f; null_v.z = 0.0f;
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_vect_ret(st, func_id, &scr->detected->touch.st);
+  } else {
+    vm_func_set_vect_ret(st, func_id, &null_v);
+  }
+  vm_func_return(st, func_id);
+}
+
 static void llGetRegionName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, sim_get_name(scr->simscr->sim));
   rpc_func_return(st, scr, func_id);  
@@ -1274,7 +1323,8 @@ static void send_event(sim_scripts *simscr, sim_script *scr,
 }
 
 static void handle_touch(simulator_ctx *sim, void *priv, void *script,
-		     user_ctx *user, world_obj *av, int touch_type) {
+			 user_ctx *user, world_obj *av, int touch_type,
+			 const struct caj_touch_info *info) {
   sim_scripts *simscr = (sim_scripts*)priv;
   sim_script *scr = (sim_script*)script;
   if(touch_type == CAJ_TOUCH_CONT ? (scr->evmask & CAJ_EVMASK_TOUCH_CONT) :
@@ -1295,6 +1345,7 @@ static void handle_touch(simulator_ctx *sim, void *priv, void *script,
     det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
     det->det_type = DET_TYPE_AGENT; // ??? needed ???
     user_get_uuid(user, det->key);
+    if(info != NULL) det->touch = *info;
     send_event(simscr, scr, det);
   }
 }
@@ -1476,6 +1527,12 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedKey", VM_TYPE_KEY, llDetectedKey_cb,
 		    1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedTouchFace", VM_TYPE_INT, 
+		    llDetectedTouchFace_cb, 1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedTouchUV", VM_TYPE_VECT, 
+		    llDetectedTouchUV_cb, 1, VM_TYPE_INT);
+  vm_world_add_func(simscr->vmw, "llDetectedTouchST", VM_TYPE_VECT, 
+		    llDetectedTouchST_cb, 1, VM_TYPE_INT);
 
   // llGetRegion*
   vm_world_add_func(simscr->vmw, "llGetRegionCorner", VM_TYPE_VECT,

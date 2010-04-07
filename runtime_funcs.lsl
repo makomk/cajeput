@@ -25,7 +25,7 @@ float llGetGMTclock( ) { }
 // float llFabs(float val) { }
 
 //  llDetected* functions, not all implemented
-integer llDetectedType( integer number ) { } // FIXME - TODO
+integer llDetectedType( integer number ) { } // incomplete
 string llDetectedName( integer number ) { }
 key llDetectedKey( integer number ) { }
 key llDetectedOwner( integer number ) { }
@@ -33,6 +33,9 @@ integer llDetectedGroup( integer number ) { }
 vector llDetectedPos( integer number ) { }
 rotation llDetectedRot( integer number ) { }
 vector llDetectedVel( integer number ) { }
+integer llDetectedTouchFace( integer number ) { }
+vector llDetectedTouchST( integer number ) { }
+vector llDetectedTouchUV( integer number ) { }
 
 // TODO: llDetectedTouch*
 

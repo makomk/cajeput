@@ -234,7 +234,8 @@ struct primitive_obj {
 
     int (*get_evmask)(simulator_ctx *sim, void *priv, void *script);
     void (*touch_event)(simulator_ctx *sim, void *priv, void *script,
-			user_ctx *user, world_obj *av, int touch_type);
+			user_ctx *user, world_obj *av, int touch_type,
+			const struct caj_touch_info *info);
     void (*collision_event)(simulator_ctx *sim, void *priv, void *script,
 			    world_obj *collider, int coll_type);
     void (*link_message)(simulator_ctx *sim, void *priv, void *script,

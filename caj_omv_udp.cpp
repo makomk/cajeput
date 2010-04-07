@@ -1836,6 +1836,7 @@ static void handle_RezScript_msg(struct omuser_ctx* lctx, struct sl_message* msg
 static void handle_ObjectGrab_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ObjectGrab, AgentData, ad, msg);
   SL_DECLBLK_GET1(ObjectGrab, ObjectData, objd, msg);
+  SL_DECLBLK_GET1(ObjectGrab, SurfaceInfo, surf, msg); // optional
   if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
     return;
   
@@ -1849,14 +1850,29 @@ static void handle_ObjectGrab_msg(struct omuser_ctx* lctx, struct sl_message* ms
   }
   struct primitive_obj* prim = (primitive_obj*)obj;
 
-  // FIXME - do something with GrabOffset and SurfaceInfo!
+  // FIXME - do something with GrabOffset?
 
-  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_START);
+  struct caj_touch_info tinfo; 
+  struct caj_touch_info *tinfop;
+  if(surf == NULL) {
+    tinfop = NULL;
+  } else {
+    tinfo.uv = surf->UVCoord;
+    tinfo.st = surf->STCoord;
+    tinfo.face_index = surf->FaceIndex;
+    tinfo.pos = surf->Position;
+    tinfo.normal = surf->Normal;
+    tinfo.binormal = surf->Binormal;
+    tinfop = &tinfo;
+  }
+
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_START, tinfop);
 }
 
 static void handle_ObjectGrabUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ObjectGrabUpdate, AgentData, ad, msg);
   SL_DECLBLK_GET1(ObjectGrabUpdate, ObjectData, objd, msg);
+  SL_DECLBLK_GET1(ObjectGrabUpdate, SurfaceInfo, surf, msg); // optional
   if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
     return;
   
@@ -1872,12 +1888,27 @@ static void handle_ObjectGrabUpdate_msg(struct omuser_ctx* lctx, struct sl_messa
 
   // FIXME - do something with GrabOffset and SurfaceInfo!
 
-  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_CONT);
+  struct caj_touch_info tinfo; 
+  struct caj_touch_info *tinfop;
+  if(surf == NULL) {
+    tinfop = NULL;
+  } else {
+    tinfo.uv = surf->UVCoord;
+    tinfo.st = surf->STCoord;
+    tinfo.face_index = surf->FaceIndex;
+    tinfo.pos = surf->Position;
+    tinfo.normal = surf->Normal;
+    tinfo.binormal = surf->Binormal;
+    tinfop = &tinfo;
+  }
+
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_CONT, tinfop);
 }
 
 static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ObjectDeGrab, AgentData, ad, msg);
   SL_DECLBLK_GET1(ObjectDeGrab, ObjectData, objd, msg);
+  SL_DECLBLK_GET1(ObjectDeGrab, SurfaceInfo, surf, msg); // optional
   if(ad == NULL || objd == NULL || VALIDATE_SESSION(ad))
     return;
   
@@ -1888,9 +1919,21 @@ static void handle_ObjectDeGrab_msg(struct omuser_ctx* lctx, struct sl_message* 
   }
   struct primitive_obj* prim = (primitive_obj*)obj;
 
-  // FIXME - do something with SurfaceInfo!
+  struct caj_touch_info tinfo; 
+  struct caj_touch_info *tinfop;
+  if(surf == NULL) {
+    tinfop = NULL;
+  } else {
+    tinfo.uv = surf->UVCoord;
+    tinfo.st = surf->STCoord;
+    tinfo.face_index = surf->FaceIndex;
+    tinfo.pos = surf->Position;
+    tinfo.normal = surf->Normal;
+    tinfo.binormal = surf->Binormal;
+    tinfop = &tinfo;
+  }
 
-  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_END);
+  user_prim_touch(lctx->u->sim, lctx->u, prim, CAJ_TOUCH_END, tinfop);
 }
 
 static void handle_ObjectDuplicate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {

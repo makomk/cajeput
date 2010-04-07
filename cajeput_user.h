@@ -194,8 +194,15 @@ struct inventory_folder* user_find_system_folder(user_ctx *ctx,
 #define CAJ_TOUCH_CONT 1
 #define CAJ_TOUCH_END 2
 
+struct caj_touch_info {
+  caj_vector3 uv, st;
+  int32_t face_index;
+  caj_vector3 pos, normal, binormal;
+};
+
 void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type);
+		     struct primitive_obj* prim, int touch_type,
+		     const struct caj_touch_info *info);
 
 // check whether the asset can be retrieved without giving an inventory item
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);

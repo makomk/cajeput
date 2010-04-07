@@ -641,7 +641,8 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
 }
 
 void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type) {
+		     struct primitive_obj* prim, int touch_type,
+		     const struct caj_touch_info *info) {
   printf("DEBUG: in user_prim_touch, type %i\n", touch_type);
   int handled = 0;
 
@@ -660,7 +661,7 @@ void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
 	// we leave finer-grained filtering to the script engine
 	printf("DEBUG: sending touch event %i to script\n", touch_type);
 	sim->scripth.touch_event(sim, sim->script_priv, sinfo->priv,
-				 ctx, &ctx->av->ob, touch_type);
+				 ctx, &ctx->av->ob, touch_type, info);
       } else {
 	 printf("DEBUG: ignoring script not interested in touch event\n");
       }
@@ -669,7 +670,8 @@ void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
     printf("DEBUG: passing touch event to parent prim\n");
-    user_prim_touch(sim, ctx, (primitive_obj*)prim->ob.parent, touch_type);
+    user_prim_touch(sim, ctx, (primitive_obj*)prim->ob.parent, 
+		    touch_type, info);
   }
 }
 
