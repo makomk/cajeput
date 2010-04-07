@@ -506,6 +506,14 @@ static void free_system_folders(user_ctx *ctx) {
   ctx->sys_folders_state = SYS_FOLDERS_BAD_STATE;
 }
 
+void user_send_script_dialog(user_ctx *ctx, primitive_obj* prim,
+			     char *msg, int num_buttons, char** buttons,
+			     int32_t channel) {
+  if(ctx->userh->script_dialog != NULL) 
+    ctx->userh->script_dialog(ctx->user_priv, prim, msg, num_buttons, 
+			      buttons, channel);
+}
+
 static void sanitise_teleport_pos(simulator_ctx *sim, caj_vector3 *pos) {
   if(!finite(pos->x)) pos->x = 128.0f;
   else if(pos->x <= 0.0f) pos->x = 1.0f;

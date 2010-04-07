@@ -135,6 +135,7 @@ struct vm_function {
 
 struct script_state;
 struct vm_world;
+struct heap_header;
 
 typedef void(*vm_native_func_cb)(script_state *st, void *sc_priv, int func_id);
 
@@ -158,6 +159,9 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w);
 void vm_run_script(script_state *st, int num_steps);
 int vm_event_has_handler(script_state *st, int event_id);
 void vm_call_event(script_state *st, int event_id, ...);
+int32_t vm_list_get_count(heap_header *list);
+uint8_t vm_list_get_type(heap_header *list, int32_t pos);
+char *vm_list_get_str(heap_header *list, int32_t pos);
 void vm_func_get_args(script_state *st, int func_no, ...);
 void vm_func_set_int_ret(script_state *st, int func_no, int32_t ret);
 void vm_func_set_float_ret(script_state *st, int func_no, float ret);

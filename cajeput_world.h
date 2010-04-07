@@ -355,6 +355,11 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
 		     struct primitive_obj* child);
 
+  // FIXME - where should this go?
+void user_send_script_dialog(user_ctx *ctx, primitive_obj* prim,
+			     char *msg, int num_buttons, char** buttons,
+			     int32_t channel);
+
 // --- this is messy --------------------
 
 #define CAJ_MULTI_UPD_POS 1

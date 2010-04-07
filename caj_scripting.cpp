@@ -136,8 +136,9 @@ struct detected_event : generic_event {
   char *name;
   caj_vector3 pos, vel;
   caj_quat rot;
+  int det_type;
   
-  detected_event() : name(NULL) {
+  detected_event() : name(NULL), det_type(0) {
     uuid_clear(key); uuid_clear(owner);
     pos.x = 0.0f; pos.y = 0.0f; pos.z = 0.0f;
     vel.x = 0.0f; vel.y = 0.0f; vel.z = 0.0f;
@@ -405,6 +406,15 @@ static void llGetGMTclock_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llFrand_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  float max_rand;
+  vm_func_get_args(st, func_id, &max_rand);
+  // FIXME - this is horribly broken in many, many ways...
+  vm_func_set_float_ret(st, func_id, random()*max_rand/RAND_MAX);
+  vm_func_return(st, func_id);
+}
+
 
 #define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
 
@@ -572,6 +582,18 @@ static void llDetectedName_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llDetectedType_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  int num;
+  vm_func_get_args(st, func_id, &num);
+  if(scr->detected != NULL && num == 0) {
+    vm_func_set_int_ret(st, func_id, scr->detected->det_type);
+  } else {
+    vm_func_set_int_ret(st, func_id, 0);
+  }
+  vm_func_return(st, func_id);
+}
+
 // FIXME - there should be a global definition of these somewhere
 static const caj_vector3 zero_vect = { 0.0f, 0.0f, 0.0f };
 static const caj_quat zero_rot = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -652,6 +674,56 @@ static void llMessageLinked_rpc(script_state *st, sim_script *scr, int func_id) 
 }
 
 RPC_TO_MAIN(llMessageLinked);
+
+static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *avatar_id, *msg; heap_header *buttons; int channel;
+  uuid_t avatar_uuid;
+  vm_func_get_args(st, func_id, &avatar_id, &msg, &buttons, &channel);
+  int32_t count = vm_list_get_count(buttons);
+  if(count > 12) {
+    world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+			 "llDialog cannot have more that 12 buttons",
+			 CHAT_TYPE_SHOUT);
+    goto out;
+  } else if(msg[0] == 0) {
+    world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+			 "llDialog requires a message",
+			 CHAT_TYPE_SHOUT);
+    goto out;
+  } else if(strlen(msg) >= 512) {
+    world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+			 "llDialog message must be shorter than 512 chars",
+			 CHAT_TYPE_SHOUT);
+    goto out;
+  }
+  // FIXME - add "OK" button if no buttons
+  char *button_strs[count];
+  for(int32_t i = 0; i < count; i++) {
+    if(vm_list_get_type(buttons, i) != VM_TYPE_STR) {
+      world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+			   "llDialog button labels must be strings",
+			   CHAT_TYPE_SHOUT);
+      goto out;
+    }
+  }
+  for(int32_t i = 0; i < count; i++) {
+    button_strs[i] = vm_list_get_str(buttons, i);
+  }
+  
+  if(uuid_parse(avatar_id, avatar_uuid) == 0) {
+    user_ctx *ctx = user_find_ctx(scr->simscr->sim, avatar_uuid);
+    if(ctx != NULL) {
+      user_send_script_dialog(ctx, scr->prim, msg, count, 
+			      button_strs, channel);
+      // FIXME - TODO!
+    }
+  }
+  for(int32_t i = 0; i < count; i++) free(button_strs[i]);
+ out:
+  free(msg); rpc_func_return(st, scr, func_id);
+}
+RPC_TO_MAIN(llDialog);
+
 
 static void script_upd_evmask(sim_script *scr) {
   int evmask = 0;
@@ -1146,6 +1218,7 @@ static void handle_touch(simulator_ctx *sim, void *priv, void *script,
 
     det->name = strdup(user_get_name(user));
     det->pos = av->world_pos; det->rot = av->rot; det->vel = av->velocity;
+    det->det_type = DET_TYPE_AGENT; // ??? needed ???
     user_get_uuid(user, det->key);
     send_event(simscr, scr, det);
   }
@@ -1168,6 +1241,10 @@ static void handle_collision(simulator_ctx *sim, void *priv, void *script,
 
     detected_event *det = new detected_event();
     det->event_id = event_id;
+
+    if(obj->type == OBJ_TYPE_AVATAR)
+      det->det_type = DET_TYPE_AGENT;
+    else det->det_type = DET_TYPE_PASSIVE; // FIXME
 
     if(obj->type == OBJ_TYPE_PRIM) {
       primitive_obj *prim_coll = (primitive_obj*)obj;
@@ -1286,7 +1363,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetUnixTime", VM_TYPE_INT, llGetUnixTime_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetGMTclock", VM_TYPE_FLOAT, llGetGMTclock_cb, 0);
-  
+  vm_world_add_func(simscr->vmw, "llFrand", VM_TYPE_FLOAT, llFrand_cb, 1, 
+		    VM_TYPE_FLOAT);
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
 		    VM_TYPE_STR, VM_TYPE_VECT, VM_TYPE_FLOAT); 
 
@@ -1311,6 +1389,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 
   vm_world_add_func(simscr->vmw, "llDetectedName", VM_TYPE_STR, llDetectedName_cb,
 		    1, VM_TYPE_INT);
+   vm_world_add_func(simscr->vmw, "llDetectedType", VM_TYPE_INT, llDetectedType_cb,
+		    1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedPos", VM_TYPE_VECT, llDetectedPos_cb,
 		    1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedRot", VM_TYPE_ROT, llDetectedRot_cb,
@@ -1329,6 +1409,10 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llMessageLinked", VM_TYPE_NONE,
 		    llMessageLinked_cb, 4, VM_TYPE_INT, VM_TYPE_INT, 
 		    VM_TYPE_STR, VM_TYPE_KEY);
+
+  vm_world_add_func(simscr->vmw, "llDialog", VM_TYPE_NONE,
+		    llDialog_cb, 4, VM_TYPE_KEY, VM_TYPE_STR, 
+		    VM_TYPE_LIST, VM_TYPE_INT);
 
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);

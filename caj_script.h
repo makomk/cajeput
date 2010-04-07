@@ -59,4 +59,9 @@
 #define LINK_ALL_CHILDREN -3
 #define LINK_THIS -4
 
+#define DET_TYPE_AGENT 1
+#define DET_TYPE_ACTIVE 2
+#define DET_TYPE_PASSIVE 4
+#define DET_TYPE_SCRIPTED 8
+
 #endif

@@ -295,6 +295,28 @@ static void handle_MoneyBalanceRequest_msg(struct omuser_ctx* lctx, struct sl_me
   sl_send_udp(lctx, &reply);
 }
 
+static void send_script_dialog(void *user_priv, primitive_obj* prim,
+			       char *msg, int num_buttons, char** buttons,
+			       int32_t channel) {
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
+  SL_DECLMSG(ScriptDialog, dialog);
+  SL_DECLBLK(ScriptDialog, Data, ddata, &dialog);
+  uuid_copy(ddata->ObjectID, prim->ob.id);
+  caj_string_set(&ddata->FirstName, "???"); // FIXME!
+  caj_string_set(&ddata->LastName, "???"); // FIXME
+  caj_string_set(&ddata->ObjectName, prim->name);
+  caj_string_set(&ddata->Message, msg);
+  ddata->ChatChannel = channel;
+  uuid_clear(ddata->ImageID); // FIXME - ???
+  
+  for(int i = 0; i < num_buttons; i++) {
+    SL_DECLBLK(ScriptDialog, Buttons, button, &dialog);
+    caj_string_set(&button->ButtonLabel, buttons[i]);
+  }
+  dialog.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &dialog);
+}
+
 static void chat_callback(void *user_priv, const struct chat_message *msg) {
   omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(ChatFromSimulator, chat);
@@ -307,6 +329,7 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
 		     msg->chat_type);
   cdata->Audible = CHAT_AUDIBLE_FULLY;
   caj_string_set(&cdata->Message,msg->msg);
+  chat.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &chat);
 }
 
@@ -332,6 +355,37 @@ static void handle_ChatFromViewer_msg(struct omuser_ctx* lctx, struct sl_message
     chat.msg = (char*)cdata->Message.data;
     world_send_chat(lctx->u->sim, &chat);
   }
+}
+
+static void handle_ScriptDialogReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ScriptDialogReply, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ScriptDialogReply, Data, cdata, msg);
+  if(ad == NULL || cdata == NULL || VALIDATE_SESSION(ad)) return;
+  
+  printf("DEBUG: got ScriptDialogReply\n");
+
+  if(cdata->ChatChannel == 0) {
+    printf("DEBUG: ScriptDialogReply on channel 0, discarding\n");
+    return;
+  }
+
+  // FIXME - chat from root prim?
+  world_obj* src = world_object_by_id(lctx->lsim->sim, cdata->ObjectID);
+  if(src == NULL) {
+    printf("DEBUG: ScriptDialogReply for unknown obj, discarding\n");
+    return;
+  }
+  
+  struct chat_message chat;
+  chat.channel = cdata->ChatChannel;
+  chat.pos = lctx->u->av->ob.world_pos;
+  chat.name = lctx->u->name;
+  uuid_copy(chat.source,lctx->u->user_id);
+  uuid_clear(chat.owner); // FIXME - ???
+  chat.source_type = CHAT_SOURCE_AVATAR;
+  chat.chat_type = CHAT_TYPE_NORMAL;
+  chat.msg = (char*)cdata->ButtonLabel.data;
+  world_send_chat(lctx->u->sim, &chat);
 }
 
 static void handle_MapLayerRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2934,6 +2988,7 @@ static user_hooks our_hooks = {
   send_av_terse_update,
   send_av_appearance,
   send_av_animations,
+  send_script_dialog,
 };
 
 static gboolean got_packet(GIOChannel *source,
@@ -3080,6 +3135,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(MoneyBalanceRequest);
   ADD_HANDLER(LogoutRequest);
   ADD_HANDLER(ChatFromViewer);
+  ADD_HANDLER(ScriptDialogReply);
   ADD_HANDLER(AgentThrottle);
   ADD_HANDLER(RegionHandshakeReply);
   ADD_HANDLER(AgentWearablesRequest);

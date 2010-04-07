@@ -1691,6 +1691,39 @@ void vm_world_free(vm_world *w) {
   delete w;
 }
 
+int32_t vm_list_get_count(heap_header *list) {
+  assert(heap_entry_vtype(list) == VM_TYPE_LIST);
+  return list->len;
+}
+
+uint8_t vm_list_get_type(heap_header *list, int32_t pos) {
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    return VM_TYPE_NONE;
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    return heap_entry_vtype(item);
+  }
+}
+
+char *vm_list_get_str(heap_header *list, int32_t pos) {
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    return NULL;
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    if(heap_entry_vtype(item) != VM_TYPE_STR && 
+       heap_entry_vtype(item) != VM_TYPE_KEY)
+      return NULL;
+
+    int32_t len = item->len;
+    char *buf = (char*)malloc(len+1);
+    memcpy(buf, script_getptr(item), len);
+    buf[len] = 0;
+    return buf;
+  }
+}
+
 void vm_func_get_args(script_state *st, int func_no, ...) {
   va_list args;
   vm_nfunc_desc &desc = st->world->nfuncs[func_no];
@@ -1741,6 +1774,13 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
 	*va_arg(args, char**) = buf;
 	break;
       }
+    case VM_TYPE_LIST:
+      { 
+	frame_ptr -= ptr_stack_sz();
+	heap_header *p = get_stk_ptr(frame_ptr+1);
+	*va_arg(args, heap_header**) = p;
+	break;
+      }      
     default:
       printf("ERROR: unhandled arg type in vm_func_get_args\n"); 
       va_end(args); return;
@@ -1860,6 +1900,7 @@ void vm_func_return(script_state *st, int func_no) {
       st->stack_top += 4; break;      
     case VM_TYPE_STR:
     case VM_TYPE_KEY:
+    case VM_TYPE_LIST:
       {
 	heap_header *p = get_stk_ptr(st->stack_top+1);
 	heap_ref_decr(p, st); st->stack_top += ptr_stack_sz();

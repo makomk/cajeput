@@ -167,6 +167,10 @@ struct user_hooks {
   void(*send_av_terse_update)(user_ctx* ctx, avatar_obj* av);
   void(*send_av_appearance)(user_ctx* ctx, user_ctx* av_user);
   void(*send_av_animations)(user_ctx* ctx, user_ctx* av_user);
+
+  void(*script_dialog)(void *user_priv, primitive_obj* prim,
+		       char *msg, int num_buttons, char** buttons,
+		       int32_t channel);
 };
 
 struct user_ctx {
