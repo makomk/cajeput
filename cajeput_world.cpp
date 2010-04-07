@@ -317,10 +317,10 @@ static void object_compute_global_pos(struct world_obj *ob, caj_vector3 *pos_out
 }
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
-			  int32_t chan, char *msg, int chat_type) {
+			  int32_t chan, const char *msg, int chat_type) {
   struct chat_message chat;
   chat.channel = chan;
-  chat.msg = msg;
+  chat.msg = (char*)msg; // FIXME - correct type?
   chat.chat_type = chat_type;
   chat.pos = prim->ob.world_pos;
   chat.name = prim->name;
@@ -1004,6 +1004,144 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
   world_mark_object_updated(sim, obj, objupd);
 }
 
+// ----- Code to handle llSetPrimitiveParams family --------
+// Note that this is quite interesting to use and comes with 
+// major caveats!
+
+
+void world_prim_spp_begin(struct simulator_ctx *sim, 
+			  struct primitive_obj *prim, 
+			  struct world_spp_ctx *spp) {
+  spp->sim = sim; spp->prim = prim; spp->objupd = 0;
+}
+
+
+int world_prim_spp_set_shape(struct world_spp_ctx *spp, 
+			     int shape, int hollow) {
+  switch(shape) {
+  case PRIM_TYPE_BOX:
+    spp->prim->profile_curve = PROFILE_SHAPE_SQUARE | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_STRAIGHT;
+    break;
+  case PRIM_TYPE_CYLINDER:
+    spp->prim->profile_curve = PROFILE_SHAPE_CIRCLE | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_STRAIGHT;
+    break;
+  case PRIM_TYPE_PRISM:
+    spp->prim->profile_curve = PROFILE_SHAPE_EQUIL_TRI | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_STRAIGHT;
+    break;
+  case PRIM_TYPE_SPHERE:
+    spp->prim->profile_curve = PROFILE_SHAPE_SEMICIRC | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_CIRCLE;
+    break;
+  case PRIM_TYPE_TORUS:
+    spp->prim->profile_curve = PROFILE_SHAPE_CIRCLE | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_CIRCLE;
+    break;
+  case PRIM_TYPE_TUBE:
+    spp->prim->profile_curve = PROFILE_SHAPE_SQUARE | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_CIRCLE;
+    break;
+  case PRIM_TYPE_RING:
+    spp->prim->profile_curve = PROFILE_SHAPE_EQUIL_TRI | 
+      (PROFILE_HOLLOW_MASK & hollow);
+    spp->prim->path_curve = PATH_CURVE_CIRCLE;
+    break;
+  default: return FALSE;
+  }
+  spp->objupd |= CAJ_OBJUPD_SHAPE;
+  return TRUE;
+}
+
+int world_prim_spp_set_profile_cut(struct world_spp_ctx *spp, 
+				   float profile_begin, float profile_end) {
+  if(!isfinite(profile_begin) || profile_begin < 0.0f) {
+    profile_begin = 0.0f;
+  }
+  if(profile_begin > 0.95f) profile_begin =  0.95f;
+  if(!isfinite(profile_end))
+    profile_end = 1.0f;
+  if(profile_end < profile_begin+0.05f) 
+    profile_end = profile_begin+0.05f;
+  if(profile_end > 1.00f) profile_end = 1.00f;
+
+  spp->prim->profile_begin = (int)(50000*profile_begin);
+  spp->prim->profile_end = (int)(50000*(1.0f-profile_end));
+  spp->objupd |= CAJ_OBJUPD_SHAPE;
+  return TRUE;
+}
+
+
+int world_prim_spp_set_hollow(struct world_spp_ctx *spp, float hollow) {
+  if(!isfinite(hollow) || hollow < 0.0f) {
+    hollow = 0.0f;
+  }
+  if(hollow > 0.95f) hollow =  0.95f;
+  spp->prim->profile_hollow = (int)(50000*hollow);
+  spp->objupd |= CAJ_OBJUPD_SHAPE;
+  return TRUE;
+}
+
+int world_prim_spp_set_twist(struct world_spp_ctx *spp, 
+			     float twist_begin, float twist_end) {
+  // FIXME - limit correctly for box/cylinder/prism
+  if(!isfinite(twist_begin)) twist_begin = 0.0f;
+  if(twist_begin < -1.0f) twist_begin = -1.0f;
+  if(twist_begin > 1.0f) twist_begin = 1.0f;
+
+  if(!isfinite(twist_end)) twist_end = 0.0f;
+  if(twist_end < -1.0f) twist_end = -1.0f;
+  if(twist_end > 1.0f) twist_end = 1.0f;
+
+  // the explicit cast to int is critical!
+  spp->prim->path_twist_begin = (int)(twist_begin*100);
+  spp->prim->path_twist = (int)(twist_end*100);
+  spp->objupd |= CAJ_OBJUPD_SHAPE;
+  return TRUE;
+}
+
+int world_prim_spp_set_path_taper(struct world_spp_ctx *spp, 
+				  float top_size_x, float top_size_y,
+				  float top_shear_x, float top_shear_y) {
+  if(!isfinite(top_shear_x)) top_shear_x = 0.0f;
+  if(top_shear_x < -0.5f) top_shear_x = -0.5f;
+  if(top_shear_x > 0.5f) top_shear_x = 0.5f;
+
+  if(!isfinite(top_shear_y)) top_shear_y = 0.0f;
+  if(top_shear_y < -0.5f) top_shear_y = -0.5f;
+  if(top_shear_y > 0.5f) top_shear_y = 0.5f;
+
+  if(!isfinite(top_size_x)) top_size_x = 1.0f;
+  if(top_size_x < 0.0f) top_size_x = 0.0f;
+  if(top_size_x > 2.0f) top_size_x = 2.0f;
+
+  if(!isfinite(top_size_y)) top_size_y = 1.0f;
+  if(top_size_y < 0.0f) top_size_y = 0.0f;
+  if(top_size_y > 2.0f) top_size_y = 2.0f;
+  
+  spp->prim->path_shear_x = (int)(100*top_shear_x);
+  spp->prim->path_shear_y = (int)(100*top_shear_y);
+
+  // are they screwing with us on purpose? Seems like it...
+  spp->prim->path_scale_x = (int)(100*(2.0f-top_size_x));
+  spp->prim->path_scale_y = (int)(100*(2.0f-top_size_y));
+  
+  spp->objupd |= CAJ_OBJUPD_SHAPE;
+  return TRUE;
+}
+
+void world_prim_spp_end(struct world_spp_ctx *spp) {
+  world_mark_object_updated(spp->sim, &spp->prim->ob, spp->objupd);
+}
+
+// ---------------------------------
 
 uint32_t user_calc_prim_perms(struct user_ctx* ctx, struct primitive_obj *prim) {
   uint32_t perms = prim->perms.everyone;

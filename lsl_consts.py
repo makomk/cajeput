@@ -13,7 +13,9 @@ class lsl_rot:
     def __init__(self,x,y,z,s):
         self.x = x; self.y = y; self.z = z; self.s = s
 
-_header_re = re.compile(r"^#define\s+(\w+)\s+(.+?)(?://.*)?$")
+_header_re = re.compile(r"^#define\s+(\w+)\s+(.+?)(?://(.*))?$")
+
+lsl_consts = { }
 
 class c_header:
     def __init__(self, fname):
@@ -24,13 +26,17 @@ class c_header:
             if m != None:
                 val = m.group(2)
                 self.names[m.group(1)] = val
-
+                if m.group(3) == None:
+                    pass
+                elif m.group(3).find("lsl:int") >= 0:
+                    lsl_consts[m.group(1)] = self.get_int(m.group(1))
     def get_int(self, name):
         return eval(self.names[name])
 
 caj_script_h = c_header("caj_script.h")
+cajeput_prim_h = c_header("cajeput_prim.h")
 
-lsl_consts = {
+lsl_consts.update({
     "FALSE": 0,
     "TRUE": 1,
     "PI": lsl_const("float","M_PI"),
@@ -40,15 +46,16 @@ lsl_consts = {
     "ZERO_VECTOR": lsl_vect(0,0,0),
     "ZERO_ROTATION": lsl_rot(0,0,0,1),
     "NULL_KEY": "00000000-0000-0000-0000-000000000000", # yes, a string.
-    "CHANGED_REGION_START": caj_script_h.get_int("CHANGED_REGION_START"),
-    "LINK_SET": caj_script_h.get_int("LINK_SET"),
-    "LINK_ALL_OTHERS": caj_script_h.get_int("LINK_ALL_OTHERS"),
-    "LINK_ALL_CHILDREN": caj_script_h.get_int("LINK_ALL_CHILDREN"),
-    "LINK_THIS": caj_script_h.get_int("LINK_THIS"),
     # FIXME - should be defined in a header
-    "AGENT": 1, "ACTIVE": 2, "PASSIVE": 4, "SCRIPTED": 8
+    "AGENT": 1, "ACTIVE": 2, "PASSIVE": 4, "SCRIPTED": 8,
+    
+    "PRIM_HOLE_DEFAULT": cajeput_prim_h.get_int("PROFILE_HOLLOW_DEFAULT"),
+    "PRIM_HOLE_CIRCLE": cajeput_prim_h.get_int("PROFILE_HOLLOW_CIRC"),
+    "PRIM_HOLE_SQUARE": cajeput_prim_h.get_int("PROFILE_HOLLOW_SQUARE"),
+    "PRIM_HOLE_TRIANGLE": cajeput_prim_h.get_int("PROFILE_HOLLOW_TRIANGLE"),
+    
     # TODO
-}
+})
 
 consts_out = [ ]
 

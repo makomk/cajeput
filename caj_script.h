@@ -37,31 +37,48 @@
 #define CAJ_COLLISION_END 2
 
 // flags used by the changed event
-#define CHANGED_INVENTORY 0x1
-#define CHANGED_COLOR 0x2
-#define CHANGED_SHAPE 0x4
-#define CHANGED_SCALE 0x8
-#define CHANGED_TEXTURE 0x10
-#define CHANGED_LINK 0x20
-#define CHANGED_ALLOWED_DROP 0x40
-#define CHANGED_OWNER 0x80
+#define CHANGED_INVENTORY 0x1 // lsl:int
+#define CHANGED_COLOR 0x2 // lsl:int
+#define CHANGED_SHAPE 0x4 // lsl:int
+#define CHANGED_SCALE 0x8 // lsl:int
+#define CHANGED_TEXTURE 0x10 // lsl:int
+#define CHANGED_LINK 0x20 // lsl:int
+#define CHANGED_ALLOWED_DROP 0x40 // lsl:int
+#define CHANGED_OWNER 0x80 // lsl:int
 /* The following appear to differ between OpenSim and Second Life. We use the
    Second Life definitions here, as far as I can tell. This seems likely to 
    cause pain in the future. */
-#define CHANGED_REGION 0x100
-#define CHANGED_TELEPORT 0x200
-#define CHANGED_REGION_START 0x400
+#define CHANGED_REGION 0x100 // lsl:int
+#define CHANGED_TELEPORT 0x200 // lsl:int
+#define CHANGED_REGION_START 0x400 // lsl:int
 
-#define LINK_ROOT 1
-#define LINK_FIRST_CHILD 2
-#define LINK_SET -1
-#define LINK_ALL_OTHERS -2
-#define LINK_ALL_CHILDREN -3
-#define LINK_THIS -4
+#define LINK_ROOT 1 // lsl:int
+#define LINK_FIRST_CHILD 2 // lsl:int
+#define LINK_SET -1 // lsl:int
+#define LINK_ALL_OTHERS -2 // lsl:int
+#define LINK_ALL_CHILDREN -3 // lsl:int
+#define LINK_THIS -4 // lsl:int
 
 #define DET_TYPE_AGENT 1
 #define DET_TYPE_ACTIVE 2
 #define DET_TYPE_PASSIVE 4
 #define DET_TYPE_SCRIPTED 8
+
+// constants for llSetPrimitiveParams
+#define PRIM_TYPE 9 // lsl:int
+
+#define   PRIM_TYPE_BOX 0 // lsl:int
+#define   PRIM_TYPE_CYLINDER 1 // lsl:int
+#define   PRIM_TYPE_PRISM 2 // lsl:int
+#define   PRIM_TYPE_SPHERE 3 // lsl:int
+#define   PRIM_TYPE_TORUS 4 // lsl:int
+#define   PRIM_TYPE_TUBE 5 // lsl:int
+#define   PRIM_TYPE_RING 6 // lsl:int
+#define   PRIM_TYPE_SCULPT 7 // lsl:int
+
+/* #define   PRIM_HOLE_DEFAULT PROFILE_HOLLOW_DEFAULT
+   #define   PRIM_HOLE_CIRCLE PROFILE_HOLLOW_CIRC 
+   etc...
+*/
 
 #endif

@@ -40,7 +40,7 @@ lsl-lex.o: lsl-lex.c lsl.tab.h
 caj_vm_insns.h caj_vm_ops.h: caj_vm_make_insns.py opcode_data.txt
 	python caj_vm_make_insns.py
 
-lsl_consts.c: lsl_consts.py
+lsl_consts.c: lsl_consts.py caj_script.h
 	python lsl_consts.py
 
 lsl_compile: lsl.tab.o lsl-lex.o caj_lsl_compile.o lsl_consts.o

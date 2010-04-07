@@ -1171,7 +1171,10 @@ static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st,
       break;
     case VM_TYPE_FLOAT:
       vasm.list_add_float(item->expr->u.f);
-      break;      
+      break;
+    case VM_TYPE_VECT:
+      vasm.list_add_vect(item->expr->u.v);
+      break;
     default:
       do_error(st, "Unhandled type %s in list\n", 
 	       type_names[item->expr->vtype]);

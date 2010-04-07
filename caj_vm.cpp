@@ -366,6 +366,32 @@ public:
 		heap_ref_incr(itemp); list[i] = itemp;
 		p->len = i+1; // HACK!!!!
 	      }
+	    } else if(heap[heap_count].vtype == VM_TYPE_INT || 
+		      heap[heap_count].vtype == VM_TYPE_FLOAT) { 
+	      if(it_len != 4) {
+		printf("SCRIPT LOAD ERR: heap int/float not 4 bytes\n");
+		return NULL;
+	      }
+	      p = script_alloc(st, 4, heap[heap_count].vtype);
+	      if(p == NULL) { 
+		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+	      }
+	      *(int32_t*)script_getptr(p) = read_u32();
+	    } else if(heap[heap_count].vtype == VM_TYPE_VECT || 
+		      heap[heap_count].vtype == VM_TYPE_ROT) {
+	      int count = heap[heap_count].vtype == VM_TYPE_VECT ? 3 : 4;
+	      if(it_len != 4*count) {
+		printf("SCRIPT LOAD ERR: heap vect/rot wrong size\n");
+		return NULL;
+	      }
+	      p = script_alloc(st, 4*count, heap[heap_count].vtype);
+	      if(p == NULL) { 
+		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+	      }
+	      int32_t *v = (int32_t*)script_getptr(p);
+	      for(int i = 0; i < count; i++, v++) {
+		*v = read_u32();
+	      }
 	    } else {
 	      printf("SCRIPT LOAD ERR: unhandled heap entry vtype\n"); return NULL;
 	    }
@@ -1721,6 +1747,47 @@ char *vm_list_get_str(heap_header *list, int32_t pos) {
     memcpy(buf, script_getptr(item), len);
     buf[len] = 0;
     return buf;
+  }
+}
+
+int32_t vm_list_get_int(heap_header *list, int32_t pos) {
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    return 0;
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    if(heap_entry_vtype(item) != VM_TYPE_INT)
+      return 0;
+
+    return *(int32_t*)script_getptr(item);
+  }
+}
+
+float vm_list_get_float(heap_header *list, int32_t pos) {
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    return 0.0f;
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    if(heap_entry_vtype(item) != VM_TYPE_FLOAT)
+      return 0.0f;
+
+    return *(float*)script_getptr(item);
+  }
+}
+
+void vm_list_get_vector(heap_header *list, int32_t pos, caj_vector3* out) {
+  if(pos < 0 || (uint32_t)pos >= list->len) {
+    out->x = 0.0f; out->y = 0.0f; out->z = 0.0f; return;
+  } else {
+    heap_header **items = (heap_header**)script_getptr(list);
+    heap_header *item = items[pos];
+    if(heap_entry_vtype(item) != VM_TYPE_VECT) {
+      out->x = 0.0f; out->y = 0.0f; out->z = 0.0f; return;
+    }
+
+    float *v = (float*)script_getptr(item);
+    out->x = v[0]; out->y = v[1]; out->z = v[2];
   }
 }
 

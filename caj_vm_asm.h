@@ -407,16 +407,30 @@ public:
     list_build.push_back(serial.add_heap_entry(VM_TYPE_INT,4,data));
   }
 
-  void list_add_float(float val) {
+  void float_to_bin(float val, unsigned char *data) {
     union { int i; float f; } u; u.f = val;
-    unsigned char *data = (unsigned char*)malloc(4);
     data[0] = (u.i >> 24) & 0xff;
     data[1] = (u.i >> 16) & 0xff;
     data[2] = (u.i >> 8) & 0xff;
-    data[3] = (u.i) & 0xff;
+    data[3] = (u.i) & 0xff;    
+  }
+
+  void list_add_float(float val) {
+    unsigned char *data = (unsigned char*)malloc(4);
+    float_to_bin(val, data);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_FLOAT,4,data));
   }
 
+
+  void list_add_vect(float *val) {
+    unsigned char *data = (unsigned char*)malloc(12);
+    // FIXME - ordering?
+    float_to_bin(val[0], data+0);
+    float_to_bin(val[1], data+4);
+    float_to_bin(val[2], data+8);
+    list_build.push_back(serial.add_heap_entry(VM_TYPE_VECT,12,data));
+     
+  }
 
   uint32_t end_list() {
     int count = list_build.size();

@@ -318,7 +318,7 @@ struct inventory_item* world_prim_alloc_inv_item(void);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
-			  int32_t chan, char *msg, int chat_type);
+			  int32_t chan, const char *msg, int chat_type);
 void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 			 const char *text, uint8_t color[4]);
 void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
@@ -376,6 +376,33 @@ struct caj_multi_upd {
 
 void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
 			    const struct caj_multi_upd *upd);
+
+// ----- Code to handle llSetPrimitiveParams family --------
+// Note that this is quite interesting to use. In particular, be
+// *very* careful what you do between world_prim_spp_begin and 
+// world_prim_spp_end, and don't forget to call world_prim_spp_end!
+
+struct world_spp_ctx {
+  struct simulator_ctx *sim;
+  struct primitive_obj *prim;
+  int objupd;
+};
+
+void world_prim_spp_begin(struct simulator_ctx *sim, 
+			  struct primitive_obj *prim, 
+			  struct world_spp_ctx *spp);
+int world_prim_spp_set_shape(struct world_spp_ctx *spp, 
+			     int shape, int hollow);
+int world_prim_spp_set_profile_cut(struct world_spp_ctx *spp, 
+				   float profile_begin, float profile_end);
+int world_prim_spp_set_hollow(struct world_spp_ctx *spp, float hollow);
+int world_prim_spp_set_twist(struct world_spp_ctx *spp, 
+			     float twist_begin, float twist_end);
+int world_prim_spp_set_path_taper(struct world_spp_ctx *spp, 
+				  float top_size_x, float top_size_y,
+				  float top_shear_x, float top_shear_y);
+void world_prim_spp_end(struct world_spp_ctx *spp);
+
 
 #ifdef __cplusplus
 }

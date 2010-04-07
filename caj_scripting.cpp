@@ -418,6 +418,11 @@ static void llFrand_cb(script_state *st, void *sc_priv, int func_id) {
 
 #define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
 
+static void debug_message_mt(sim_script *scr, const char *msg) {
+  world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+		       msg, CHAT_TYPE_SHOUT);
+}
+
 // actually called from main thread
 static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
   char *text; caj_vector3 color; float alpha;
@@ -464,6 +469,76 @@ static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
 }
 
 RPC_TO_MAIN(llSetRot)
+
+static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
+  world_spp_ctx spp;
+  heap_header *rules; 
+  vm_func_get_args(st, func_id, &rules);
+  int len = vm_list_get_count(rules), index = 0;
+  world_prim_spp_begin(scr->simscr->sim, scr->prim, &spp);
+  
+  while(index < len) {
+    if(vm_list_get_type(rules, index) != VM_TYPE_INT) {
+      debug_message_mt(scr, "Expected int in llSetPrimitiveParams"); goto out;
+    }
+
+    int what = vm_list_get_int(rules, index++);
+    switch(what) {
+    case PRIM_TYPE:
+      {
+	if(vm_list_get_type(rules, index) != VM_TYPE_INT) {
+	  debug_message_mt(scr, "Expected int in llSetPrimitiveParams"); goto out;
+	}
+	int prim_type = vm_list_get_int(rules, index++);
+	switch(prim_type) {
+	case PRIM_TYPE_BOX:
+	case PRIM_TYPE_CYLINDER:
+	case PRIM_TYPE_PRISM:
+	  {
+	    if(vm_list_get_type(rules, index) != VM_TYPE_INT ||
+	       vm_list_get_type(rules, index+1) != VM_TYPE_VECT ||
+	       vm_list_get_type(rules, index+2) != VM_TYPE_FLOAT ||
+	       vm_list_get_type(rules, index+3) != VM_TYPE_VECT ||
+	       vm_list_get_type(rules, index+4) != VM_TYPE_VECT ||
+	       vm_list_get_type(rules, index+5) != VM_TYPE_VECT) {
+	      debug_message_mt(scr, "llSetPrimitiveParams: bad args to PRIM_TYPE"); 
+	      goto out;
+	    }
+	    int hole_type = vm_list_get_int(rules, index++);
+	    caj_vector3 cut, twist, top_size, top_shear;
+	    vm_list_get_vector(rules, index++, &cut);
+	    float hollow = vm_list_get_float(rules, index++);
+	    vm_list_get_vector(rules, index++, &twist);
+	    vm_list_get_vector(rules, index++, &top_size);
+	    vm_list_get_vector(rules, index++, &top_shear);
+	    world_prim_spp_set_shape(&spp, prim_type, hole_type);
+	    world_prim_spp_set_profile_cut(&spp, cut.x, cut.y);
+	    world_prim_spp_set_hollow(&spp, hollow);
+	    world_prim_spp_set_twist(&spp, twist.x, twist.y);
+	    world_prim_spp_set_path_taper(&spp, top_size.x, top_size.y,
+					  top_shear.x, top_shear.y);
+	  }
+	  break;
+	default:
+	  debug_message_mt(scr, "llSetPrimitiveParams: Unknown prim type");
+	  printf("DEBUG: llSetPrimitiveParams prim type %i", what);
+	  goto out;
+	}
+      }
+      break;
+    default: 
+      debug_message_mt(scr, "llSetPrimitiveParams: Unknown rule type");
+      printf("DEBUG: llSetPrimitiveParams rule type %i", what);
+      goto out;
+    }
+  }
+
+ out:
+  world_prim_spp_end(&spp);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llSetPrimitiveParams);
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
@@ -1379,6 +1454,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSetRot", VM_TYPE_NONE, llSetRot_cb, 
 		    1, VM_TYPE_ROT);
+  vm_world_add_func(simscr->vmw, "llSetPrimitiveParams", VM_TYPE_NONE,
+		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 

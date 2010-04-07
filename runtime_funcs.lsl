@@ -81,4 +81,5 @@ llSetText(string text, vector color, float alpha) { }
 llApplyImpulse( vector force, integer local ) { }
 llSetPos(vector pos) { }
 llSetRot(rotation rot) { }
+llSetPrimitiveParams(list rules) { }
 string osGetSimulatorVersion() { }
