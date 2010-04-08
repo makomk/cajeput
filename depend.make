@@ -21,7 +21,7 @@ cajeput_user.o: cajeput_user.cpp cajeput_core.h caj_types.h cajeput_int.h \
  cajeput_anims.h caj_helpers.h opensim_xml_glue.h
 cajeput_world.o: cajeput_world.cpp cajeput_core.h caj_types.h \
  cajeput_world.h cajeput_int.h caj_llsd.h cajeput_user.h \
- cajeput_grid_glue.h cajeput_prim.h caj_script.h
+ cajeput_grid_glue.h cajeput_prim.h caj_script.h caj_helpers.h
 caj_lsl_compile.o: caj_lsl_compile.cpp caj_lsl_parse.h caj_vm.h \
  caj_types.h caj_vm_insns.h caj_vm_asm.h caj_vm_internal.h caj_vm_ops.h
 caj_omv_udp.o: caj_omv_udp.cpp sl_messages.h caj_types.h sl_udp_proto.h \
@@ -38,7 +38,8 @@ opensim_asset_glue.o: opensim_asset_glue.cpp cajeput_core.h caj_types.h \
  cajeput_user.h cajeput_grid_glue.h opensim_grid_glue.h \
  opensim_xml_glue.h caj_llsd.h
 opensim_grid_glue.o: opensim_grid_glue.cpp cajeput_core.h caj_types.h \
- cajeput_user.h cajeput_grid_glue.h opensim_grid_glue.h
+ cajeput_user.h cajeput_grid_glue.h opensim_grid_glue.h \
+ opensim_robust_xml.h
 opensim_intersim.o: opensim_intersim.cpp cajeput_core.h caj_types.h \
  cajeput_user.h cajeput_grid_glue.h opensim_grid_glue.h
 opensim_inventory_glue.o: opensim_inventory_glue.cpp cajeput_core.h \

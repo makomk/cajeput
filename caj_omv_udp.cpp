@@ -1420,7 +1420,34 @@ static void handle_ObjectShape_msg(struct omuser_ctx* lctx, struct sl_message* m
   }
 }
 
-// TODO - ObjectExtraParams
+static void handle_ObjectExtraParams_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(ObjectExtraParams, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+  int count = SL_GETBLK(ObjectExtraParams, ObjectData, msg).count;
+
+  sl_dump_packet(msg); // DEBUG!
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(ObjectExtraParams, ObjectData, objd) =
+      SL_GETBLKI(ObjectExtraParams, ObjectData, msg, i);
+
+    struct primitive_obj* prim = get_prim_for_update(lctx, 
+						     objd->ObjectLocalID);
+    if(prim == NULL)
+      continue;
+
+    if(objd->ParamInUse) {
+      prim_set_extra_param(prim, objd->ParamType, &
+objd->ParamData);
+    } else {
+      prim_delete_extra_param(prim, objd->ParamType);
+    }
+
+    // FIXME - add specific flag for sculpt updates!
+
+    world_mark_object_updated(lctx->u->sim, &prim->ob, CAJ_OBJUPD_EXTRA_PARAMS);
+  }
+}
 
 // TODO - ObjectGroup
 
@@ -2921,7 +2948,8 @@ static gboolean obj_update_timer(gpointer data) {
       /* FIXME - we should support compressed updates too */
       if(iter->second & (CAJ_OBJUPD_CREATED|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_SHAPE|
 			 CAJ_OBJUPD_TEXTURE|CAJ_OBJUPD_FLAGS|CAJ_OBJUPD_MATERIAL|
-			 CAJ_OBJUPD_TEXT|CAJ_OBJUPD_PARENT)) {
+			 CAJ_OBJUPD_TEXT|CAJ_OBJUPD_PARENT|
+			 CAJ_OBJUPD_EXTRA_PARAMS)) {
 	printf("DEBUG: sending full update for %u\n", iter->first);
 	obj_send_full_upd(lctx, lsim->sim->localid_map[iter->first]);
       } else if(iter->second & CAJ_OBJUPD_POSROT) {
@@ -3209,6 +3237,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(ObjectDescription);
   ADD_HANDLER(ObjectMaterial);
   ADD_HANDLER(ObjectShape);
+  ADD_HANDLER(ObjectExtraParams);
   ADD_HANDLER(RezScript);
   ADD_HANDLER(RequestTaskInventory);
   ADD_HANDLER(RemoveTaskInventory);

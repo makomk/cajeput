@@ -77,6 +77,7 @@ struct world_obj {
 #define CAJ_OBJUPD_TEXT 0x80
 #define CAJ_OBJUPD_PARENT 0x100 // object reparented
 #define CAJ_OBJUPD_CHILDREN 0x200 // object's children changed; FIXME - make sure this is sent
+#define CAJ_OBJUPD_EXTRA_PARAMS 0x400
 
   // bunch of SL constants
 #define MATERIAL_STONE   0
@@ -325,6 +326,9 @@ void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* prim,
 			     void *script_priv, int evmask);
 void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params);
+void prim_delete_extra_param(struct primitive_obj *prim, uint16_t param_type);
+int prim_set_extra_param(struct primitive_obj *prim, uint16_t param_type,
+			 const caj_string *param_data);
 
 inventory_item* world_prim_find_inv(struct primitive_obj *prim, uuid_t item_id);
 void world_prim_mark_inv_updated(struct primitive_obj *prim);

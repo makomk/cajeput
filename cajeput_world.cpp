@@ -25,6 +25,7 @@
 #include "cajeput_int.h"
 #include "cajeput_prim.h"
 #include "caj_script.h"
+#include "caj_helpers.h"
 #include <cassert>
 #include <stdio.h>
 
@@ -482,10 +483,73 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   return prim;
 }
 
+#define MAX_EXTRA_PARAMS_LEN 4096
+
 // currently just a dumb wrapper, but I expect to smarten it up later
 void prim_set_extra_params(struct primitive_obj *prim, const caj_string *params) {
   caj_string_free(&prim->extra_params);
-  caj_string_copy(&prim->extra_params, params);
+  if(params->len < 1 || params->len > MAX_EXTRA_PARAMS_LEN) 
+    caj_string_set_bin(&prim->extra_params, (const unsigned char*)"", 1);
+  else caj_string_copy(&prim->extra_params, params);
+}
+
+// internal helper function.
+static void copy_rm_extra_param(caj_string &ep, caj_string &new_ep,
+				uint16_t param_type) {
+  assert(ep.len >= 1);
+
+  int count = ep.data[0], new_count = 0;
+  int offset = 1, new_offset = 1;
+  for(int i = 0; i < count; i++) {
+    if(ep.len - offset < 6) break;
+    uint16_t ptype = ep.data[offset] | ((uint16_t)ep.data[offset+1]<<8);
+    uint32_t plen = caj_bin_to_uint32_le(ep.data+2);
+    if(plen > (uint32_t)(ep.len - offset - 6)) break;
+    if(ptype != param_type) {
+      memcpy(new_ep.data+new_offset, ep.data+offset, plen+6);
+      new_count++;
+    }
+    offset += 6 + plen;
+  }
+
+  new_ep.data[0] = new_count; new_ep.len = new_offset;
+}
+
+void prim_delete_extra_param(struct primitive_obj *prim, uint16_t param_type) {
+  caj_string new_ep;
+  assert( prim->extra_params.len >= 1);
+  new_ep.len = 0; 
+  new_ep.data = (unsigned char*)malloc(prim->extra_params.len);
+
+  copy_rm_extra_param( prim->extra_params, new_ep, param_type);
+  prim_set_extra_params(prim, &new_ep);
+  free(new_ep.data);
+}
+
+int prim_set_extra_param(struct primitive_obj *prim, uint16_t param_type,
+			 const caj_string *param_data) {
+  if(param_data->len > MAX_EXTRA_PARAMS_LEN) return FALSE;
+  assert( prim->extra_params.len >= 1);
+
+  caj_string new_ep;
+  new_ep.len = 0; 
+  new_ep.data = (unsigned char*)malloc(prim->extra_params.len+param_data->len+6);
+  copy_rm_extra_param(prim->extra_params, new_ep, param_type);
+
+  new_ep.data[new_ep.len] = param_type & 0xff;
+  new_ep.data[new_ep.len+1] = (param_type>>8) & 0xff;
+  caj_uint32_to_bin_le(new_ep.data+new_ep.len+2, param_data->len);
+  memcpy(new_ep.data+new_ep.len+6, param_data->data, param_data->len);
+  new_ep.len += 6 + param_data->len;
+  
+  if(new_ep.len > MAX_EXTRA_PARAMS_LEN || new_ep.data[0] == 255) {
+    printf("DEBUG: prim_set_extra_param: no more space!\n");
+    free(new_ep.data); return FALSE;
+  } else {
+    new_ep.data[0]++;
+    prim_set_extra_params(prim, &new_ep);
+    free(new_ep.data); return TRUE;
+  }
 }
 
 inventory_item* world_prim_alloc_inv_item(void) {
