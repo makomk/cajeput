@@ -535,6 +535,29 @@ static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func
 	}
       }
       break;
+    case PRIM_POINT_LIGHT:
+      {
+	if(vm_list_get_type(rules, index) != VM_TYPE_INT ||
+	       vm_list_get_type(rules, index+1) != VM_TYPE_VECT ||
+	       vm_list_get_type(rules, index+2) != VM_TYPE_FLOAT ||
+	       vm_list_get_type(rules, index+3) != VM_TYPE_FLOAT ||
+	       vm_list_get_type(rules, index+4) != VM_TYPE_FLOAT) {
+	  debug_message_mt(scr, "llSetPrimitiveParams: bad args to PRIM_POINT_LIGHT"); 
+	  goto out;
+	}
+	int enable = vm_list_get_int(rules, index++);
+	caj_vector3 color;  vm_list_get_vector(rules, index++, &color);
+	float intensity = vm_list_get_float(rules, index++);
+	float radius = vm_list_get_float(rules, index++);
+	float falloff = vm_list_get_float(rules, index++);
+
+	if(enable) {
+	  world_prim_spp_point_light(&spp, &color, intensity, radius, falloff);
+	} else {
+	  world_prim_spp_remove_light(&spp);
+	}
+      }
+      break;
     default: 
       debug_message_mt(scr, "llSetPrimitiveParams: Unknown rule type");
       printf("DEBUG: llSetPrimitiveParams rule type %i", what);

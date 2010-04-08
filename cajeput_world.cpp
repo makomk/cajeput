@@ -1203,6 +1203,32 @@ int world_prim_spp_set_path_taper(struct world_spp_ctx *spp,
   return TRUE;
 }
 
+int world_prim_spp_remove_light(struct world_spp_ctx *spp) {
+  prim_delete_extra_param(spp->prim, PRIM_EXTRA_PARAM_LIGHT);
+  spp->objupd |= CAJ_OBJUPD_EXTRA_PARAMS;
+  return TRUE;
+}
+
+#define CONVERT_COLOR(col) (col > 1.0f ? 255 : (col < 0.0f ? 0 : (uint8_t)(col*255)))
+
+int world_prim_spp_point_light(struct world_spp_ctx *spp, 
+			       const caj_vector3* color, float intensity,
+			       float radius, float falloff) {
+  caj_string ep; unsigned char ep_data[16];
+  ep_data[0] = CONVERT_COLOR(color->x); 
+  ep_data[1] = CONVERT_COLOR(color->y); 
+  ep_data[2] = CONVERT_COLOR(color->z); 
+  ep_data[3] = CONVERT_COLOR(intensity); 
+  caj_float_to_bin_le(ep_data+4, radius);
+  caj_float_to_bin_le(ep_data+8, 0.0f); // unused?
+  caj_float_to_bin_le(ep_data+12, falloff);
+
+  ep.data = ep_data; ep.len = 16;
+  int success = prim_set_extra_param(spp->prim, PRIM_EXTRA_PARAM_LIGHT, &ep);
+  spp->objupd |= CAJ_OBJUPD_EXTRA_PARAMS;
+  return success;
+}
+
 void world_prim_spp_end(struct world_spp_ctx *spp) {
   world_mark_object_updated(spp->sim, &spp->prim->ob, spp->objupd);
 }

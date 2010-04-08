@@ -66,7 +66,6 @@
 
 // constants for llSetPrimitiveParams
 #define PRIM_TYPE 9 // lsl:int
-
 #define   PRIM_TYPE_BOX 0 // lsl:int
 #define   PRIM_TYPE_CYLINDER 1 // lsl:int
 #define   PRIM_TYPE_PRISM 2 // lsl:int
@@ -75,10 +74,11 @@
 #define   PRIM_TYPE_TUBE 5 // lsl:int
 #define   PRIM_TYPE_RING 6 // lsl:int
 #define   PRIM_TYPE_SCULPT 7 // lsl:int
-
 /* #define   PRIM_HOLE_DEFAULT PROFILE_HOLLOW_DEFAULT
    #define   PRIM_HOLE_CIRCLE PROFILE_HOLLOW_CIRC 
    etc...
 */
+#define PRIM_POINT_LIGHT 23 // lsl:int
+
 
 #endif

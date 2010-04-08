@@ -406,6 +406,10 @@ int world_prim_spp_set_twist(struct world_spp_ctx *spp,
 int world_prim_spp_set_path_taper(struct world_spp_ctx *spp, 
 				  float top_size_x, float top_size_y,
 				  float top_shear_x, float top_shear_y);
+int world_prim_spp_remove_light(struct world_spp_ctx *spp);
+int world_prim_spp_point_light(struct world_spp_ctx *spp, 
+			       const caj_vector3* color, float intensity,
+			       float radius, float falloff);
 void world_prim_spp_end(struct world_spp_ctx *spp);
 
 
