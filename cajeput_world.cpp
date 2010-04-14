@@ -1229,6 +1229,24 @@ int world_prim_spp_point_light(struct world_spp_ctx *spp,
   return success;
 }
 
+int world_prim_spp_set_material(struct world_spp_ctx *spp, int material) {
+  spp->prim->material = material;
+  spp->objupd |= CAJ_OBJUPD_MATERIAL;
+  return TRUE;  
+}
+
+// FIXME - code duplication with world_prim_set_text
+int world_prim_spp_set_text(struct world_spp_ctx *spp,
+			    const char *text, uint8_t color[4]) {
+  primitive_obj *prim = spp->prim;
+  int len = strlen(text); if(len > 254) len = 254;
+  free(prim->hover_text); prim->hover_text = (char*)malloc(len+1);
+  memcpy(prim->hover_text, text, len); prim->hover_text[len] = 0;
+  memcpy(prim->text_color, color, sizeof(prim->text_color));
+  spp->objupd |= CAJ_OBJUPD_TEXT;
+  return TRUE;    
+}
+
 void world_prim_spp_end(struct world_spp_ctx *spp) {
   world_mark_object_updated(spp->sim, &spp->prim->ob, spp->objupd);
 }

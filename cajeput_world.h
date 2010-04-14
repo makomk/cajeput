@@ -410,6 +410,9 @@ int world_prim_spp_remove_light(struct world_spp_ctx *spp);
 int world_prim_spp_point_light(struct world_spp_ctx *spp, 
 			       const caj_vector3* color, float intensity,
 			       float radius, float falloff);
+int world_prim_spp_set_material(struct world_spp_ctx *spp, int material);
+int world_prim_spp_set_text(struct world_spp_ctx *spp,
+			     const char *text, uint8_t color[4]);
 void world_prim_spp_end(struct world_spp_ctx *spp);
 
 

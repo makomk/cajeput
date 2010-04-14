@@ -78,7 +78,19 @@
    #define   PRIM_HOLE_CIRCLE PROFILE_HOLLOW_CIRC 
    etc...
 */
+#define PRIM_MATERIAL 2 // lsl:int
+/* TODO: reuse constants from cajeput_world.h */
+#define   PRIM_MATERIAL_STONE   0 // lsl:int
+#define   PRIM_MATERIAL_METAL   1 // lsl:int
+#define   PRIM_MATERIAL_GLASS   2 // lsl:int
+#define   PRIM_MATERIAL_WOOD    3 // lsl:int
+#define   PRIM_MATERIAL_FLESH   4 // lsl:int
+#define   PRIM_MATERIAL_PLASTIC 5 // lsl:int
+#define   PRIM_MATERIAL_RUBBER  6 // lsl:int
+#define   PRIM_MATERIAL_LIGHT   7 // lsl:int
+
 #define PRIM_POINT_LIGHT 23 // lsl:int
+#define PRIM_TEXT 26 // lsl:int
 
 
 #endif

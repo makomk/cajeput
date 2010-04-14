@@ -558,6 +558,37 @@ static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func
 	}
       }
       break;
+    case PRIM_MATERIAL:
+      {
+	if(vm_list_get_type(rules, index) != VM_TYPE_INT) {
+	  debug_message_mt(scr, "llSetPrimitiveParams: bad args to PRIM_MATERIAL"); 
+	  goto out;
+	}
+	int material = vm_list_get_int(rules, index++);
+	world_prim_spp_set_material(&spp, material);
+      }
+      break;      
+    case PRIM_TEXT:
+      {
+	// FIXME - code duplication with llSetText
+	char *text; caj_vector3 color; float alpha;
+	uint8_t textcol[4];
+	if(vm_list_get_type(rules, index) != VM_TYPE_STR ||
+	       vm_list_get_type(rules, index+1) != VM_TYPE_VECT ||
+	       vm_list_get_type(rules, index+2) != VM_TYPE_FLOAT) {
+	  debug_message_mt(scr, "llSetPrimitiveParams: bad args to PRIM_TEXT"); 
+	  goto out;
+	}
+	text = vm_list_get_str(rules, index++);
+	vm_list_get_vector(rules, index++, &color);
+	alpha = vm_list_get_float(rules, index++);
+	textcol[0] = CONVERT_COLOR(color.x);
+	textcol[1] = CONVERT_COLOR(color.y);
+	textcol[2] = CONVERT_COLOR(color.z);
+	textcol[3] = 255-CONVERT_COLOR(alpha);
+	world_prim_spp_set_text(&spp, text, textcol);
+      }
+      break;
     default: 
       debug_message_mt(scr, "llSetPrimitiveParams: Unknown rule type");
       printf("DEBUG: llSetPrimitiveParams rule type %i", what);
