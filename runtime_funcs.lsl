@@ -17,6 +17,7 @@ llResetTime( ) { }
 float llGetTime( ) { }
 float llGetAndResetTime( ) { }
 llSetTimerEvent(float interval) { }
+llSleep(float delay) { } // TODO
 
 string llGetTimestamp( ) { } // TODO
 integer llGetUnixTime( ) { }

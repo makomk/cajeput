@@ -74,6 +74,7 @@ struct sim_scripts {
   // used by script thread
   GTimer *timer;
   std::set<timer_sched> timers;
+  std::set<timer_sched> delayed; // for llSleep etc.
 
   // these are used by both main and scripting threads. Don't modify them.
   GAsyncQueue *to_st;
@@ -180,7 +181,7 @@ struct sim_script {
   script_state *vm;
   int state_entry, timer_fired; // HACK!
   double time; // for llGetTime etc
-  double next_timer_event;
+  double next_timer_event, delay_until;
   detected_event *detected;
   std::deque<generic_event*> pending_events;
   float timer_interval;
@@ -201,7 +202,7 @@ struct sim_script {
     this->prim = prim; mt_state = 0; evmask = 0;
     is_running = 0; this->simscr = simscr; magic = SCRIPT_MAGIC;
     detected = NULL; in_rpc = 0; changed = 0;
-    timer_interval = 0.0f; next_timer_event = 0.0;
+    timer_interval = 0.0f; next_timer_event = 0.0; delay_until = 0.0;
     cvm_file = NULL; vm = NULL; comp_out = NULL;
   }
 };
@@ -305,6 +306,13 @@ static void st_restore_script(sim_script *scr, caj_string *str) {
 
 static void send_to_mt(sim_scripts *simscr, script_msg *msg) {
   g_async_queue_push(simscr->to_mt, msg);
+}
+
+/* Delays execution of the script for delay seconds.
+   WARNING: call this from the script thread ONLY! */
+static void delay_script(sim_script *scr, double delay) {
+  // FIXME - needs to be saved and restored across restarts!
+  scr->delay_until = g_timer_elapsed(scr->simscr->timer, NULL) + delay;
 }
 
 // note - this relies on the string-duplicating property of vm_func_get_args
@@ -414,6 +422,18 @@ static void llGetGMTclock_cb(script_state *st, void *sc_priv, int func_id) {
 			(float)tv.tv_usec/1000000.0f);
   vm_func_return(st, func_id);
 }
+
+static void llSleep_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  struct timeval tv;
+  float delay;
+  vm_func_get_args(st, func_id, &delay);
+  if(finite(delay) && delay > 0.0f) {
+    delay_script(scr, delay);
+  }
+  vm_func_return(st, func_id);
+}
+
 
 static void llFrand_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
@@ -976,6 +996,14 @@ static gpointer script_thread(gpointer data) {
       st_update_timer_sched(scr, time_now + scr->timer_interval);
     }
 
+    // FIXME - we really want to schedule these earliest time first!
+    while(!simscr->delayed.empty() && 
+	  simscr->delayed.begin()->time < time_now) {
+      sim_script *scr = simscr->delayed.begin()->scr;
+      awaken_script(scr, &running); 
+      simscr->delayed.erase(simscr->delayed.begin());
+    }
+
     for(int i = 0; i < 20; i++) {
       if(running.next == &running) break;
       sim_script *scr = (sim_script*)running.next; 
@@ -987,6 +1015,14 @@ static gpointer script_thread(gpointer data) {
 	list_insert_after(&scr->list, &waiting);
 	continue;
       }
+      if(scr->delay_until > time_now) {
+	// the script is being delayed, deschedule.
+	simscr->delayed.insert(timer_sched(scr->delay_until, scr));
+	scr->is_running = 0; list_remove(&scr->list);
+	list_insert_after(&scr->list, &waiting);
+	continue;
+      }
+
       if(vm_script_is_idle(scr->vm)) {
 	if(scr->detected != NULL) {
 	  // FIXME - this is leaked if the script is destroyed at the wrong time
@@ -1051,13 +1087,18 @@ static gpointer script_thread(gpointer data) {
 
     script_msg *msg;
     for(;;) {
+      double next_event = 0.0;
+      if(!simscr->timers.empty())
+	next_event = simscr->timers.begin()->time;
+      if(!simscr->delayed.empty() && 
+	 simscr->delayed.begin()->time < next_event)
+	next_event = simscr->delayed.begin()->time;
       if(running.next != &running) {
 	msg = (script_msg*)g_async_queue_try_pop(simscr->to_st);
-      } else if(simscr->timers.empty()) {
+      } else if(next_event == 0.0) {
 	msg = (script_msg*)g_async_queue_pop(simscr->to_st);
       } else {
-	double wait = simscr->timers.begin()->time -
-	                g_timer_elapsed(simscr->timer, NULL);
+	double wait = next_event - g_timer_elapsed(simscr->timer, NULL);
 	GTimeVal tval;
 	// FIXME - slightly inaccurate. Should we use GTimeVal throughout?
 	g_get_current_time(&tval);
@@ -1566,6 +1607,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetTime", VM_TYPE_FLOAT, llGetTime_cb, 0); 
   vm_world_add_func(simscr->vmw, "llGetUnixTime", VM_TYPE_INT, llGetUnixTime_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetGMTclock", VM_TYPE_FLOAT, llGetGMTclock_cb, 0);
+  vm_world_add_func(simscr->vmw, "llSleep", VM_TYPE_NONE,
+		    llSleep_cb, 1, VM_TYPE_FLOAT); 
   vm_world_add_func(simscr->vmw, "llFrand", VM_TYPE_FLOAT, llFrand_cb, 1, 
 		    VM_TYPE_FLOAT);
   vm_world_add_func(simscr->vmw, "llSetText", VM_TYPE_NONE, llSetText_cb, 3, 
