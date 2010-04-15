@@ -1423,7 +1423,7 @@ static void send_prim_collision(struct simulator_ctx *sim, struct primitive_obj*
   }
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
-    printf("DEBUG: passing collision event to parent prim\n");
+    //printf("DEBUG: passing collision event to parent prim\n");
     send_prim_collision(sim, (primitive_obj*)prim->ob.parent, coll_type, collider);
   }
 }
