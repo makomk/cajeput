@@ -479,13 +479,9 @@ static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llSetRot)
 
-static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
-  world_spp_ctx spp;
-  heap_header *rules; 
-  vm_func_get_args(st, func_id, &rules);
+
+static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &spp ) {
   int len = vm_list_get_count(rules), index = 0;
-  world_prim_spp_begin(scr->simscr->sim, scr->prim, &spp);
-  
   while(index < len) {
     if(vm_list_get_type(rules, index) != VM_TYPE_INT) {
       debug_message_mt(scr, "Expected int in llSetPrimitiveParams"); goto out;
@@ -598,10 +594,37 @@ static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func
 
  out:
   world_prim_spp_end(&spp);
+}
+
+static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
+  world_spp_ctx spp;
+  heap_header *rules; 
+  vm_func_get_args(st, func_id, &rules);
+  world_prim_spp_begin(scr->simscr->sim, scr->prim, &spp);
+  set_prim_params(scr, rules, spp);
   rpc_func_return(st, scr, func_id);
 }
 
 RPC_TO_MAIN(llSetPrimitiveParams);
+
+static void llSetLinkPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
+  world_spp_ctx spp;
+  int link_num; heap_header *rules; 
+  vm_func_get_args(st, func_id, &link_num, &rules);
+
+
+  primitive_obj *prim = world_prim_by_link_id(scr->simscr->sim, scr->prim, 
+					      link_num);
+  if(prim != NULL) {
+    world_prim_spp_begin(scr->simscr->sim, prim, &spp);
+    set_prim_params(scr, rules, spp);
+  } else {
+    debug_message_mt(scr, "llSetLinkPrimitiveParams: bad link number");
+  }
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llSetLinkPrimitiveParams);
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
@@ -1561,6 +1584,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_ROT);
   vm_world_add_func(simscr->vmw, "llSetPrimitiveParams", VM_TYPE_NONE,
 		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
+  vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParams", VM_TYPE_NONE,
+		    llSetLinkPrimitiveParams_cb, 2, VM_TYPE_INT, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 

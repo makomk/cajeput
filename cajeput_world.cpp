@@ -1464,6 +1464,24 @@ void world_update_collisions(struct simulator_ctx *sim,
   delete sim->collisions; sim->collisions = new_collisions;
 }
 
+struct primitive_obj* world_prim_by_link_id(struct simulator_ctx* sim, 
+					    struct primitive_obj *prim, 
+					    int link_num) {
+  primitive_obj *root = world_get_root_prim(prim);
+  if(link_num < 0) {
+    if(link_num == LINK_THIS) return prim;
+    else return NULL;
+  } else if(link_num == 0 || link_num == 1) {
+    return root;
+  } else {
+    link_num -= 2;
+    if(link_num < root->num_children) {
+      primitive_obj *child = root->children[link_num];
+      return child;
+    } else return NULL;
+  }
+}
+
 static void send_link_message(struct simulator_ctx* sim, 
 			       struct primitive_obj *prim, int sender_num, 
 			       int num, char *str, char *id) {

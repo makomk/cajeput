@@ -85,4 +85,5 @@ llApplyImpulse( vector force, integer local ) { }
 llSetPos(vector pos) { }
 llSetRot(rotation rot) { }
 llSetPrimitiveParams(list rules) { }
+llSetLinkPrimitiveParams(integer link_num, list rules) { }
 string osGetSimulatorVersion() { }

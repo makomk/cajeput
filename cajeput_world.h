@@ -314,6 +314,9 @@ struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
 
 struct primitive_obj* world_get_root_prim(struct primitive_obj *prim);
+struct primitive_obj* world_prim_by_link_id(struct simulator_ctx* sim, 
+					    struct primitive_obj *prim, 
+					    int link_num);
 
 struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim);
 struct inventory_item* world_prim_alloc_inv_item(void);
