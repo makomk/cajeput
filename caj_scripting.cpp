@@ -617,6 +617,9 @@ static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &
   world_prim_spp_end(&spp);
 }
 
+// NOTE: OpenSim doesn't seem to bother with the delays on 
+// llSetPrimitiveParams etc. However, we're not OpenSim!
+
 static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
   world_spp_ctx spp;
   heap_header *rules; 
@@ -626,7 +629,7 @@ static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetPrimitiveParams, 0.2);
+RPC_TO_MAIN(llSetPrimitiveParams, 0.2); 
 
 static void llSetLinkPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
   world_spp_ctx spp;
@@ -646,6 +649,9 @@ static void llSetLinkPrimitiveParams_rpc(script_state *st, sim_script *scr, int 
 }
 
 RPC_TO_MAIN(llSetLinkPrimitiveParams, 0.2);
+
+#define llSetLinkPrimitiveParamsFast_rpc llSetLinkPrimitiveParams_rpc
+RPC_TO_MAIN(llSetLinkPrimitiveParamsFast, 0.0);
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
@@ -1630,6 +1636,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParams", VM_TYPE_NONE,
 		    llSetLinkPrimitiveParams_cb, 2, VM_TYPE_INT, VM_TYPE_LIST);
+  vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParamsFast", VM_TYPE_NONE,
+		    llSetLinkPrimitiveParamsFast_cb, 2, VM_TYPE_INT, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llApplyImpulse", VM_TYPE_NONE, llApplyImpulse_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_INT); 
 

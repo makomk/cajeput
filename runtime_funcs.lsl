@@ -87,4 +87,5 @@ llSetPos(vector pos) { }
 llSetRot(rotation rot) { }
 llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
+llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }
 string osGetSimulatorVersion() { }
