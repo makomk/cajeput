@@ -337,8 +337,9 @@ static void do_rpc(script_state *st, sim_script *scr, int func_id,
   send_to_mt(scr->simscr, smsg);
 }
 
-#define RPC_TO_MAIN(name) static void name##_cb(script_state *st, void *sc_priv, int func_id) { \
+#define RPC_TO_MAIN(name, delay) static void name##_cb(script_state *st, void *sc_priv, int func_id) { \
   sim_script *scr = (sim_script*)sc_priv; \
+  if(delay > 0.0) delay_script(scr, delay); \
   do_rpc(st, scr, func_id, name##_rpc); \
 }
 
@@ -466,7 +467,7 @@ static void llSetText_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetText)
+RPC_TO_MAIN(llSetText, 0.0)
 
 static void llApplyImpulse_rpc(script_state *st, sim_script *scr, int func_id) {
   caj_vector3 impulse; int is_local;
@@ -475,7 +476,7 @@ static void llApplyImpulse_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llApplyImpulse)
+RPC_TO_MAIN(llApplyImpulse, 0.0)
 
 static void llSetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   caj_multi_upd upd; upd.flags = CAJ_MULTI_UPD_POS;
@@ -487,7 +488,7 @@ static void llSetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetPos)
+RPC_TO_MAIN(llSetPos, 0.2) // FIXME - double check delay
 
 static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
   caj_multi_upd upd; upd.flags = CAJ_MULTI_UPD_ROT;
@@ -497,7 +498,7 @@ static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetRot)
+RPC_TO_MAIN(llSetRot, 0.2)
 
 
 static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &spp ) {
@@ -625,7 +626,7 @@ static void llSetPrimitiveParams_rpc(script_state *st, sim_script *scr, int func
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetPrimitiveParams);
+RPC_TO_MAIN(llSetPrimitiveParams, 0.2);
 
 static void llSetLinkPrimitiveParams_rpc(script_state *st, sim_script *scr, int func_id) {
   world_spp_ctx spp;
@@ -644,14 +645,14 @@ static void llSetLinkPrimitiveParams_rpc(script_state *st, sim_script *scr, int 
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llSetLinkPrimitiveParams);
+RPC_TO_MAIN(llSetLinkPrimitiveParams, 0.2);
 
 static void llGetPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.world_pos);
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetPos)
+RPC_TO_MAIN(llGetPos, 0.0)
 
 static void llGetRot_rpc(script_state *st, sim_script *scr, int func_id) {
   // FIXME - should be global rotation
@@ -659,21 +660,21 @@ static void llGetRot_rpc(script_state *st, sim_script *scr, int func_id) {
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetRot)
+RPC_TO_MAIN(llGetRot, 0.0)
 
 static void llGetLocalPos_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.local_pos);
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetLocalPos)
+RPC_TO_MAIN(llGetLocalPos, 0.0)
 
 static void llGetLocalRot_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_rot_ret(st, func_id, &scr->prim->ob.rot);
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetLocalRot)
+RPC_TO_MAIN(llGetLocalRot, 0.0)
 
 static void llGetRootPosition_rpc(script_state *st, sim_script *scr, int func_id) {
   primitive_obj *root = world_get_root_prim(scr->prim);
@@ -681,7 +682,7 @@ static void llGetRootPosition_rpc(script_state *st, sim_script *scr, int func_id
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetRootPosition)
+RPC_TO_MAIN(llGetRootPosition, 0.0)
 
 static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id) {
   primitive_obj *root = world_get_root_prim(scr->prim);
@@ -690,21 +691,21 @@ static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetRootRotation)
+RPC_TO_MAIN(llGetRootRotation, 0.0)
 
 static void llGetObjectName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, scr->prim->name);
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetObjectName)
+RPC_TO_MAIN(llGetObjectName, 0.0)
 
 static void llGetObjectDesc_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, scr->prim->description);
   rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llGetObjectDesc)
+RPC_TO_MAIN(llGetObjectDesc, 0.0)
 
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
 // modified to provide restricted version information to untrusted scripts at
@@ -731,7 +732,7 @@ static void osTeleportAgent_loc_rpc(script_state *st, sim_script *scr, int func_
   rpc_func_return(st, scr, func_id);  
 }
 
-RPC_TO_MAIN(osTeleportAgent_loc);
+RPC_TO_MAIN(osTeleportAgent_loc, 5.0) // could've sworn the docs said 3 secs
 
 static void osTeleportAgent_name_rpc(script_state *st, sim_script *scr, int func_id) {
   uuid_t user_id; char *user_id_str, *region; user_ctx *user;
@@ -749,7 +750,7 @@ static void osTeleportAgent_name_rpc(script_state *st, sim_script *scr, int func
   rpc_func_return(st, scr, func_id);  
 }
 
-RPC_TO_MAIN(osTeleportAgent_name);
+RPC_TO_MAIN(osTeleportAgent_name, 5.0);
 
 static void llDetectedName_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
@@ -874,7 +875,7 @@ static void llGetRegionName_rpc(script_state *st, sim_script *scr, int func_id) 
   rpc_func_return(st, scr, func_id);  
 }
 
-RPC_TO_MAIN(llGetRegionName);
+RPC_TO_MAIN(llGetRegionName, 0.0);
 
 static void llGetRegionCorner_rpc(script_state *st, sim_script *scr, int func_id) {
   caj_vector3 corner;
@@ -885,7 +886,7 @@ static void llGetRegionCorner_rpc(script_state *st, sim_script *scr, int func_id
   rpc_func_return(st, scr, func_id);  
 }
 
-RPC_TO_MAIN(llGetRegionCorner);
+RPC_TO_MAIN(llGetRegionCorner, 0.0);
 
 static void llMessageLinked_rpc(script_state *st, sim_script *scr, int func_id) {
   int link_num, num; char *str, *id;
@@ -894,7 +895,7 @@ static void llMessageLinked_rpc(script_state *st, sim_script *scr, int func_id) 
   free(str); free(id); rpc_func_return(st, scr, func_id);
 }
 
-RPC_TO_MAIN(llMessageLinked);
+RPC_TO_MAIN(llMessageLinked, 0.0);
 
 static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
   char *avatar_id, *msg; heap_header *buttons; int channel;
@@ -943,7 +944,7 @@ static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
  out:
   free(msg); rpc_func_return(st, scr, func_id);
 }
-RPC_TO_MAIN(llDialog);
+RPC_TO_MAIN(llDialog, 1.0);
 
 
 static void script_upd_evmask(sim_script *scr) {
