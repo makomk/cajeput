@@ -161,6 +161,7 @@ struct user_hooks {
  
   void(*disable_sim)(void* user_priv); // HACK
   void(*chat_callback)(void *user_priv, const struct chat_message *msg);
+  void(*alert_message)(void *user_priv, const char* msg, int is_modal);
 
   // these are temporary hacks.
   void(*send_av_full_update)(user_ctx* ctx, user_ctx* av_user);

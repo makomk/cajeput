@@ -333,6 +333,19 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
   sl_send_udp(lctx, &chat);
 }
 
+static void send_alert_message(void *user_priv, const char* msg, int is_modal) {
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
+  SL_DECLMSG(AgentAlertMessage, alert);
+  SL_DECLBLK(AgentAlertMessage, AgentData, ad, &alert);
+  uuid_copy(ad->AgentID, lctx->u->user_id);
+
+  SL_DECLBLK(AgentAlertMessage, AlertData, alertdat, &alert);
+  alertdat->Modal = !!is_modal;
+  caj_string_set(&alertdat->Message, msg);
+  alert.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &alert);
+}
+
 static void handle_ChatFromViewer_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ChatFromViewer, AgentData, ad, msg);
   SL_DECLBLK_GET1(ChatFromViewer, ChatData, cdata, msg);
@@ -386,6 +399,31 @@ static void handle_ScriptDialogReply_msg(struct omuser_ctx* lctx, struct sl_mess
   chat.chat_type = CHAT_TYPE_NORMAL;
   chat.msg = (char*)cdata->ButtonLabel.data;
   world_send_chat(lctx->u->sim, &chat);
+}
+
+static void handle_RequestGodlikePowers_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(RequestGodlikePowers, AgentData, ad, msg);
+  SL_DECLBLK_GET1(RequestGodlikePowers, RequestBlock, req, msg);
+  if(ad == NULL || req == NULL || VALIDATE_SESSION(ad)) return;
+  if(req->Godlike) {
+    int level = user_request_god_powers(lctx->u);
+    if(level > 0) {
+      SL_DECLMSG(GrantGodlikePowers, grant);
+
+      SL_DECLBLK(GrantGodlikePowers, AgentData, ad2, &grant);
+      uuid_copy(ad2->AgentID, lctx->u->user_id);
+      uuid_copy(ad2->SessionID, lctx->u->session_id); // required!
+      SL_DECLBLK(GrantGodlikePowers, GrantData, gdat, &grant);
+      gdat->GodLevel = level; uuid_clear(gdat->Token);
+
+      grant.flags |= MSG_RELIABLE;
+      sl_send_udp(lctx, &grant);
+    } else {
+      user_send_alert_message(lctx->u, "Your request for god-like powers is denied, mortal", FALSE);
+    }
+  } else {
+    user_relinquish_god_powers(lctx->u);
+  }
 }
 
 static void handle_MapLayerRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -1165,7 +1203,7 @@ static void handle_ObjectAdd_msg(struct omuser_ctx* lctx, struct sl_message* msg
   
   if(objd->PCode != PCODE_PRIM) {
     // FIXME - support this!
-    user_send_message(lctx->u,"Sorry, creating non-prim objects not supported.");
+    user_send_alert_message(lctx->u,"Sorry, creating non-prim objects not supported.", FALSE);
     return;
   }
 
@@ -1510,7 +1548,8 @@ static void handle_ObjectLink_msg(struct omuser_ctx* lctx, struct sl_message* ms
 
     main = get_prim_for_update(lctx, objd->ObjectLocalID);
     if(main == NULL) {
-      user_send_message(lctx->u, "Tried to link invalid prim"); return;
+      user_send_alert_message(lctx->u, "Tried to link invalid prim", FALSE); 
+      return;
     }
   }
 
@@ -1520,7 +1559,8 @@ static void handle_ObjectLink_msg(struct omuser_ctx* lctx, struct sl_message* ms
 
     struct primitive_obj *child = get_prim_for_update(lctx, objd->ObjectLocalID);
     if(child == NULL) {
-      user_send_message(lctx->u, "Tried to link invalid child prim"); continue;
+      user_send_alert_message(lctx->u, "Tried to link invalid child prim", FALSE);
+      continue;
     }
 
     world_prim_link(lctx->u->sim, main, child);
@@ -3055,6 +3095,7 @@ static user_hooks our_hooks = {
   remove_user,
   disable_sim,
   chat_callback,
+  send_alert_message,
   send_av_full_update,
   send_av_terse_update,
   send_av_appearance,
@@ -3207,6 +3248,7 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   ADD_HANDLER(LogoutRequest);
   ADD_HANDLER(ChatFromViewer);
   ADD_HANDLER(ScriptDialogReply);
+  ADD_HANDLER(RequestGodlikePowers);
   ADD_HANDLER(AgentThrottle);
   ADD_HANDLER(RegionHandshakeReply);
   ADD_HANDLER(AgentWearablesRequest);

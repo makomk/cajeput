@@ -148,10 +148,15 @@ user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
 			    uuid_t session_id);
 
 void user_send_message(struct user_ctx *user, const char* msg);
+void user_send_alert_message(struct user_ctx *ctx, const char* msg,
+			     int is_modal);
 void user_session_close(user_ctx* ctx, int slowly);
 void user_reset_timeout(struct user_ctx* ctx);
 void user_set_paused(user_ctx *ctx);
 void user_set_unpaused(user_ctx *ctx);
+
+int user_request_god_powers(user_ctx *ctx);
+void user_relinquish_god_powers(user_ctx *ctx);
 
 // used to ensure pointers to the user_ctx are NULLed correctly on removal
 void user_add_self_pointer(struct user_ctx** pctx);

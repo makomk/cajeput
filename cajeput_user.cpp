@@ -399,6 +399,21 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
 }
 
+void user_send_alert_message(struct user_ctx *ctx, const char* msg,
+			     int is_modal) {
+  if(ctx->userh != NULL && ctx->userh->alert_message != NULL)
+    ctx->userh->alert_message(ctx->user_priv, msg, is_modal);
+}
+
+int user_request_god_powers(user_ctx *ctx) {
+  return 200; // TODO
+}
+
+void user_relinquish_god_powers(user_ctx *ctx) {
+  // TODO
+}
+
+
 void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
 				 uuid_t folder_id, uuid_t owner_id,
 				  void(*cb)(struct inventory_contents* inv, 
@@ -1491,7 +1506,7 @@ static void rez_obj_asset_callback(simgroup_ctx *sgrp, void* priv, simple_asset 
     user_send_message(desc->ctx, "ERROR: missing asset trying to rez object");
     user_del_self_pointer(&desc->ctx); delete desc;
   } else if(desc->ctx->av == NULL) {
-    user_send_message(desc->ctx, "ERROR: you must have an avatar to attach something");
+    user_send_alert_message(desc->ctx, "ERROR: You must have an avatar to attach something", FALSE);
     user_del_self_pointer(&desc->ctx); delete desc;
   } else {
     script_state_map states;
@@ -1571,7 +1586,7 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id,
 
 void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point) {
   if(attach_point >= NUM_ATTACH_POINTS) {
-    user_send_message(ctx, "ERROR: Bad attachment point");
+    user_send_alert_message(ctx, "ERROR: Bad attachment point", FALSE);
   }
 
   rez_object_desc *desc = new rez_object_desc();
