@@ -20,14 +20,23 @@ struct var_desc {
   uint8_t type; uint8_t is_global; uint16_t offset;
 };
 
+struct var_scope {
+  std::map<std::string, var_desc> vars;
+  struct var_scope *parent;
+
+  var_scope() : parent(NULL) {
+  }
+};
+
 struct lsl_compile_state {
   int error; int line_no, column_no;
   std::map<std::string, var_desc> globals;
-  std::map<std::string, var_desc> vars; // locals
+  // std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
   std::map<std::string, function*> sys_funcs;
   std::map<std::string, int> states;
   loc_atom var_stack;
+  var_scope *scope;
 };
 
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
@@ -50,67 +59,96 @@ static void do_error(lsl_compile_state &st, const char* format, ...) {
 }
 
 static void handle_arg_vars(vm_asm &vasm, lsl_compile_state &st,
-			    func_arg *args, const vm_function* func) {
+			    func_arg *args, const vm_function* func,
+			    var_scope *scope) {
   for(int arg_no = 0; args != NULL; args = args->next, arg_no++) {
-    if(st.vars.count(args->name)) {
+    if(scope->vars.count(args->name)) {
       printf("ERROR: duplicate function argument %s\n",args->name);
       st.error = 1; return;
     } else {
       var_desc var; var.type = args->vtype; var.is_global = 0;
       var.offset = func->arg_offsets[arg_no];
-      st.vars[args->name] = var;
+      scope->vars[args->name] = var;
       // printf("DEBUG: added argument %s\n", args->name);
     }
   }
 }
 
-static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
-			       statement *statem) {
-  for( ; statem != NULL; statem = statem->next) {
-    if(statem->stype != STMT_DECL) continue;
-    assert(statem->expr[0] != NULL && statem->expr[0]->node_type == NODE_IDENT);
-
-    if(statem->expr[0]->u.ident.item != NULL) {
-      printf("ERROR: silly programmer, item accesses are for expressions\n");
-      st.error = 1; return;
+static int statement_child_count(lsl_compile_state &st, statement *statem) {
+    switch(statem->stype) {
+    case STMT_DECL: return 0;
+    case STMT_EXPR: return 0;
+    case STMT_IF:
+      return 2; // child[1] may be null, but that should be OK!
+    case STMT_RET: return 0;
+    case STMT_WHILE: return 1;
+    case STMT_DO: return 1;
+    case STMT_FOR: return 1;
+    case STMT_BLOCK: return 1;
+    default:
+      printf("ERROR:statement_child_count unhandled statement type %i\n", statem->stype);
+	st.error = 1; return 0;
     }
+}
 
-    char* name = statem->expr[0]->u.ident.name; 
-    uint8_t vtype = statem->expr[0]->vtype;
-    if(st.vars.count(name)) {
-      printf("ERROR: duplicate definition of local var %s\n",name);
-      st.error = 1; return;
-      // FIXME - handle this
-    } else {
-      var_desc var; var.type = vtype; var.is_global = 0;
-      // FIXME - initialise these where possible
-      switch(vtype) {
-      case VM_TYPE_INT:
-	var.offset = vasm.const_int(0); 
-	break;
-      case VM_TYPE_FLOAT:
-	var.offset = vasm.const_real(0.0f); 
-	break;
-      case VM_TYPE_STR:
-	var.offset = vasm.const_str("");
-	break;
-      case VM_TYPE_LIST:
-	var.offset = vasm.empty_list();
-	break;
-      case VM_TYPE_VECT:
-	var.offset = vasm.const_int(0); 
-	vasm.const_int(0); vasm.const_int(0); 
-	break;
-      case VM_TYPE_ROT:
-	var.offset = vasm.const_int(0); 
-	vasm.const_int(0); vasm.const_int(0); vasm.const_int(0);
-	break;
-      default:
-	printf("ERROR: unknown type of local var %s\n",name);
+static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
+			       statement *statem, var_scope *scope) {
+  for( ; statem != NULL; statem = statem->next) {
+    if(statem->stype == STMT_DECL) {
+      assert(statem->expr[0] != NULL && 
+	     statem->expr[0]->node_type == NODE_IDENT);
+
+      if(statem->expr[0]->u.ident.item != NULL) {
+	printf("ERROR: silly programmer, item accesses are for expressions\n");
 	st.error = 1; return;
-      // FIXME - handle this
       }
-      st.vars[name] = var;
+
+      char* name = statem->expr[0]->u.ident.name; 
+      uint8_t vtype = statem->expr[0]->vtype;
+      if(scope->vars.count(name)) {
+	printf("ERROR: duplicate definition of local var %s\n",name);
+	st.error = 1; return;
+	// FIXME - handle this
+      } else {
+	var_desc var; var.type = vtype; var.is_global = 0;
+	// FIXME - initialise these where possible
+	switch(vtype) {
+	case VM_TYPE_INT:
+	  var.offset = vasm.const_int(0); 
+	  break;
+	case VM_TYPE_FLOAT:
+	  var.offset = vasm.const_real(0.0f); 
+	  break;
+	case VM_TYPE_STR:
+	  var.offset = vasm.const_str("");
+	  break;
+	case VM_TYPE_LIST:
+	  var.offset = vasm.empty_list();
+	  break;
+	case VM_TYPE_VECT:
+	  var.offset = vasm.const_int(0); 
+	  vasm.const_int(0); vasm.const_int(0); 
+	  break;
+	case VM_TYPE_ROT:
+	  var.offset = vasm.const_int(0); 
+	  vasm.const_int(0); vasm.const_int(0); vasm.const_int(0);
+	  break;
+	default:
+	  printf("ERROR: unknown type of local var %s\n",name);
+	  st.error = 1; return;
+	  // FIXME - handle this
+	}
+	scope->vars[name] = var;
+      }
+    } else {
+      int count = statement_child_count(st, statem);
+      if(st.error) return;
+      for(int i = 0; i < count; i++) {
+	var_scope *child_ctx = new var_scope();
+	child_ctx->parent = scope;
+	extract_local_vars(vasm, st, statem->child[i], child_ctx);
+	statem->child_vars[i] = child_ctx;
+      }
     }
   }
 }
@@ -122,8 +160,16 @@ static uint8_t get_insn_ret_type(uint16_t insn) {
 
 
 static var_desc get_variable(lsl_compile_state &st, const char* name) {
-  std::map<std::string, var_desc>::iterator iter = st.vars.find(name);
-  if(iter == st.vars.end()) {
+  var_scope *scope = st.scope;
+  std::map<std::string, var_desc>::iterator iter = scope->vars.find(name);
+  //printf("DEBUG: searching for var %s in %p\n", name, scope);
+  while(iter == scope->vars.end() && scope->parent != NULL) {
+    scope = scope->parent;
+    iter = scope->vars.find(name);
+    //printf("   ...in %p\n", scope);
+  }
+  if(iter == scope->vars.end()) {
+    //printf("   ...in globals\n");
     std::map<std::string, var_desc>::iterator iter2 = st.globals.find(name);
     if(iter2 == st.globals.end()) {
       var_desc desc; desc.type = VM_TYPE_NONE;
@@ -920,8 +966,10 @@ static expr_node *cast_to_void(expr_node *expr) {
   return enode_cast(expr, VM_TYPE_NONE);
 }
 
-static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem) {
+static void produce_code(vm_asm &vasm, lsl_compile_state &st, 
+			 statement *statem, var_scope *scope) {
   for( ; statem != NULL; statem = statem->next) {
+    st.scope = scope;
     switch(statem->stype) {
     case STMT_DECL:
       if(statem->expr[1] != NULL) {
@@ -957,12 +1005,12 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
 	  st.error = 1; return;
 	}
-	produce_code(vasm, st, statem->child[0]);
+	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
 	if(statem->child[1] != NULL) vasm.do_jump(end_if);
 	vasm.do_label(else_cl);
 	if(statem->child[1] != NULL) {
-	  produce_code(vasm, st, statem->child[1]);
+	  produce_code(vasm, st, statem->child[1], (var_scope*)statem->child_vars[1]);
 	  if(st.error) return;
 	  vasm.do_label(end_if);
 	}
@@ -1017,7 +1065,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
 	  st.error = 1; return;
 	}
-	produce_code(vasm, st, statem->child[0]);
+	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
 	vasm.do_jump(loop_start);
 	vasm.do_label(loop_end);
@@ -1031,8 +1079,9 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
 	  st.error = 1; return;
 	}
-	produce_code(vasm, st, statem->child[0]);
+	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
+	st.scope = scope;
 	propagate_types(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	//statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
@@ -1072,8 +1121,9 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	  }
 	}
 	
-	produce_code(vasm, st, statem->child[0]);
+	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
+	st.scope = scope;
 
 	if(statem->expr[2] != NULL) { // loop post-whatsit
 	  propagate_types(vasm, st, statem->expr[2]);
@@ -1090,7 +1140,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st, statement *statem)
 	break;
       }
     case STMT_BLOCK:
-      produce_code(vasm, st, statem->child[0]);
+      produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
       break;
     default:
       printf("ERROR: unhandled statement type %i\n", statem->stype);
@@ -1119,25 +1169,26 @@ static const vm_function *make_function(vm_asm &vasm, function *func, int state_
 
 static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func, 
 			     const vm_function *vfunc) {
+    var_scope func_scope;
     vasm.begin_func(vfunc);
 
-    handle_arg_vars(vasm, st, func->args, vfunc);
+    handle_arg_vars(vasm, st, func->args, vfunc, &func_scope);
     if(st.error) return;
     
-    extract_local_vars(vasm, st, func->code->first);
+    extract_local_vars(vasm, st, func->code->first, &func_scope);
     if(st.error) return;
 
     st.var_stack = vasm.mark_stack();
 
-    produce_code(vasm, st, func->code->first);
-    if(st.error) return;
+    produce_code(vasm, st, func->code->first, &func_scope);
 
+    if(st.error) return;
     vasm.verify_stack(st.var_stack);
     vasm.clear_stack();
     vasm.insn(INSN_RET);
     vasm.end_func();
 
-    st.vars.clear();
+    //st.vars.clear(); // not needed anymore.
   
     if(vasm.get_error() != NULL) {
       printf("ASSEMBLER ERROR: %s\n", vasm.get_error());

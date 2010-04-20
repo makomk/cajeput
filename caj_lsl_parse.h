@@ -69,6 +69,7 @@ struct expr_node {
    int stype; /* STMT_* */
    expr_node *expr[3];
    struct statement *child[2];
+   void *child_vars[2]; // for compiler use - corresponds to child[]
    struct statement *next;
    char *s; /* only used for labels */
  } statement;
