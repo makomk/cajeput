@@ -388,6 +388,7 @@ void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 
 void user_send_message(struct user_ctx *ctx, const char* msg) {
   struct chat_message chat;
+  chat.channel = 0;
   chat.source_type = CHAT_SOURCE_SYSTEM;
   chat.chat_type = CHAT_TYPE_NORMAL;
   uuid_clear(chat.source); // FIXME - set this to something?

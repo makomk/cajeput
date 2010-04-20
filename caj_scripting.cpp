@@ -604,6 +604,7 @@ static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &
 	textcol[2] = CONVERT_COLOR(color.z);
 	textcol[3] = 255-CONVERT_COLOR(alpha);
 	world_prim_spp_set_text(&spp, text, textcol);
+	free(text);
       }
       break;
     default: 
