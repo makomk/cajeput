@@ -272,7 +272,7 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
   case NODE_VECTOR:
   case NODE_ROTATION:
     {
-      float v[4]; 
+      float v[4]; bool is_const = true;
       int count = ( expr->node_type == NODE_VECTOR ? 3 : 4);
       for(int i = 0; i < count; i++) {
 	propagate_types(vasm, st, expr->u.child[i]);
@@ -285,18 +285,23 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
       for(int i = 0; i < count; i++) {
 	if(expr->u.child[i]->node_type != NODE_CONST || 
 	   expr->u.child[i]->vtype != VM_TYPE_FLOAT) {
-	  do_error(st, "ERROR: %s not made up of constant floats\n",
-		   expr->node_type == NODE_VECTOR ? "vector" : "rotation");
-	  return;
+	  is_const = false;
 	};
       };
-      for(int i = 0; i < count; i++) {
-	v[i] = expr->u.child[i]->u.f;
-	free(expr->u.child[i]); // FIXME - do this right!
-      }
       expr->vtype = expr->node_type == NODE_VECTOR ? VM_TYPE_VECT : VM_TYPE_ROT;
-      expr->node_type = NODE_CONST;
-      for(int i = 0; i < count; i++) expr->u.v[i] = v[i];
+      if(is_const) {
+	for(int i = 0; i < count; i++) {
+	  v[i] = expr->u.child[i]->u.f;
+	  free(expr->u.child[i]); // FIXME - do this right!
+	}
+	expr->node_type = NODE_CONST;
+	for(int i = 0; i < count; i++) expr->u.v[i] = v[i];
+      } else {
+	for(int i = 0; i < count; i++) {
+	  propagate_types(vasm, st, expr->u.child[i]);
+	  if(st.error != 0) return;	  
+	}
+      }
       break;
     }
   case NODE_ADD:
@@ -711,6 +716,20 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
       }
     }
     break;
+  case NODE_VECTOR:
+  case NODE_ROTATION:
+    {
+      float v[4]; bool is_const = true;
+      int count = ( expr->node_type == NODE_VECTOR ? 3 : 4);
+      for(int i = count-1; i >= 0; i--) {
+	// Note that this executes expressions in an odd order.
+	// FIXME? (would slow down & complicate compiled code slightly)
+	assemble_expr(vasm, st, expr->u.child[i]);
+	if(st.error != 0) return;
+	update_loc(st, expr);
+      }
+      break;
+    }
   case NODE_NEGATE:
     assemble_expr(vasm, st, expr->u.child[0]);
     if(st.error != 0) return;
@@ -899,6 +918,8 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	return;
       }
       read_var(vasm, st, var);
+      // special magic in cast_to_void changes the node's vtype to NONE if
+      // this is in a void context.
       if(is_post && expr->vtype != VM_TYPE_NONE) 
 	vasm.insn(dup_insn);
       vasm.insn(insn);

@@ -299,7 +299,7 @@ typedef struct func_args {
 %left CAST /* FIXME - where does this go? */
 %left '!' '~' INCR DECR
 %type <str> state_id;
-%type <enode> expr opt_expr num_const variable call
+%type <enode> scexpr expr opt_expr variable call
 %type <bblock> statements function_body
 %type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local
 %type <stat> jump_stmt label_stmt block_stmt
@@ -311,7 +311,11 @@ typedef struct func_args {
 %type <args> arglist
 %type <vtype> type 
 %type <list> list
-%expect 1 /* 1 shift-reduce conflict due to dangling else problem */
+
+/* 1 shift-reduce conflict due to dangling else problem
+ * 2 due to vector/rotation literals - FIXME figure out why exactly!
+ */
+%expect 3
 %%
 program : functions states { 
   $$ = NULL; global_prog.funcs = $1->funcs; global_prog.globals = $1->globals;
@@ -444,11 +448,19 @@ list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->f
 	 list_node *lnode = make_list_entry($3);
 	 *($1->add_here) = lnode; $1->add_here = &lnode->next; $$ = $1;
       } ;
-num_const : NUMBER { $$ = enode_make_int($1, &@1); }
-       | REAL { $$ = enode_make_float($1, &@1); }
-       | IDENTIFIER  { $$ = enode_make_id($1, NULL, &@1); }
-       | '-' num_const { $$ = enode_negate($2, &@1); } ;
-expr : NUMBER { $$ = enode_make_int($1, &@1); }
+/* Dirty hack to avoid nasty parser issues. If we have:
+      <1.5, 2.5, 3.5> - <4.5, 5.5, 6.5>)
+   this gets parsed as:
+      <1.5, 2.5, ( 3.5> - <4.5, 5.5, 6.5> )
+   which is wrong. This hack fixes the issue by forbidding < and > directly 
+   within a list constant, which the language technically should allow.
+   If you really need to do this, use braces. 
+ */
+expr : scexpr 
+       | expr '<' expr { $$ = enode_binop($1,$3,NODE_LESS, &@2); }
+       | expr '>' expr { $$ = enode_binop($1,$3,NODE_GREATER, &@2); }
+;
+scexpr : NUMBER { $$ = enode_make_int($1, &@1); }
        | REAL { $$ = enode_make_float($1, &@1); }
        | STR { $$ = enode_make_str($1, &@1); }
        | call { $$ = $1; } 
@@ -468,8 +480,6 @@ expr : NUMBER { $$ = enode_make_int($1, &@1); }
        | expr NEQUAL expr { $$ = enode_binop($1,$3,NODE_NEQUAL, &@2); }
        | expr LEQUAL expr { $$ = enode_binop($1,$3,NODE_LEQUAL, &@2); }
        | expr GEQUAL expr { $$ = enode_binop($1,$3,NODE_GEQUAL, &@2); }
-       | expr '<' expr { $$ = enode_binop($1,$3,NODE_LESS, &@2); }
-       | expr '>' expr { $$ = enode_binop($1,$3,NODE_GREATER, &@2); }
        | expr '|' expr { $$ = enode_binop($1,$3,NODE_OR, &@2); }
        | expr '&' expr { $$ = enode_binop($1,$3,NODE_AND, &@2); }
        | expr '^' expr { $$ = enode_binop($1,$3,NODE_XOR, &@2); }
@@ -478,8 +488,8 @@ expr : NUMBER { $$ = enode_make_int($1, &@1); }
        | expr SHLEFT expr { $$ = enode_binop($1,$3,NODE_SHL, &@2); }
        | expr SHRIGHT expr { $$ = enode_binop($1,$3,NODE_SHR, &@2); }
        | '(' expr ')' { $$ = $2; }
-| '<' num_const ',' num_const  ',' num_const ',' num_const '>'{ $$ = enode_make_rot($2,$4,$6,$8, &@1); } 
-| '<' num_const ',' num_const  ',' num_const '>' { $$ = enode_make_vect($2,$4,$6, &@1); } 
+| '<' scexpr ',' scexpr  ',' scexpr ',' scexpr '>'{ $$ = enode_make_rot($2,$4,$6,$8, &@1); } 
+| '<' scexpr ',' scexpr  ',' scexpr '>' { $$ = enode_make_vect($2,$4,$6, &@1); } 
 | '[' list ']' { $$ = enode_make_list($2->first, &@1); free($2); }
 | variable INCR { $$ = enode_unaryop($1, NODE_POSTINC, &@1); } 
 | variable DECR { $$ = enode_unaryop($1, NODE_POSTDEC, &@1); } 
@@ -651,6 +661,9 @@ static void print_expr(expr_node *enode) {
       print_expr(lnode->expr);
     printf(") ");
     break;
+  case NODE_CAST:
+    printf("(cast ??? "); print_expr(enode->u.child[0]); printf(") ");
+    break;
   default:
     printf("<unknown expr %i> ",enode->node_type);
     break;
@@ -725,7 +738,9 @@ static void print_stmts(statement *statem, int indent) {
 
 lsl_program *caj_parse_lsl(const char* fname) {
   extern FILE *yyin;
-  /* function *func; */
+#if 0 // debugging code
+  function *func;
+#endif
   yylloc.first_line = yylloc.last_line = 0;
   yylloc.first_column = yylloc.last_column = 0;
   yydebug = 1;
@@ -738,6 +753,7 @@ lsl_program *caj_parse_lsl(const char* fname) {
   if(yyparse()) return NULL;
 
 #if 0 // debugging code
+  
    for(func = global_prog.funcs; func != NULL; func = func->next) {
      statement* statem; func_arg *arg;
      printf("%s %s(", type_names[func->ret_type],
