@@ -120,8 +120,8 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       char* name = statem->expr[0]->u.ident.name; 
       uint8_t vtype = statem->expr[0]->vtype;
       if(scope->vars.count(name)) {
-	printf("ERROR: duplicate definition of local var %s\n",name);
-	st.error = 1; return;
+	do_error(st, "ERROR: duplicate definition of local var %s\n",name);
+	return;
 	// FIXME - handle this
       } else {
 	var_desc var; var.type = vtype; var.is_global = 0;
@@ -134,6 +134,7 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 	  var.offset = vasm.const_real(0.0f); 
 	  break;
 	case VM_TYPE_STR:
+	case VM_TYPE_KEY:
 	  var.offset = vasm.const_str("");
 	  break;
 	case VM_TYPE_LIST:
@@ -148,8 +149,8 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 	  vasm.const_int(0); vasm.const_int(0); vasm.const_int(0);
 	  break;
 	default:
-	  printf("ERROR: unknown type of local var %s\n",name);
-	  st.error = 1; return;
+	  do_error(st,"ERROR: unknown type of local var %s\n",name);
+	  return;
 	  // FIXME - handle this
 	}
 	scope->vars[name] = var;
@@ -477,6 +478,8 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_NONE): return INSN_DROP_I;
   case MK_VM_TYPE_PAIR(VM_TYPE_VECT, VM_TYPE_NONE): return INSN_DROP_I3;
   case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_NONE): return INSN_DROP_I4;
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_NONE): return INSN_DROP_P;
+  case MK_VM_TYPE_PAIR(VM_TYPE_LIST, VM_TYPE_NONE): return INSN_DROP_P;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_FLOAT): return INSN_CAST_I2F;
   case MK_VM_TYPE_PAIR(VM_TYPE_FLOAT, VM_TYPE_INT): return INSN_CAST_F2I;
   case MK_VM_TYPE_PAIR(VM_TYPE_INT, VM_TYPE_STR): return INSN_CAST_I2S;
