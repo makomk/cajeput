@@ -43,6 +43,8 @@ struct lsl_compile_state {
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
 static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
 			      expr_node *expr);
+static uint32_t build_const_list(vm_asm &vasm, lsl_compile_state &st,
+				 list_node *&item);
 
 static void update_loc(lsl_compile_state &st, const expr_node *expr) {
   st.line_no = expr->loc.first_line;
@@ -948,38 +950,52 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
     }
     break;
   case NODE_LIST:
-    {
       if(expr->u.list == NULL) {
 	vasm.empty_list(); // special case that should disappear
-      } else if(expr->u.list->next == NULL && 
-		expr->u.list->expr->node_type != NODE_CONST) {
-	// another special case that should disappear
-	expr_node *child = expr->u.list->expr;
-
-	insn = get_insn_cast(child->vtype, VM_TYPE_LIST);
-	if(child->vtype == VM_TYPE_LIST) {
-	  insn = INSN_NOOP;
-	} else if(insn == 0) {
-	  do_error(st, "ERROR: couldn't cast %s to list\n", 
-		   type_names[child->vtype]);
-	  st.error = 1; return;
-	}
-
-	assemble_expr(vasm, st, child);
-	if(st.error != 0) return;
-	update_loc(st, expr);
-	if(insn != INSN_NOOP)
-	  vasm.insn(insn);
       } else {
-	// TODO: handle non-constant lists (FIXME!)
-	uint32_t ptr = constify_list(vasm, st, expr);
-	if(st.error != 0) return;
-	update_loc(st, expr);
-	// TODO: merge identical list constants
-	uint16_t global_const = vasm.add_global_ptr(ptr, VM_TYPE_LIST); 
-	vasm.insn(MAKE_INSN(ICLASS_RDG_P, global_const));
+	list_node *list = expr->u.list;
+	bool not_first = false;
+	
+	while(list != NULL) {
+	  if(list->expr->node_type == NODE_CONST) {
+	    // build a constant list segment
+	    uint32_t ptr = build_const_list(vasm, st, list);
+	    if(st.error != 0) return;
+	    update_loc(st, expr);
+	    // TODO: merge identical list constants
+	    uint16_t global_const = vasm.add_global_ptr(ptr, VM_TYPE_LIST); 
+	    vasm.insn(MAKE_INSN(ICLASS_RDG_P, global_const));
+	  } else {
+	    expr_node *child = list->expr;
+	    insn = get_insn_cast(child->vtype, VM_TYPE_LIST);
+	    if(child->vtype == VM_TYPE_LIST) {
+	      do_error(st, "ERROR: nested lists are not allowed\n");
+	      return;
+	    } else if(insn == 0) {
+	      do_error(st, "ERROR: couldn't cast %s to list\n", 
+		       type_names[child->vtype]);
+	      return;
+	    }
+
+	    assemble_expr(vasm, st, child);
+	    if(st.error != 0) return;
+	    update_loc(st, expr);
+	    vasm.insn(insn); 
+
+	    list = list->next;
+	  }
+
+	  if(not_first) {
+	    vasm.insn(INSN_ADD_LL);
+	  }
+	  not_first = true;
+
+	  if(vasm.get_error() != NULL) {
+	    do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	    return;
+	  }
+	}
       }
-    }
     break;
   default:
     do_error(st, "FIXME: unhandled node type %i\n", expr->node_type);
@@ -1291,22 +1307,12 @@ static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func
     }
 }
 
-static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
-			      expr_node *expr) {
-  int item_count = 0;
-  assert(expr->node_type == NODE_LIST);
-  update_loc(st, expr);
-  for(list_node *item = expr->u.list; item != NULL; item = item->next) {
-    item_count++;
-    if(item->expr->node_type != NODE_CONST) {
-      update_loc(st, item->expr);
-      do_error(st, "List constant contains non-constant expression");
-      return 0;
-    }
-  }
-
+static uint32_t build_const_list(vm_asm &vasm, lsl_compile_state &st,
+				 list_node *&item) {
   vasm.begin_list();
-  for(list_node *item = expr->u.list; item != NULL; item = item->next) {
+  for(; item != NULL; item = item->next) {
+    if(item->expr->node_type != NODE_CONST) break;
+
     update_loc(st, item->expr);
     switch(item->expr->vtype) {
     case VM_TYPE_STR:
@@ -1339,6 +1345,23 @@ static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st,
     do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
   }
   return retval;
+}
+
+static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
+			      expr_node *expr) {
+  int item_count = 0;
+  assert(expr->node_type == NODE_LIST);
+  update_loc(st, expr);
+  for(list_node *item = expr->u.list; item != NULL; item = item->next) {
+    item_count++;
+    if(item->expr->node_type != NODE_CONST) {
+      update_loc(st, item->expr);
+      do_error(st, "List constant contains non-constant expression");
+      return 0;
+    }
+  }
+  list_node *item = expr->u.list;
+  return build_const_list(vasm, st, item);
 }
 
 int main(int argc, char** argv) {
