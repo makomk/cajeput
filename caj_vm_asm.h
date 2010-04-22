@@ -438,7 +438,7 @@ public:
     float_to_bin(val[0], data+0);
     float_to_bin(val[1], data+4);
     float_to_bin(val[2], data+8);
-    float_to_bin(val[2], data+12);
+    float_to_bin(val[3], data+12);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_ROT,16,data));
   }
 
