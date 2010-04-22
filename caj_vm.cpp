@@ -1538,7 +1538,7 @@ static void step_script(script_state* st, int num_steps) {
 	}
       case INSN_CAST_I2L:
 	{
-	  heap_header *p = make_num_on_heap(st, stack_top+1, 1, VM_TYPE_INT);
+	  heap_header *p = make_num_on_heap(st, stack_top+1, VM_TYPE_INT, 1);
 	  heap_header *list = make_single_list(st, p);
 	  stack_top -= ptr_stack_sz() - 1;
 	  put_stk_ptr(stack_top+1, list);
@@ -1547,7 +1547,7 @@ static void step_script(script_state* st, int num_steps) {
 	}
       case INSN_CAST_F2L:
 	{
-	  heap_header *p = make_num_on_heap(st, stack_top+1, 1, VM_TYPE_FLOAT);
+	  heap_header *p = make_num_on_heap(st, stack_top+1, VM_TYPE_FLOAT, 1);
 	  heap_header *list = make_single_list(st, p);
 	  stack_top -= ptr_stack_sz() - 1;
 	  put_stk_ptr(stack_top+1, list);
@@ -1556,7 +1556,7 @@ static void step_script(script_state* st, int num_steps) {
 	}
       case INSN_CAST_V2L:
 	{
-	  heap_header *p = make_num_on_heap(st, stack_top+1, 3, VM_TYPE_VECT);
+	  heap_header *p = make_num_on_heap(st, stack_top+1, VM_TYPE_VECT, 3);
 	  heap_header *list = make_single_list(st, p);
 	  stack_top -= ptr_stack_sz() - 3;
 	  put_stk_ptr(stack_top+1, list);
@@ -1565,7 +1565,7 @@ static void step_script(script_state* st, int num_steps) {
 	}
       case INSN_CAST_R2L:
 	{
-	  heap_header *p = make_num_on_heap(st, stack_top+1, 4, VM_TYPE_ROT);
+	  heap_header *p = make_num_on_heap(st, stack_top+1, VM_TYPE_ROT, 4);
 	  heap_header *list = make_single_list(st, p);
 	  stack_top -= ptr_stack_sz() - 4;
 	  put_stk_ptr(stack_top+1, list);
