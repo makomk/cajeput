@@ -792,7 +792,9 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
 	 expr->u.child[1]->vtype == VM_TYPE_LIST) {
 	// we don't bother with a special instruction for this.
 	list_magic = true; 
-	insn = expr->node_type == NODE_EQUAL ? INSN_EQ_II : INSN_NEQ_II;
+	// yes, list != operator subtracts lengths, and this is 
+	// a documented quirk that we have to live with.
+	insn = expr->node_type == NODE_EQUAL ? INSN_EQ_II : INSN_SUB_II;
       } else if(insn == 0) {
 	do_error(st, "INTERNAL ERROR: no insn for binop %i %s %s\n", 
 		 expr->node_type, type_names[expr->u.child[0]->vtype],
