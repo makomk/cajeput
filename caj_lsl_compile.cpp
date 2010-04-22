@@ -24,13 +24,13 @@ struct var_scope {
   std::map<std::string, var_desc> vars;
   struct var_scope *parent;
 
-  var_scope() : parent(NULL) {
+  var_scope(var_scope *parent_scope) : parent(parent_scope) {
   }
 };
 
 struct lsl_compile_state {
   int error; int line_no, column_no;
-  std::map<std::string, var_desc> globals;
+  var_scope globals;
   // std::map<std::string, var_desc> vars; // locals
   std::map<std::string, const vm_function*> funcs;
   std::map<std::string, function*> sys_funcs;
@@ -38,6 +38,8 @@ struct lsl_compile_state {
   loc_atom var_stack;
   var_scope *scope;
   std::map<std::string, loc_atom> labels;
+
+  lsl_compile_state() : globals(NULL) { }
 };
 
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
@@ -156,8 +158,7 @@ static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
       int count = statement_child_count(st, statem);
       if(st.error) return;
       for(int i = 0; i < count; i++) {
-	var_scope *child_ctx = new var_scope();
-	child_ctx->parent = scope;
+	var_scope *child_ctx = new var_scope(scope);
 	extract_local_vars(vasm, st, statem->child[i], child_ctx);
 	statem->child_vars[i] = child_ctx;
       }
@@ -181,19 +182,10 @@ static var_desc get_variable(lsl_compile_state &st, const char* name) {
     //printf("   ...in %p\n", scope);
   }
   if(iter == scope->vars.end()) {
-    //printf("   ...in globals\n");
-    std::map<std::string, var_desc>::iterator iter2 = st.globals.find(name);
-    if(iter2 == st.globals.end()) {
-      var_desc desc; desc.type = VM_TYPE_NONE;
-      do_error(st, "ERROR: missing variable %s\n", name);
-      return desc;
-    } else {
-      assert(iter2->second.is_global);
-      assert(iter2->second.type <= VM_TYPE_MAX);
-      return iter2->second;
-    }
+    var_desc desc; desc.type = VM_TYPE_NONE;
+    do_error(st, "ERROR: missing variable %s\n", name);
+    return desc;
   } else {
-    assert(!iter->second.is_global);
     assert(iter->second.type <= VM_TYPE_MAX);
     return iter->second;
   }
@@ -1280,7 +1272,7 @@ static const vm_function *make_function(vm_asm &vasm, function *func, int state_
 
 static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func, 
 			     const vm_function *vfunc) {
-    var_scope func_scope;
+    var_scope func_scope(&st.globals);
     vasm.begin_func(vfunc);
 
     handle_arg_vars(vasm, st, func->args, vfunc, &func_scope);
@@ -1393,10 +1385,11 @@ int main(int argc, char** argv) {
   }
 
   st.line_no = 0; st.column_no = 0;
+  st.scope = &st.globals;
 
   // The first step is to find all the global variables.
   for(global *g = prog->globals; g != NULL; g = g->next) {
-    if(st.globals.count(g->name)) {
+    if(st.globals.vars.count(g->name)) {
       printf("ERROR: duplicate definition of global var %s\n",g->name);
       st.error = 1; return 1;
     } else {
@@ -1454,7 +1447,7 @@ int main(int argc, char** argv) {
       }
       assert(g->vtype == var.type);
       assert(var.type <= VM_TYPE_MAX); 
-      st.globals[g->name] = var;
+      st.globals.vars[g->name] = var;
       
     }
   }
