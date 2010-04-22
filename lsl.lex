@@ -85,7 +85,7 @@ jump { return JUMP; }
 \/= { return ASSIGNDIV; }
 %= { return ASSIGNMOD; }
 
-[0-9]+[.][0-9]* { yylval.str = strdup(yytext); return REAL; } /* FIXME - handle exponent */
+[0-9]+[.][0-9]*(e-?[0-9]+)? { yylval.str = strdup(yytext); return REAL; } /* FIXME - handle exponent */
 (0x)?[0-9]+ { yylval.str = strdup(yytext); return NUMBER; }
 [a-zA-Z][a-zA-Z0-9_]* { yylval.str = strdup(yytext); return IDENTIFIER; }
 \"([^\n\r\"\\]|\\.)*\" { 
