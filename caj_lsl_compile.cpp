@@ -43,9 +43,14 @@ static const vm_function *make_function(vm_asm &vasm, function *func, int state_
 static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st, 
 			      expr_node *expr);
 
-static void update_loc(lsl_compile_state &st, expr_node *expr) {
+static void update_loc(lsl_compile_state &st, const expr_node *expr) {
   st.line_no = expr->loc.first_line;
   st.column_no = expr->loc.first_column;
+}
+
+static void update_loc(lsl_compile_state &st, const statement *statem) {
+  st.line_no = statem->loc.first_line;
+  st.column_no = statem->loc.first_column;
 }
 
 static void do_error(lsl_compile_state &st, const char* format, ...) {
@@ -86,14 +91,15 @@ static int statement_child_count(lsl_compile_state &st, statement *statem) {
     case STMT_FOR: return 1;
     case STMT_BLOCK: return 1;
     default:
-      printf("ERROR:statement_child_count unhandled statement type %i\n", statem->stype);
-	st.error = 1; return 0;
+      do_error(st, "ERROR:statement_child_count unhandled statement type %i\n", statem->stype);
+      return 0;
     }
 }
 
 static void extract_local_vars(vm_asm &vasm, lsl_compile_state &st,
 			       statement *statem, var_scope *scope) {
   for( ; statem != NULL; statem = statem->next) {
+    update_loc(st, statem);
     if(statem->stype == STMT_DECL) {
       assert(statem->expr[0] != NULL && 
 	     statem->expr[0]->node_type == NODE_IDENT);
@@ -719,7 +725,6 @@ static void assemble_expr(vm_asm &vasm, lsl_compile_state &st, expr_node *expr) 
   case NODE_VECTOR:
   case NODE_ROTATION:
     {
-      float v[4]; bool is_const = true;
       int count = ( expr->node_type == NODE_VECTOR ? 3 : 4);
       for(int i = count-1; i >= 0; i--) {
 	// Note that this executes expressions in an odd order.
@@ -990,7 +995,7 @@ static expr_node *cast_to_void(expr_node *expr) {
 static void produce_code(vm_asm &vasm, lsl_compile_state &st, 
 			 statement *statem, var_scope *scope) {
   for( ; statem != NULL; statem = statem->next) {
-    st.scope = scope;
+    st.scope = scope; update_loc(st, statem);
     switch(statem->stype) {
     case STMT_DECL:
       if(statem->expr[1] != NULL) {
@@ -998,6 +1003,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	fake_expr.node_type = NODE_ASSIGN;
 	fake_expr.u.child[0] = statem->expr[0];
 	fake_expr.u.child[1] = statem->expr[1];
+	fake_expr.loc = statem->loc;
 	propagate_types(vasm, st, &fake_expr);
 	if(st.error) return;
 	assert(fake_expr.vtype == VM_TYPE_NONE);
@@ -1007,6 +1013,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
     case STMT_EXPR:
       propagate_types(vasm, st, statem->expr[0]);
       if(st.error) return;
+      update_loc(st, statem);
       statem->expr[0] = cast_to_void(statem->expr[0]);
       assemble_expr(vasm, st, statem->expr[0]);
       break;
@@ -1018,16 +1025,20 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	if(st.error) return;
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
+	update_loc(st, statem);
 	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
+
 	vasm.insn(INSN_NCOND);
 	vasm.do_jump(else_cl);
 	if(vasm.get_error() != NULL) {
-	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-	  st.error = 1; return;
+	  do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  return;
 	}
 	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
+
+	update_loc(st, statem);
 	if(statem->child[1] != NULL) vasm.do_jump(end_if);
 	vasm.do_label(else_cl);
 	if(statem->child[1] != NULL) {
@@ -1045,6 +1056,7 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
+	update_loc(st, statem);
 	switch(statem->expr[0]->vtype) {
 	case VM_TYPE_INT:
 	case VM_TYPE_FLOAT:
@@ -1060,8 +1072,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	case VM_TYPE_STR:
 	  vasm.wr_local_ptr(0); break;
 	default:
-	  printf("FIXME: unhandled type in return statement\n");
-	  st.error = 1; return;
+	  do_error(st, "FIXME: unhandled type in return statement\n");
+	  return;
 	}
 	
       }
@@ -1078,13 +1090,15 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	if(st.error) return;
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
+	
+	update_loc(st, statem);
 	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	vasm.insn(INSN_NCOND);
 	vasm.do_jump(loop_end);
 	if(vasm.get_error() != NULL) {
-	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-	  st.error = 1; return;
+	  do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  return;
 	}
 	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
@@ -1097,8 +1111,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	loc_atom loop_start = vasm.make_loc();
 	vasm.do_label(loop_start);
 	if(vasm.get_error() != NULL) {
-	  printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-	  st.error = 1; return;
+	  do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  return;
 	}
 	produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
 	if(st.error) return;
@@ -1108,6 +1122,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	//statem->expr[0] = enode_cast(statem->expr[0], VM_TYPE_INT); // FIXME - special bool cast?
 	assemble_expr(vasm, st, statem->expr[0]);
 	if(st.error) return;
+
+	update_loc(st, statem);
 	asm_cast_to_bool(vasm, st, statem->expr[0]);
 	if(st.error) return;
 	vasm.insn(INSN_COND);
@@ -1121,6 +1137,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	if(statem->expr[0] != NULL) { // loop initialiser
 	  propagate_types(vasm, st, statem->expr[0]);
 	  if(st.error) return;
+
+	  update_loc(st, statem->expr[0]);
 	  statem->expr[0] = cast_to_void(statem->expr[0]);
 	  assemble_expr(vasm, st, statem->expr[0]);
 	  if(st.error) return;
@@ -1132,13 +1150,15 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	  if(st.error) return;
 	  assemble_expr(vasm, st, statem->expr[1]);
 	  if(st.error) return;
+
+	  update_loc(st, statem->expr[1]);
 	  asm_cast_to_bool(vasm, st, statem->expr[1]);
 	  if(st.error) return;
 	  vasm.insn(INSN_NCOND);
 	  vasm.do_jump(loop_end);
 	  if(vasm.get_error() != NULL) {
-	    printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-	    st.error = 1; return;
+	    do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	    return;
 	  }
 	}
 	
@@ -1149,14 +1169,18 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	if(statem->expr[2] != NULL) { // loop post-whatsit
 	  propagate_types(vasm, st, statem->expr[2]);
 	  if(st.error) return;
+
+	  update_loc(st, statem->expr[2]);
 	  statem->expr[2] = cast_to_void(statem->expr[2]);
 	  assemble_expr(vasm, st, statem->expr[2]);
 	  if(st.error) return;
 	}
+
+	update_loc(st, statem);
 	vasm.do_jump(loop_start); vasm.do_label(loop_end);
 	if(vasm.get_error() != NULL) {
-	    printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
-	    st.error = 1; return;
+	  do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  return;
 	}
 	break;
       }
@@ -1164,8 +1188,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
       produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
       break;
     default:
-      printf("ERROR: unhandled statement type %i\n", statem->stype);
-	st.error = 1; return;
+      do_error(st, "ERROR: unhandled statement type %i\n", statem->stype);
+      return;
     }
   } 
 }
