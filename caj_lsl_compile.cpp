@@ -84,12 +84,14 @@ static int statement_child_count(lsl_compile_state &st, statement *statem) {
     case STMT_DECL: return 0;
     case STMT_EXPR: return 0;
     case STMT_IF:
-      return 2; // child[1] may be null, but that should be OK!
+      return 2; // child[1] may be null, but that should be OK!  
     case STMT_RET: return 0;
     case STMT_WHILE: return 1;
     case STMT_DO: return 1;
     case STMT_FOR: return 1;
     case STMT_BLOCK: return 1;
+    case STMT_JUMP: return 0;
+    case STMT_LABEL: return 0;
     case STMT_STATE: return 0;
     default:
       do_error(st, "ERROR:statement_child_count unhandled statement type %i\n", statem->stype);
@@ -1071,6 +1073,8 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
 	    vasm.wr_local_int(i);
 	  break;
 	case VM_TYPE_STR:
+	case VM_TYPE_KEY:
+	case VM_TYPE_LIST:
 	  vasm.wr_local_ptr(0); break;
 	default:
 	  do_error(st, "FIXME: unhandled type in return statement\n");
