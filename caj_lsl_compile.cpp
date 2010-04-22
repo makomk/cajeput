@@ -90,6 +90,7 @@ static int statement_child_count(lsl_compile_state &st, statement *statem) {
     case STMT_DO: return 1;
     case STMT_FOR: return 1;
     case STMT_BLOCK: return 1;
+    case STMT_STATE: return 0;
     default:
       do_error(st, "ERROR:statement_child_count unhandled statement type %i\n", statem->stype);
       return 0;
@@ -1187,6 +1188,9 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
     case STMT_BLOCK:
       produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
       break;
+    case STMT_STATE:
+      do_error(st, "ERROR: state changes not supported yet\n");
+      return;
     default:
       do_error(st, "ERROR: unhandled statement type %i\n", statem->stype);
       return;
