@@ -233,8 +233,9 @@ static expr_node *enode_negate(expr_node *expr, YYLTYPE *loc) {
   return enode_unaryop(expr, NODE_NEGATE, loc);
 }
 
- static statement* new_statement(void) {
+ static statement* new_statement(int stype, YYLTYPE *loc) {
   statement *statem = malloc(sizeof(statement));
+  statem->stype = stype; statem->loc = *loc;
   statem->next = NULL; 
   return statem;
 }
@@ -302,7 +303,7 @@ typedef struct func_args {
 %type <enode> scexpr expr opt_expr variable call
 %type <bblock> statements function_body
 %type <stat> statement if_stmt while_stmt do_stmt for_stmt ret_stmt local
-%type <stat> jump_stmt label_stmt block_stmt
+%type <stat> jump_stmt label_stmt block_stmt state_stmt
 %type <func> function state_func
 %type <state> state_funcs states
 %type <prog> program functions
@@ -379,8 +380,8 @@ statements : /* nothing */ { $$ = malloc(sizeof(basic_block)); $$->first = NULL;
   $$ = $1;
  } ;
 statement : ';' { $$ = NULL } |  expr ';' { 
-  $$ = new_statement();
-  $$->stype = STMT_EXPR; $$->expr[0] = $1; 
+  $$ = new_statement(STMT_EXPR, &@1);
+  $$->expr[0] = $1; 
  } 
             | if_stmt
             | do_stmt 
@@ -391,49 +392,57 @@ statement : ';' { $$ = NULL } |  expr ';' {
             | jump_stmt
             | label_stmt
 	    | block_stmt 
+	    | state_stmt
 	    ;
 block_stmt : '{' statements '}' { 
-  $$ = new_statement(); $$->stype = STMT_BLOCK; 
+  $$ = new_statement(STMT_BLOCK, &@1);
   $$->child[0] = $2->first; free($2);
  } ;
 local : type IDENTIFIER {
-  $$ = new_statement(); $$->stype = STMT_DECL; 
+  $$ = new_statement(STMT_DECL, &@1);
   $$->expr[0] = enode_make_id_type($2,$1, &@1); $$->expr[1] = NULL;
  }
     | type IDENTIFIER '=' expr {
-  $$ = new_statement(); $$->stype = STMT_DECL; 
+  $$ = new_statement(STMT_DECL, &@1);
   $$->expr[0] = enode_make_id_type($2,$1, &@1); $$->expr[1] = $4;
  }; 
 if_stmt : IF '(' expr ')' statement {
-  $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
+  $$ = new_statement(STMT_IF, &@1); $$->expr[0] = $3;
   $$->child[0] = $5; $$->child[1] = NULL;
  }
         | IF '(' expr ')' statement ELSE statement {
-  $$ = new_statement(); $$->stype = STMT_IF; $$->expr[0] = $3;
+  $$ = new_statement(STMT_IF, &@1); $$->expr[0] = $3;
   $$->child[0] = $5; $$->child[1] = $7; 
  }   ;
 while_stmt : WHILE '(' expr ')' statement {
-  $$ = new_statement(); $$->stype = STMT_WHILE; 
+  $$ = new_statement(STMT_WHILE, &@1);
   $$->expr[0] = $3; $$->child[0] = $5;
  };
 do_stmt : DO statement WHILE '(' expr ')' {
-  $$ = new_statement(); $$->stype = STMT_DO; 
+  $$ = new_statement(STMT_DO, &@1);
   $$->child[0] = $2; $$->expr[0] = $5;
  };
 for_stmt : FOR '(' opt_expr ';' opt_expr ';' opt_expr ')'  statement {
-  $$ = new_statement(); $$->stype = STMT_FOR; 
+  $$ = new_statement(STMT_FOR, &@1);
   $$->expr[0] = $3; $$->expr[1] = $5; $$->expr[2] = $7; 
   $$->child[0] = $9; 
  } ;
 jump_stmt : JUMP IDENTIFIER ';' {
-  $$ = new_statement(); $$->stype = STMT_JUMP; $$->s = $2;
+  $$ = new_statement(STMT_JUMP, &@1); $$->s = $2;
  } ;
 label_stmt : '@' IDENTIFIER ';'{
-  $$ = new_statement(); $$->stype = STMT_LABEL; $$->s = $2;
+  $$ = new_statement(STMT_LABEL, &@1); $$->s = $2;
  } ; 
+state_stmt : STATE IDENTIFIER ';'{
+  $$ = new_statement(STMT_STATE, &@1);  $$->s = $2;
+ } 
+    | STATE DEFAULT {
+  $$ = new_statement(STMT_STATE, &@1); $$->s = strdup("default");
+ }
+ ; 
 opt_expr : /* nothing */ { $$ = NULL } | expr ;
-ret_stmt : RETURN { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = NULL; }
-         | RETURN expr { $$ = new_statement(); $$->stype = STMT_RET; $$->expr[0] = $2; }
+ret_stmt : RETURN { $$ = new_statement(STMT_RET, &@1); $$->expr[0] = NULL; }
+         | RETURN expr { $$ = new_statement(STMT_RET, &@1); $$->expr[0] = $2; }
          ;
 variable: IDENTIFIER { $$ = enode_make_id($1, NULL, &@1); }
 | IDENTIFIER '.' IDENTIFIER { $$ = enode_make_id($1, $3, &@1); }
@@ -451,7 +460,7 @@ list : { $$ = malloc(sizeof(list_head)); $$->first = NULL; $$->add_here = &$$->f
 /* Dirty hack to avoid nasty parser issues. If we have:
       <1.5, 2.5, 3.5> - <4.5, 5.5, 6.5>)
    this gets parsed as:
-      <1.5, 2.5, ( 3.5> - <4.5, 5.5, 6.5> )
+      <1.5, 2.5, ( 3.5 > -<4.5, 5.5, 6.5> )
    which is wrong. This hack fixes the issue by forbidding < and > directly 
    within a list constant, which the language technically should allow.
    If you really need to do this, use braces. 

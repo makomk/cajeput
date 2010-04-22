@@ -1189,6 +1189,7 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top++;
 	break;
       case INSN_EQ_SS:
+      case INSN_EQ_KK:
 	{
 	  heap_header *p2 = get_stk_ptr(stack_top+1); 
 	  heap_header *p1 = get_stk_ptr(stack_top+1+ptr_stack_sz()); 

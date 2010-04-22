@@ -626,13 +626,18 @@ public:
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
 
-  uint16_t empty_list(void) {
+  uint32_t get_empty_list(void) {
     // FIXME - HACK
     if(empty_list_entry < 0) {
       begin_list();
       empty_list_entry = add_global_ptr(end_list(), VM_TYPE_LIST);
     }
-    insn(MAKE_INSN(ICLASS_RDG_P, empty_list_entry));
+    return empty_list_entry;
+  }
+
+  uint16_t empty_list(void) {
+    
+    insn(MAKE_INSN(ICLASS_RDG_P, get_empty_list()));
     return verify == NULL ? 0 : verify->stack_types.size() - 1;
   }
 

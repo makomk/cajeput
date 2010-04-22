@@ -12,6 +12,7 @@ llSay(integer channel, string message) { }
 llShout(integer channel, string message) { }
 llWhisper(integer channel, string message) { }
 llOwnerSay(string message) { } // TODO
+llInstantMessage(key user, string message) { } // TODO
 
 llResetTime( ) { }
 float llGetTime( ) { }

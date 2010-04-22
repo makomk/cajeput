@@ -64,6 +64,7 @@ struct expr_node {
 #define STMT_BLOCK 8 /* { foo; bar; } block */
 #define STMT_JUMP 9
 #define STMT_LABEL 10
+#define STMT_STATE 11
 
  typedef struct statement {
    int stype; /* STMT_* */
@@ -72,6 +73,7 @@ struct expr_node {
    void *child_vars[2]; // for compiler use - corresponds to child[]
    struct statement *next;
    char *s; /* only used for labels */
+   struct lsl_location loc;
  } statement;
 
  typedef struct basic_block {

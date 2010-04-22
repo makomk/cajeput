@@ -1308,7 +1308,8 @@ int main(int argc, char** argv) {
 	   g->val->vtype == g->vtype) {
 	  // FIXME - TODO!
 	} else if(g->val->node_type != NODE_CONST ||
-			    g->val->vtype != g->vtype) {
+		  (g->val->vtype != g->vtype && 
+		   (g->vtype != VM_TYPE_KEY && g->val->vtype != VM_TYPE_STR))) {
 	  printf("FIXME: global var initialiser not const of expected type\n");
 	  printf("DEBUG: got %i %s node, wanted const %s\n",
 		 g->val->node_type, type_names[g->val->vtype], type_names[g->vtype]);
@@ -1329,8 +1330,9 @@ int main(int argc, char** argv) {
 	break;
       case VM_TYPE_LIST:
 	if(g->val == NULL) {
-	  printf("FIXME: can't do uninited lists yet\n");
-	  st.error = 1; return 1;
+	  uint32_t ptr = vasm.get_empty_list();
+	  if(st.error != 0) return 1;
+	  var.offset = vasm.add_global_ptr(ptr, VM_TYPE_LIST); 
 	} else {
 	  uint32_t ptr = constify_list(vasm, st, g->val);
 	  if(st.error != 0) return 1;

@@ -56,7 +56,7 @@
 51 LES_FF: float < float -> int
 52 GEQ_FF: float >= float -> int
 53 LEQ_FF: float <= float -> int
-54 EQ_SS: str == str -> int // need to implement this
+54 EQ_SS: str == str -> int
 
 // now for some casts in boolean contexts
 55 CAST_F2B: float -> int // not same as F2I
@@ -133,3 +133,5 @@
 // TODO - implement these!
 107 CAST_S2I: str -> int
 108 CAST_S2F: str -> float
+
+109 EQ_KK: key == key -> int
