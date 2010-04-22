@@ -432,6 +432,16 @@ public:
      
   }
 
+  void list_add_rot(float *val) {
+    unsigned char *data = (unsigned char*)malloc(16);
+    // FIXME - ordering?
+    float_to_bin(val[0], data+0);
+    float_to_bin(val[1], data+4);
+    float_to_bin(val[2], data+8);
+    float_to_bin(val[2], data+12);
+    list_build.push_back(serial.add_heap_entry(VM_TYPE_ROT,16,data));
+  }
+
   uint32_t end_list() {
     int count = list_build.size();
     if(count >  VM_LIMIT_HEAP || count*4 >  VM_LIMIT_HEAP) {

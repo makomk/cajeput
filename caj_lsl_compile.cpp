@@ -37,6 +37,7 @@ struct lsl_compile_state {
   std::map<std::string, int> states;
   loc_atom var_stack;
   var_scope *scope;
+  std::map<std::string, loc_atom> labels;
 };
 
 static const vm_function *make_function(vm_asm &vasm, function *func, int state_no = -1);
@@ -342,7 +343,15 @@ static void propagate_types(vm_asm &vasm, lsl_compile_state &st, expr_node *expr
     if(insn == 0) {
       ltype = expr->u.child[0]->vtype;
       rtype = expr->u.child[1]->vtype;
-      if(ltype == VM_TYPE_STR && rtype != VM_TYPE_STR) {
+      if(ltype == VM_TYPE_LIST && rtype != VM_TYPE_LIST) {
+	insn = get_insn_binop(expr->node_type, ltype, VM_TYPE_LIST);
+	if(insn != 0)
+	  expr->u.child[1] = enode_cast(expr->u.child[1], VM_TYPE_LIST);
+      } else if(ltype != VM_TYPE_LIST && rtype == VM_TYPE_LIST) {
+	insn = get_insn_binop(expr->node_type, VM_TYPE_LIST, rtype);
+	if(insn != 0)
+	  expr->u.child[0] = enode_cast(expr->u.child[0], VM_TYPE_LIST);
+      } else if(ltype == VM_TYPE_STR && rtype != VM_TYPE_STR) {
 	insn = get_insn_binop(expr->node_type, ltype, VM_TYPE_STR);
 	if(insn != 0)
 	  expr->u.child[1] = enode_cast(expr->u.child[1], VM_TYPE_STR);
@@ -489,7 +498,9 @@ static uint16_t get_insn_cast(uint8_t from_type, uint8_t to_type) {
   case MK_VM_TYPE_PAIR(VM_TYPE_ROT, VM_TYPE_LIST): return INSN_CAST_R2L;
   case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_INT): return INSN_CAST_S2I;
   case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_FLOAT): return INSN_CAST_S2F;
-    
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_VECT): return INSN_CAST_S2V;
+  case MK_VM_TYPE_PAIR(VM_TYPE_STR, VM_TYPE_ROT): return INSN_CAST_S2R;
+  
   /* FIXME - fill out the rest of these */
   default: return 0;
   }
@@ -995,6 +1006,19 @@ static expr_node *cast_to_void(expr_node *expr) {
   return enode_cast(expr, VM_TYPE_NONE);
 }
 
+static loc_atom get_jump_label(vm_asm &vasm, lsl_compile_state &st, 
+			       const char *label) {
+  std::map<std::string, loc_atom>::iterator iter =
+    st.labels.find(label);
+  if(iter != st.labels.end()) {
+    return iter->second;
+  } else {
+    loc_atom loc = vasm.make_loc();
+    st.labels[label] = loc;
+    return loc;
+  }
+}
+
 static void produce_code(vm_asm &vasm, lsl_compile_state &st, 
 			 statement *statem, var_scope *scope) {
   for( ; statem != NULL; statem = statem->next) {
@@ -1192,6 +1216,24 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
     case STMT_BLOCK:
       produce_code(vasm, st, statem->child[0], (var_scope*)statem->child_vars[0]);
       break;
+    case STMT_JUMP:
+      vasm.verify_stack(st.var_stack);
+      vasm.do_jump(get_jump_label(vasm, st, statem->s));
+      vasm.verify_stack(st.var_stack);
+      if(vasm.get_error() != NULL) {
+	do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	return;
+      }
+      break;
+    case STMT_LABEL:
+      vasm.verify_stack(st.var_stack);
+      vasm.do_label(get_jump_label(vasm, st, statem->s));
+      vasm.verify_stack(st.var_stack);      
+      if(vasm.get_error() != NULL) {
+	do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	return;
+      }
+      break;
     case STMT_STATE:
       do_error(st, "ERROR: state changes not supported yet\n");
       return;
@@ -1241,7 +1283,7 @@ static void compile_function(vm_asm &vasm, lsl_compile_state &st, function *func
     vasm.insn(INSN_RET);
     vasm.end_func();
 
-    //st.vars.clear(); // not needed anymore.
+    st.labels.clear();
   
     if(vasm.get_error() != NULL) {
       printf("ASSEMBLER ERROR: %s\n", vasm.get_error());
@@ -1278,6 +1320,9 @@ static uint32_t constify_list(vm_asm &vasm, lsl_compile_state &st,
       break;
     case VM_TYPE_VECT:
       vasm.list_add_vect(item->expr->u.v);
+      break;
+    case VM_TYPE_ROT:
+      vasm.list_add_rot(item->expr->u.v);
       break;
     default:
       do_error(st, "Unhandled type %s in list\n", 

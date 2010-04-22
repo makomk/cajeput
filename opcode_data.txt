@@ -135,3 +135,18 @@
 108 CAST_S2F: str -> float
 
 109 EQ_KK: key == key -> int
+
+// TODO - implement these!
+110 CAST_S2V: str -> vect
+111 CAST_S2R: str -> rot
+
+112 ADD_LL: list + list -> list
+
+// TODO: implement these!
+// 11? ADD_LI: list + int -> list
+// 11? ADD_LF: list + float -> list
+// 11? ADD_LS: list + str -> list
+// 11? ADD_LK: list + key -> list
+// 11? ADD_LV: list + vect -> list
+// 11? ADD_LR: list + rot -> list
+
