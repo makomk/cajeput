@@ -1005,7 +1005,7 @@ static heap_header *cast_list2s(heap_header* list, script_state *st) {
     case VM_TYPE_VECT:
       {
 	float* vect = (float*)script_getptr(item);
-	snprintf(buffer, 60, "<%.5f, %.5f, %.5f>",
+	snprintf(buffer, 60, "<%.6f, %.6f, %.6f>",
 		 vect[0], vect[1], vect[2]);
 	str.append(buffer);
 	break;
@@ -1013,7 +1013,7 @@ static heap_header *cast_list2s(heap_header* list, script_state *st) {
     case VM_TYPE_ROT:
       {
 	float* vect = (float*)script_getptr(item);
-	snprintf(buffer, 60, "<%.5f, %.5f, %.5f, %.5f>",
+	snprintf(buffer, 60, "<%.6f, %.6f, %.6f, %.6f>",
 		 vect[0], vect[1], vect[2], vect[3]);
 	str.append(buffer);
 	break;
@@ -1443,7 +1443,17 @@ static void step_script(script_state* st, int num_steps) {
 	  stack_top += 4;
 	  break;
 	}
-	// case INSN_DIV_VR: // TODO!!!
+      case INSN_DIV_VR:
+	{
+	  // horrid horrid HACK - FIXME!
+	  caj_quat *rhs = (caj_quat*)(stack_top+1);
+	  rhs->x = -rhs->x; rhs->y = -rhs->y; rhs->z = -rhs->z; 
+	  caj_mult_vect3_quat((caj_vector3*)(stack_top+5),
+			      rhs,
+			      (caj_vector3*)(stack_top+5));
+	  stack_top += 4;
+	  break;
+	}	
       case INSN_ADD_RR:
 	*(float*)(stack_top+5) +=  *(float*)(stack_top+1);
 	*(float*)(stack_top+6) +=  *(float*)(stack_top+2);
@@ -1467,7 +1477,17 @@ static void step_script(script_state* st, int num_steps) {
 	  stack_top += 4;
 	}
 	break;
-	// case INSN_DIV_RR: // TODO
+      case INSN_DIV_RR:
+	{ 
+	  // again, a bit of a hack...
+	  caj_quat *rhs = (caj_quat*)(stack_top+1);
+	  rhs->x = -rhs->x; rhs->y = -rhs->y; rhs->z = -rhs->z; 
+	  caj_mult_quat_quat((caj_quat*)(stack_top+5),
+			     rhs,
+			     (caj_quat*)(stack_top+5));
+	  stack_top += 4;
+	}
+	break;	
       case INSN_NEG_I:
 	stack_top[1] = -stack_top[1];
 	break;
@@ -1534,6 +1554,24 @@ static void step_script(script_state* st, int num_steps) {
 	  if(list == NULL) goto abort_exec;
 	  break;
 	}
+      case INSN_CAST_V2L:
+	{
+	  heap_header *p = make_num_on_heap(st, stack_top+1, 3, VM_TYPE_VECT);
+	  heap_header *list = make_single_list(st, p);
+	  stack_top -= ptr_stack_sz() - 3;
+	  put_stk_ptr(stack_top+1, list);
+	  if(list == NULL) goto abort_exec;
+	  break;
+	}
+      case INSN_CAST_R2L:
+	{
+	  heap_header *p = make_num_on_heap(st, stack_top+1, 4, VM_TYPE_ROT);
+	  heap_header *list = make_single_list(st, p);
+	  stack_top -= ptr_stack_sz() - 4;
+	  put_stk_ptr(stack_top+1, list);
+	  if(list == NULL) goto abort_exec;
+	  break;
+	}
       case INSN_CAST_S2L:
       case INSN_CAST_K2L:
 	{
@@ -1569,7 +1607,37 @@ static void step_script(script_state* st, int num_steps) {
 	  heap_ref_decr(p, st);
 	  break;
 	}
-	// TODO: implement CAST_S2V and CAST_S2R
+      case INSN_CAST_S2V:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-3;
+	  uint32_t len = p->len; if(len > 99) len = 99;
+	  char buffer[100]; 
+	  memcpy(buffer, script_getptr(p), len); buffer[len] = 0;
+
+	  for(int i = 1; i <= 3; i++) 
+	    *(float*)(stack_top+i) = 0.0f;
+	  sscanf(buffer, "<%f, %f, %f>", (float*)(stack_top+1),
+		 (float*)(stack_top+2), (float*)(stack_top+3));
+	  heap_ref_decr(p, st);
+	  break;
+	}	
+      case INSN_CAST_S2R:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-4;
+	  uint32_t len = p->len; if(len > 99) len = 99;
+	  char buffer[100]; 
+	  memcpy(buffer, script_getptr(p), len); buffer[len] = 0;
+
+	  for(int i = 1; i <= 4; i++) 
+	    *(float*)(stack_top+i) = 0.0f;
+	  sscanf(buffer, "<%f, %f, %f, %f>", (float*)(stack_top+1),
+		 (float*)(stack_top+2), (float*)(stack_top+3), 
+		 (float*)(stack_top+4));
+	  heap_ref_decr(p, st);
+	  break;
+	}	
       case INSN_ADD_LL:
 	{
 	  heap_header *p2 = get_stk_ptr(stack_top+1); 
