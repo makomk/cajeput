@@ -42,11 +42,16 @@ static void unescape_str(char *str) {
 
 %}
 %option yylineno batch 8bit noyywrap nounput noinput
+%x comment
 %%
-\n                        { 
+<*>\n                        { 
   yylloc.first_line++; yylloc.last_line++;
   yylloc.first_column = 0; yylloc.last_column = 0;
  }
+\/\* BEGIN(comment);
+<comment>\*\/        BEGIN(INITIAL);
+<comment>[^*\n]+ /* this is subtle and quick to break. */
+<comment>\*+ /* have to make * start of symbol so end-comment rule works */
 state {return STATE; }
 default {return DEFAULT; }
 integer {return INTEGER; }
