@@ -105,6 +105,8 @@ void caj_mult_quat_quat(struct caj_quat *out, const struct caj_quat* q1,
 			const struct caj_quat *q2);
 void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
 			 const struct caj_vector3 *vec);
+void caj_cross_vect3(struct caj_vector3 *out, const struct caj_vector3* v1,
+		     const struct caj_vector3 *v2);
 
 // should be small enough not to be affected by sane quantisation
 #define CAJ_QUAT_EPS 0.0001

@@ -51,3 +51,12 @@ void caj_mult_vect3_quat(struct caj_vector3 *out, const struct caj_quat* rot,
   
   *out = ret;
 }
+
+void caj_cross_vect3(struct caj_vector3 *out, const struct caj_vector3* a,
+		     const struct caj_vector3 *b) {
+  caj_vector3 ret;
+  ret.x = a->y*b->z - a->z*b->y;
+  ret.y = a->z*b->x - a->x*b->z;
+  ret.z = a->x*b->y - a->y*b->x;
+  *out = ret;
+}

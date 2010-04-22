@@ -169,6 +169,38 @@ static heap_header* make_vm_string(script_state *st, const char* str) {
   return p;
 }
 
+static heap_header* make_vm_string(script_state *st, const std::string str) {
+  if(str.length() > 0x100000) {
+    st->scram_flag = VM_SCRAM_MEM_LIMIT; return NULL;
+  }
+  int len = str.length();
+  heap_header* p = script_alloc(st, len, VM_TYPE_STR);
+  if(p != NULL) {
+    memcpy(script_getptr(p), str.c_str(), len);
+  }
+  return p;
+}
+
+static heap_header* make_num_on_heap(script_state *st, int32_t *val,
+					int vtype, int count) {
+  heap_header* p = script_alloc(st, 4*count, vtype);
+  if(p != NULL) {
+    memcpy(script_getptr(p), val, count*sizeof(int32_t));
+  }
+  return p;
+}
+
+static heap_header* make_single_list(script_state *st, heap_header* item) {
+  if(item == NULL) return NULL;
+  heap_header* list = script_alloc_list(st, 1);
+  if(list != NULL) {
+    *(heap_header**)script_getptr(list) = item;
+  } else {
+    heap_ref_decr(item, st);
+  }
+  return list;
+}
+
 void vm_free_script(script_state * st) {
   if(st->stack_start != NULL) {
     // FIXME - need to find pointers on stack and free them...
@@ -951,6 +983,51 @@ static heap_header *list_2_str(heap_header* list, int32_t pos, script_state *st)
   heap_ref_decr(list, st); return ret;
 }
 
+static heap_header *cast_list2s(heap_header* list, script_state *st) {
+  heap_header **items = (heap_header**)script_getptr(list);
+  uint32_t count = list->len; char buffer[60];
+  std::string str;
+  for(uint32_t i = 0; i < count; i++) {
+    heap_header *item = items[i];
+    switch(heap_entry_vtype(item)) {
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+      str.append((char*)script_getptr(item), item->len);
+      break;
+    case VM_TYPE_INT:
+      snprintf(buffer, 60, "%i", (int)*(int32_t*)script_getptr(item));
+      str.append(buffer);
+      break;
+    case VM_TYPE_FLOAT:
+      snprintf(buffer, 60, "%f", *(float*)script_getptr(item));
+      str.append(buffer);
+      break;
+    case VM_TYPE_VECT:
+      {
+	float* vect = (float*)script_getptr(item);
+	snprintf(buffer, 60, "<%.5f, %.5f, %.5f>",
+		 vect[0], vect[1], vect[2]);
+	str.append(buffer);
+	break;
+      }
+    case VM_TYPE_ROT:
+      {
+	float* vect = (float*)script_getptr(item);
+	snprintf(buffer, 60, "<%.5f, %.5f, %.5f, %.5f>",
+		 vect[0], vect[1], vect[2], vect[3]);
+	str.append(buffer);
+	break;
+      }
+    default:
+      str.append("[UNHANDLED]");
+      break;
+    }
+  }
+  heap_ref_decr(list, st);
+  
+  return make_vm_string(st, str);
+}
+
 static void step_script(script_state* st, int num_steps) {
   uint16_t* bytecode = st->patched_bytecode;
   int32_t* stack_top = st->stack_top;
@@ -1226,6 +1303,14 @@ static void step_script(script_state* st, int num_steps) {
 	  heap_ref_decr(p, st); 
 	  break;
 	}
+      case INSN_CAST_L2B: // FIXME - merge code with CAST_S2B above?
+	{
+	   heap_header *p = get_stk_ptr(stack_top+1);
+	   stack_top += ptr_stack_sz() - 1;
+	   stack_top[1] = (p->len != 0);
+	   heap_ref_decr(p, st); 
+	   break;
+	}
       case INSN_CAST_V2B:
 	{
 	  int truth = *(float*)(stack_top+1) != 0.0f ||
@@ -1274,8 +1359,10 @@ static void step_script(script_state* st, int num_steps) {
 	// case INSN_ATAN2: todo!
       case INSN_CAST_V2S:
 	{
-	  char buf[60]; snprintf(buf, 60, "<%f,%f,%f>", *(float*)(stack_top+1),
-				*(float*)(stack_top+2), *(float*)(stack_top+3));
+	  char buf[60]; 
+	  snprintf(buf, 60, "<%.5f, %.5f, %.5f>",
+		   *(float*)(stack_top+1), *(float*)(stack_top+2),
+		   *(float*)(stack_top+3));
 	  stack_top += 3;
 	  stack_top -= ptr_stack_sz();
 	  heap_header *p = make_vm_string(st, buf);  
@@ -1285,9 +1372,10 @@ static void step_script(script_state* st, int num_steps) {
 	}
       case INSN_CAST_R2S:
 	{
-	  char buf[60]; snprintf(buf, 60, "<%f,%f,%f,%f>", *(float*)(stack_top+1),
-				 *(float*)(stack_top+2), *(float*)(stack_top+3),
-				 *(float*)(stack_top+4));
+	  char buf[60]; 
+	  snprintf(buf, 60, "<%.5f, %.5f, %.5f, %.5f>",
+		   *(float*)(stack_top+1), *(float*)(stack_top+2),
+		   *(float*)(stack_top+3), *(float*)(stack_top+4));
 	  stack_top += 4;
 	  stack_top -= ptr_stack_sz();
 	  heap_header *p = make_vm_string(st, buf);  
@@ -1314,7 +1402,15 @@ static void step_script(script_state* st, int num_steps) {
 	  + *(float*)(stack_top+6) * *(float*)(stack_top+3);
 	stack_top += 5;
 	break;
-      // case INSN_CROSS_VV: // TODO!
+      case INSN_CROSS_VV:
+	{
+	  // again, a bit of a hack...
+	  caj_cross_vect3((caj_vector3*)(stack_top+4),
+			  (caj_vector3*)(stack_top+4),
+			  (caj_vector3*)(stack_top+1));
+	  stack_top += 3;
+	  break;
+	}
       case INSN_MUL_VF:
 	// okay, this is easy since the vector is pushed first
 	*(float*)(stack_top+2) *= *(float*)(stack_top+1);
@@ -1400,7 +1496,7 @@ static void step_script(script_state* st, int num_steps) {
 	{
 	  heap_header *p = get_stk_ptr(stack_top+1);
 	  stack_top += ptr_stack_sz()-1;
-	  stack_top[1] = p->len; heap_ref_decr(p, st); 
+	  stack_top[1] = p->len; heap_ref_decr(p, st);
 	  break;
 	}
 	// FIXME - TODO rest of list instructions
@@ -1411,7 +1507,96 @@ static void step_script(script_state* st, int num_steps) {
 	  if(st->scram_flag != 0) goto abort_exec;
 	  break;
 	}
-      // FIXME - implement CAST_LIST2S
+      case INSN_CAST_LIST2S:
+	{
+	   heap_header *list = get_stk_ptr(stack_top+1);
+	   heap_header *str = cast_list2s(list, st);
+	   put_stk_ptr(stack_top+1, str);
+	   // cast_list2s handles refcounting.
+	   if(list == NULL) goto abort_exec;
+	   break;
+	}
+      case INSN_CAST_I2L:
+	{
+	  heap_header *p = make_num_on_heap(st, stack_top+1, 1, VM_TYPE_INT);
+	  heap_header *list = make_single_list(st, p);
+	  stack_top -= ptr_stack_sz() - 1;
+	  put_stk_ptr(stack_top+1, list);
+	  if(list == NULL) goto abort_exec;
+	  break;
+	}
+      case INSN_CAST_F2L:
+	{
+	  heap_header *p = make_num_on_heap(st, stack_top+1, 1, VM_TYPE_FLOAT);
+	  heap_header *list = make_single_list(st, p);
+	  stack_top -= ptr_stack_sz() - 1;
+	  put_stk_ptr(stack_top+1, list);
+	  if(list == NULL) goto abort_exec;
+	  break;
+	}
+      case INSN_CAST_S2L:
+      case INSN_CAST_K2L:
+	{
+	  // FIXME - we need to correct the item type here!
+
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  heap_header *list = make_single_list(st, p);
+	  put_stk_ptr(stack_top+1, list);
+	  if(list == NULL) {
+	    goto abort_exec;
+	  }
+	  break;
+	}
+      case INSN_CAST_S2I:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-1;
+	  uint32_t len = p->len; if(len > 59) len = 59;
+	  char buffer[60]; 
+	  memcpy(buffer, script_getptr(p), len); buffer[len] = 0;
+	  stack_top[1] = strtol(buffer, NULL, 0);
+	  heap_ref_decr(p, st);
+	  break;
+	}
+      case INSN_CAST_S2F:
+	{
+	  heap_header *p = get_stk_ptr(stack_top+1);
+	  stack_top += ptr_stack_sz()-1;
+	  uint32_t len = p->len; if(len > 99) len = 99;
+	  char buffer[100]; 
+	  memcpy(buffer, script_getptr(p), len); buffer[len] = 0;
+	  ((float*)stack_top)[1] = strtof(buffer, NULL);
+	  heap_ref_decr(p, st);
+	  break;
+	}
+	// TODO: implement CAST_S2V and CAST_S2R
+      case INSN_ADD_LL:
+	{
+	  heap_header *p2 = get_stk_ptr(stack_top+1); 
+	  heap_header *p1 = get_stk_ptr(stack_top+1+ptr_stack_sz()); 
+	  stack_top += ptr_stack_sz();
+	  heap_header *pnew = script_alloc_list(st, p1->len+p2->len);
+	  if(pnew != NULL) {
+	    heap_header **new_items = (heap_header**)script_getptr(pnew);
+	    heap_header **items = (heap_header**)script_getptr(p1);
+	    for(uint32_t i = 0; i < p1->len; i++) {
+	      heap_header *item = items[i];
+	      heap_ref_incr(item); 
+	      new_items[i] = item;
+	    }
+	    items = (heap_header**)script_getptr(p2);
+	    for(uint32_t i = 0; i < p2->len; i++) {
+	      heap_header *item = items[i];
+	      heap_ref_incr(item); 
+	      new_items[p1->len+i] = item;
+	    }
+	  }
+	  heap_ref_decr(p1,st); heap_ref_decr(p2,st); 
+	  put_stk_ptr(stack_top+1,pnew);
+	  if(pnew == NULL) goto abort_exec; 
+	  break;
+	}
+	// FIXME - TODO - bunch of vector ops
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
