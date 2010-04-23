@@ -1548,7 +1548,8 @@ static gboolean script_poll_timer(gpointer data) {
       break;
     case CAJ_SMSG_EVMASK:
       if(msg->scr->prim != NULL) {
-	printf("DEBUG: got new script evmask in main thread\n");
+	printf("DEBUG: got new script evmask 0x%x for %p in main thread\n",
+	       (unsigned)msg->u.evmask, msg->scr);
 	msg->scr->evmask = msg->u.evmask;
 	world_set_script_evmask(msg->scr->simscr->sim, msg->scr->prim, 
 				msg->scr, msg->u.evmask);
