@@ -357,7 +357,8 @@ public:
 	  for(heap_count = 0; heap_count < hcount;) {
 	    heap[heap_count].vtype = read_u8();
 	    if(heap[heap_count].vtype > VM_TYPE_MAX) { 
-	      printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+	      printf("SCRIPT LOAD ERR: bad vtype %i on heap\n",
+		     (int)heap[heap_count].vtype); return NULL;
 	    }
 	    uint32_t it_len = heap[heap_count].len = read_u32();
 	    heap_header *p;
@@ -506,7 +507,8 @@ public:
 	  for(unsigned int i = 0; i < gcnt; i++) {
 	    st->funcs[i].ret_type = read_u8(); //(funcs[i].ret_type);
 	    if(st->funcs[i].ret_type > VM_TYPE_MAX) { 
-	      printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+	      printf("SCRIPT LOAD ERR: bad vtype %i as ret type\n",
+		     (int)st->funcs[i].ret_type); return NULL;
 	    }
 
 	    int arg_count = st->funcs[i].arg_count = read_u8();
@@ -517,7 +519,8 @@ public:
 	    for(int j = 0; j < arg_count; j++) {
 	      uint8_t arg_type = st->funcs[i].arg_types[j] = read_u8();
 	      if(arg_type > VM_TYPE_MAX) { 
-		printf("SCRIPT LOAD ERR: bad vtype\n"); return NULL;
+		printf("SCRIPT LOAD ERR: bad vtyp %i of argument\n",
+		       (int)arg_type); return NULL;
 	      }
 	      st->funcs[i].frame_sz += vm_vtype_size(arg_type);
 	    }
@@ -583,26 +586,69 @@ script_state* vm_load_script(void* data, int data_len) {
   return loader.load((unsigned char*)data, data_len);
 }
 
+static uint32_t serialise_heap_int(vm_serialiser &serial, heap_header* hptr,
+				   unsigned count,
+				   std::vector<unsigned char*> &tmpbufs) {
+  int32_t *val = (int32_t*)script_getptr(hptr);
+  unsigned char *buf = (unsigned char*)malloc(4*count);
+  assert(hptr->len == 4*count);
+
+  for(int i = 0; i < count; i++) {
+    serial.int_to_bin(val[i], buf+(4*i));
+  }
+  tmpbufs.push_back(buf);
+  return serial.add_heap_entry(heap_entry_vtype(hptr), 4*count, buf);
+}
+
+static uint32_t serialise_heap_item(std::map<heap_header*,uint32_t> &heap_map,
+				    vm_serialiser &serial, heap_header* hptr,
+				    std::vector<unsigned char*> &tmpbufs) {
+  std::map<heap_header*,uint32_t>::iterator iter = 
+      heap_map.find(hptr);
+  uint8_t vtype = heap_entry_vtype(hptr);
+  if(iter != heap_map.end()) {
+    return iter->second;
+  } else if(vtype == VM_TYPE_STR || vtype == VM_TYPE_KEY) {
+    uint32_t hidx = serial.add_heap_entry(vtype, hptr->len,
+					  script_getptr(hptr));
+    heap_map[hptr] = hidx; return hidx;
+  } else if(vtype == VM_TYPE_INT || vtype == VM_TYPE_FLOAT) {
+    uint32_t hidx = serialise_heap_int(serial, hptr, 1, tmpbufs);
+    heap_map[hptr] = hidx; return hidx;
+  } else if(vtype == VM_TYPE_VECT) {
+    uint32_t hidx = serialise_heap_int(serial, hptr, 3, tmpbufs);
+    heap_map[hptr] = hidx; return hidx;
+  } else if(vtype == VM_TYPE_ROT) {
+    uint32_t hidx = serialise_heap_int(serial, hptr, 4, tmpbufs);
+    heap_map[hptr] = hidx; return hidx;
+  } else if(vtype == VM_TYPE_LIST) {
+    heap_header **items = (heap_header**)script_getptr(hptr);
+    unsigned char *buf = (unsigned char*)calloc(hptr->len, 4);
+    for(uint32_t i = 0; i < hptr->len; i++) {
+      uint32_t item_idx = serialise_heap_item(heap_map, serial, 
+					      items[i], tmpbufs);
+      serial.int_to_bin(item_idx, buf+(4*i));
+    }
+    uint32_t hidx = serial.add_heap_entry(vtype, hptr->len*4, buf);
+    tmpbufs.push_back(buf);
+    heap_map[hptr] = hidx; return hidx;
+  } else {
+    printf("FATAL ERROR: unhandled heap item type %i\n", vtype);
+    // FIXME
+    abort(); return 0;
+  }
+}
+
 // FIXME - really need to serialise stack too...
 unsigned char* vm_serialise_script(script_state *st, size_t *len) {
   if(st->scram_flag != 0) {
     *len = 0; return NULL;
   }
-  vm_serialiser serial; 
+  vm_serialiser serial; std::vector<unsigned char*> tmpbufs;
   std::map<heap_header*,uint32_t> heap_map;
   uint32_t *gptrs = new uint32_t[st->num_gptrs];
   for(unsigned i = 0; i < st->num_gptrs; i++) {
-    std::map<heap_header*,uint32_t>::iterator iter = 
-      heap_map.find(st->gptrs[i]);
-    if(iter == heap_map.end()) {
-      heap_header* hptr = st->gptrs[i];
-      uint32_t hidx = serial.add_heap_entry(heap_entry_vtype(hptr),
-					    hptr->len,
-					    script_getptr(hptr));
-      gptrs[i] = hidx; heap_map[hptr] = hidx;
-    } else {
-      gptrs[i] = iter->second;
-    }
+    gptrs[i] = serialise_heap_item(heap_map, serial, st->gptrs[i], tmpbufs);
   }
 
   serial.set_bytecode(st->bytecode, st->bytecode_len);
@@ -612,6 +658,10 @@ unsigned char* vm_serialise_script(script_state *st, size_t *len) {
     serial.add_func(&st->funcs[i]);
   }
   unsigned char *ret = serial.serialise(len);
+  for(std::vector<unsigned char*>::iterator iter = tmpbufs.begin();
+      iter != tmpbufs.end(); iter++) {
+    free(*iter);
+  }
   delete[] gptrs; return ret;
 }
 

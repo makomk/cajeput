@@ -400,24 +400,13 @@ public:
 
   void list_add_int(int32_t val) {
     unsigned char *data = (unsigned char*)malloc(4);
-    data[0] = (val >> 24) & 0xff;
-    data[1] = (val >> 16) & 0xff;
-    data[2] = (val >> 8) & 0xff;
-    data[3] = (val) & 0xff;
+    serial.int_to_bin(val, data);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_INT,4,data));
-  }
-
-  void float_to_bin(float val, unsigned char *data) {
-    union { int i; float f; } u; u.f = val;
-    data[0] = (u.i >> 24) & 0xff;
-    data[1] = (u.i >> 16) & 0xff;
-    data[2] = (u.i >> 8) & 0xff;
-    data[3] = (u.i) & 0xff;    
   }
 
   void list_add_float(float val) {
     unsigned char *data = (unsigned char*)malloc(4);
-    float_to_bin(val, data);
+    serial.float_to_bin(val, data);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_FLOAT,4,data));
   }
 
@@ -425,9 +414,9 @@ public:
   void list_add_vect(float *val) {
     unsigned char *data = (unsigned char*)malloc(12);
     // FIXME - ordering?
-    float_to_bin(val[0], data+0);
-    float_to_bin(val[1], data+4);
-    float_to_bin(val[2], data+8);
+    serial.float_to_bin(val[0], data+0);
+    serial.float_to_bin(val[1], data+4);
+    serial.float_to_bin(val[2], data+8);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_VECT,12,data));
      
   }
@@ -435,10 +424,10 @@ public:
   void list_add_rot(float *val) {
     unsigned char *data = (unsigned char*)malloc(16);
     // FIXME - ordering?
-    float_to_bin(val[0], data+0);
-    float_to_bin(val[1], data+4);
-    float_to_bin(val[2], data+8);
-    float_to_bin(val[3], data+12);
+    serial.float_to_bin(val[0], data+0);
+    serial.float_to_bin(val[1], data+4);
+    serial.float_to_bin(val[2], data+8);
+    serial.float_to_bin(val[3], data+12);
     list_build.push_back(serial.add_heap_entry(VM_TYPE_ROT,16,data));
   }
 

@@ -272,11 +272,28 @@ class vm_serialiser {
     data[data_len++] = (val) & 0xff;
   }
 
+
  public:
  vm_serialiser() : data(NULL), bytecode(NULL), gvals(NULL), gptrs(NULL),
     sect_start(0) {
      
   }
+
+  static void int_to_bin(int32_t val, unsigned char *data) {
+    data[0] = (val >> 24) & 0xff;
+    data[1] = (val >> 16) & 0xff;
+    data[2] = (val >> 8) & 0xff;
+    data[3] = (val) & 0xff;
+  }
+
+  static void float_to_bin(float val, unsigned char *data) {
+    union { int i; float f; } u; u.f = val;
+    data[0] = (u.i >> 24) & 0xff;
+    data[1] = (u.i >> 16) & 0xff;
+    data[2] = (u.i >> 8) & 0xff;
+    data[3] = (u.i) & 0xff;    
+  }
+
 
   uint32_t add_heap_entry(uint8_t vtype, uint32_t len, void* data) {
     vm_heap_entry entry; uint32_t addr;
