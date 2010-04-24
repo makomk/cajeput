@@ -278,9 +278,9 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
     if(control_flags & AGENT_CONTROL_AT_NEG)
       velocity.x =  is_flying ? -4.0 : -1.5;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
-      velocity.y = 1.5;
+      velocity.y = is_flying ? 4.0 : 1.5;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
-      velocity.y = -1.5;
+      velocity.y = is_flying ? -4.0 : -1.5;
     if(control_flags & AGENT_CONTROL_UP_POS)
       velocity.z = 4.0;
     if(control_flags & AGENT_CONTROL_UP_NEG)
@@ -295,7 +295,8 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
       // foot plane, the viewer takes care of it for us. I eventually managed
       // to figure out why the OpenSim code works, though, and it's screwy.
 
-      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG)) {
+      if(control_flags & (AGENT_CONTROL_AT_POS|AGENT_CONTROL_AT_NEG|
+			  AGENT_CONTROL_LEFT_POS|AGENT_CONTROL_LEFT_NEG)) {
 	set_default_anim(ctx, fly_anim);
       } else if(control_flags & AGENT_CONTROL_UP_POS) {
 	set_default_anim(ctx, hover_up_anim);
