@@ -230,7 +230,7 @@ static btCollisionShape* shape_from_obj_part(struct world_obj *obj) {
 	 prim->path_shear_x == 0 && prim->path_shear_y == 0 &&
 	 prim->path_begin == 0 && prim->path_end == 0) {
 	// in theory, we can handle non-zero PathBegin/End here, but we'd need an offset
-	printf("DEBUG: got a box prim in physics\n");
+	//printf("DEBUG: got a box prim in physics\n");
 	return new btBoxShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
       } else if((prim->profile_curve & PROFILE_SHAPE_MASK) == PROFILE_SHAPE_CIRCLE &&
 		prim->path_scale_x == 100 && prim->path_scale_y == 100 &&
@@ -238,10 +238,10 @@ static btCollisionShape* shape_from_obj_part(struct world_obj *obj) {
 		prim->path_begin == 0 && prim->path_end == 0 && 
 		prim->ob.scale.x == prim->ob.scale.z) {
 	// has to be a perfect cylinder for this to work
-	printf("DEBUG: got a cylinder prim in physics\n");
+	//printf("DEBUG: got a cylinder prim in physics\n");
 	return new btCylinderShape(btVector3(obj->scale.x/2.0f, obj->scale.z/2.0f, obj->scale.y/2.0f));
       } else {
-	printf("DEBUG: got a convex boxlike prim in physics\n");
+	//printf("DEBUG: got a convex boxlike prim in physics\n");
 	switch(prim->profile_curve & PROFILE_SHAPE_MASK) {
 	case PROFILE_SHAPE_SQUARE:
 	  return make_boxlike_shape(prim, square_profile, 4);
@@ -272,7 +272,7 @@ static btCollisionShape* shape_from_obj_part(struct world_obj *obj) {
 	      prim->path_twist == 0 && prim->path_twist_begin == 0) {
       if(prim->ob.scale.x == prim->ob.scale.y && 
 	 prim->ob.scale.x == prim->ob.scale.z) {
-	printf("DEBUG: got a sphere prim in physics\n");
+	//printf("DEBUG: got a sphere prim in physics\n");
 	return new btSphereShape(obj->scale.x/2.0f);
       } else {
 	// FIXME - implement this. How, though?

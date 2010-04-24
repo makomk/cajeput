@@ -682,7 +682,7 @@ static void revivify_prim(simulator_ctx *sim, primitive_obj *prim,
   
   revivify_prim_real(prim, version);
   world_insert_obj(sim, &prim->ob);
-  printf("DEBUG: loaded a v%i prim from saved state\n", version);
+  //printf("DEBUG: loaded a v%i prim from saved state\n", version);
 }
 
 void world_int_dump_prims(simulator_ctx *sim) {
