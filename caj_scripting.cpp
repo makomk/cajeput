@@ -949,7 +949,8 @@ static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
   }
   for(int32_t i = 0; i < count; i++) free(button_strs[i]);
  out:
-  free(msg); rpc_func_return(st, scr, func_id);
+  free(avatar_id); free(msg);
+  rpc_func_return(st, scr, func_id);
 }
 RPC_TO_MAIN(llDialog, 1.0);
 
