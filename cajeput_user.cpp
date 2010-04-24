@@ -276,7 +276,7 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
     if(control_flags & AGENT_CONTROL_AT_POS)
       velocity.x = is_flying ? 6.0 : (is_running ? 4.0 : 2.0);
     if(control_flags & AGENT_CONTROL_AT_NEG)
-      velocity.x =  is_flying ? 4.0 : -1.5;
+      velocity.x =  is_flying ? -4.0 : -1.5;
     if(control_flags & AGENT_CONTROL_LEFT_POS)
       velocity.y = 1.5;
     if(control_flags & AGENT_CONTROL_LEFT_NEG)
