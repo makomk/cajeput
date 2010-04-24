@@ -30,6 +30,7 @@
 //#define DEBUG_TRACEVALS
 
 typedef uint32_t vm_traceval;
+typedef std::vector<uint8_t> traceval_stack;
 
 #define TRACEVAL_COUNT(v) ( ((v) >> 24) & 0xff)
 #define TRACEVAL_IP(v) ( (v) & 0xffffff)
@@ -88,6 +89,8 @@ struct script_state {
 };
 
 static int verify_code(script_state *st);
+static void script_calc_stack(script_state *st, traceval_stack &stack);
+static void unwind_stack(script_state * st);
 
 static inline int ptr_stack_sz(void) {
   if(sizeof(uint32_t) == sizeof(void*)) 
@@ -210,10 +213,10 @@ static heap_header* make_single_list(script_state *st, heap_header* item) {
   return list;
 }
 
+
 void vm_free_script(script_state * st) {
-  if(st->stack_start != NULL) {
-    // FIXME - need to find pointers on stack and free them...
-    printf("WARNING: vm_free_script doesn't free script stacks right yet\n");
+  if(st->stack_start != NULL && st->ip != 0) {
+    unwind_stack(st);
   }
   for(unsigned i = 0; i < st->num_gptrs; i++) {
     heap_header *p = st->gptrs[i]; heap_ref_decr(p, st);
@@ -603,7 +606,7 @@ static uint32_t serialise_heap_int(vm_serialiser &serial, heap_header* hptr,
   unsigned char *buf = (unsigned char*)malloc(4*count);
   assert(hptr->len == 4*count);
 
-  for(int i = 0; i < count; i++) {
+  for(unsigned i = 0; i < count; i++) {
     serial.int_to_bin(val[i], buf+(4*i));
   }
   tmpbufs.push_back(buf);
@@ -878,6 +881,61 @@ static void traceval_to_stack(vm_traceval cur, script_state *st,
   while(!args.empty()) {
     stack.push_back(args.back()); args.pop_back();
   }
+}
+
+static void calc_stack_curop(traceval_stack &stack, uint8_t vtype) {
+  switch(vtype) {
+  case VM_TYPE_NONE: 
+    break;
+  case VM_TYPE_INT:
+  case VM_TYPE_FLOAT:
+  case VM_TYPE_KEY:
+  case VM_TYPE_STR:
+  case VM_TYPE_LIST:
+  case VM_TYPE_RET_ADDR:
+    stack.push_back(vtype); break;
+  case VM_TYPE_ROT:
+    stack.push_back(VM_TYPE_FLOAT);
+    /* fall through */
+  case VM_TYPE_VECT:
+    stack.push_back(VM_TYPE_FLOAT);
+    stack.push_back(VM_TYPE_FLOAT);
+    stack.push_back(VM_TYPE_FLOAT);
+    break;
+  default:
+    printf("FATAL: unhandled type %i in  calc_stack_curop\n", vtype);
+    fflush(stdout); abort();
+  }
+}
+
+static void script_calc_stack(script_state *st, traceval_stack &stack) {
+  uint16_t insn = st->bytecode[st->ip];
+  switch(GET_ICLASS(insn)) {
+  case ICLASS_NORMAL:
+    calc_stack_curop(stack, vm_insns[GET_IVAL(insn)].arg2);
+    calc_stack_curop(stack, vm_insns[GET_IVAL(insn)].arg1);
+    break;
+  case ICLASS_RDL_I:
+  case ICLASS_RDG_I:
+  case ICLASS_RDL_P:
+  case ICLASS_RDG_P:
+    break;
+  case ICLASS_WRL_I:
+  case ICLASS_WRG_I:
+    stack.push_back(VM_TYPE_INT); break;
+  case ICLASS_WRL_P:
+  case ICLASS_WRG_P:
+    stack.push_back(VM_TYPE_PTR); break;
+  case ICLASS_JUMP:
+  case ICLASS_CALL:
+    break;
+  default:
+    printf("FATAL ERROR: unhandled iclass %i in traceval_to_stack\n",
+	   (int)GET_ICLASS(insn));
+    abort(); return;
+  }
+
+  traceval_to_stack(st->tracevals[st->ip], st, st->ip, stack);
 }
 
 static int verify_pass2(unsigned char * visited, uint16_t *bytecode, 
@@ -1251,6 +1309,36 @@ static heap_header* get_stk_ptr(int32_t *tloc) {
   } else if(sizeof(heap_header*) == 2*sizeof(uint32_t)) {
     assert(sizeof(u) == sizeof(heap_header*));
     u.v[0] = loc[0]; u.v[1] = loc[1]; return u.p;
+  }
+}
+
+static void unwind_stack(script_state * st) {
+  traceval_stack stack;
+  while(st->ip != 0) {
+    stack.clear();
+    script_calc_stack(st, stack);
+    for(traceval_stack::iterator iter = stack.begin(); 
+	iter != stack.end(); iter++) {
+      switch(*iter) {
+      case VM_TYPE_INT:
+      case VM_TYPE_FLOAT:
+      case VM_TYPE_RET_ADDR:
+	st->stack_top++; break;
+      case VM_TYPE_STR:
+      case VM_TYPE_KEY:
+      case VM_TYPE_LIST:
+      case VM_TYPE_PTR:
+	heap_ref_decr(get_stk_ptr(st->stack_top+1), st); 
+	st->stack_top += ptr_stack_sz();
+	break;
+      default:
+	printf("FATAL: unhandled type %i in unwind_stack\n", (int)*iter);
+	fflush(stdout); abort(); return;
+      }
+    }
+
+    st->ip = *(++st->stack_top); 
+    printf("DEBUG: unwind_stack: new ip = 0x%x\n", (unsigned)st->ip);
   }
 }
 
@@ -2045,6 +2133,7 @@ static void step_script(script_state* st, int num_steps) {
   st->ip = ip;
   return; // FIXME;
  abort_exec:
+  st->stack_top = stack_top; st->ip = ip;
   printf("DEBUG: aborting code execution\n");
   if(st->scram_flag == 0) st->scram_flag = VM_SCRAM_ERR;
 }

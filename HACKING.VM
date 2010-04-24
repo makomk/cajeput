@@ -16,7 +16,7 @@ The traceval doesn't describe the contents of the stack directly; instead it con
  - the number of stack items pushed by that instruction that are still on
    the stack.
 
-Because the stack is accessed in a strictly last-in, first-out order, this is enough to extract the entire stack contents.
+Because the stack is accessed in a strictly last-in, first-out order, this is enough to reconstruct the entire stack contents.
 
 For example, take the following code:
 
