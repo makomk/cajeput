@@ -27,6 +27,13 @@
 #include <stdarg.h>
 #include <math.h>
 
+//#define DEBUG_TRACEVALS
+
+typedef uint32_t vm_traceval;
+
+#define TRACEVAL_COUNT(v) ( ((v) >> 24) & 0xff)
+#define TRACEVAL_IP(v) ( (v) & 0xffffff)
+
 struct heap_header {
   uint32_t refcnt;
   uint32_t len;
@@ -67,6 +74,7 @@ struct script_state {
   uint16_t num_funcs;
   uint16_t* bytecode;
   uint16_t* patched_bytecode; // FIXME - only needed on 64-bit systems
+  vm_traceval* tracevals;
   int32_t *stack_start, *stack_top;
   int32_t* gvals;
   heap_header** gptrs;
@@ -95,6 +103,7 @@ static script_state *new_script(void) {
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
   st->bytecode = st->patched_bytecode = NULL; 
+  st->tracevals = NULL;
   st->nfuncs = NULL;
   st->stack_start = st->stack_top = NULL;
   st->gvals = NULL; st->gptr_types = NULL;
@@ -212,6 +221,7 @@ void vm_free_script(script_state * st) {
   delete[] st->gvals; delete[] st->gptrs; delete[] st->gptr_types;
   if(st->patched_bytecode != st->bytecode) delete[] st->patched_bytecode;
   delete[] st->bytecode; // FIXME - will want to add bytecode sharing
+  delete[] st->tracevals;
 
   for(unsigned i = 0; i < st->num_funcs; i++) {
     delete[] st->funcs[i].arg_types; delete[] st->funcs[i].name;
@@ -721,20 +731,171 @@ static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function
 }
 
 struct pass2_state {
-  uint32_t ip;
+  uint32_t ip; vm_traceval trace;
   struct asm_verify* verify;
 
-  pass2_state(uint32_t ipstart, struct asm_verify* v) : ip(ipstart), verify(v) {
+  pass2_state(uint32_t ipstart, vm_traceval trace_now, struct asm_verify* v) : ip(ipstart), trace(trace_now), verify(v) {
   }
 };
 
-static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function *func,
-			script_state *st) {
+static inline vm_traceval build_traceval(uint32_t ip, int count) {
+  assert(ip < 0xffffff); assert(count < 256);
+  return ((uint32_t)count<<24) | ip;
+}
+
+static int traceval_type_to_count(uint8_t type) {
+  switch(type) {
+  case VM_TYPE_NONE: return 0;
+  case VM_TYPE_INT:
+  case VM_TYPE_FLOAT:
+  case VM_TYPE_STR:
+  case VM_TYPE_KEY:
+  case VM_TYPE_LIST:
+  case VM_TYPE_PTR:
+  case VM_TYPE_RET_ADDR:
+    return 1;
+  case VM_TYPE_VECT:
+    return 3;
+  case VM_TYPE_ROT:
+    return 4;
+  default:
+    printf("FATAL ERROR: unhandled type %i in traceval_type_to_count\n", type);
+    fflush(stdout);
+    assert(0); abort(); return 0;
+  }
+
+}
+
+static vm_traceval traceval_pop(vm_traceval cur, uint8_t type, 
+				script_state *st) {
+  int count = traceval_type_to_count(type);
+
+  while(count > 0) {
+    int tv_num = TRACEVAL_COUNT(cur);
+    uint32_t tv_ip = TRACEVAL_IP(cur);
+    count -= tv_num;
+    if(count < 0) {
+      return build_traceval(tv_ip, -count);
+    }
+    if(tv_ip == 0 && count == 0)
+      return build_traceval(0, 0);
+    assert(tv_ip > 0);
+    cur = st->tracevals[tv_ip];
+  }
+  return cur;
+}
+
+typedef std::vector<uint8_t> traceval_stack;
+
+static void traceval_to_stack(vm_traceval cur, script_state *st,
+			      uint32_t ip, traceval_stack &stack) {
+  for(;;) {
+    int tv_num = TRACEVAL_COUNT(cur);
+    uint32_t tv_ip = TRACEVAL_IP(cur);
+    if(tv_ip == 0) break;
+    assert(tv_num > 0);
+
+    uint16_t insn = st->bytecode[tv_ip];
+    uint8_t vtype;
+    switch(GET_ICLASS(insn)) {
+    case ICLASS_NORMAL:
+      vtype = vm_insns[GET_IVAL(insn)].ret;
+      break;
+    case ICLASS_RDL_I:
+    case ICLASS_RDG_I:
+      vtype = VM_TYPE_INT; break;
+    case ICLASS_RDL_P:
+    case ICLASS_RDG_P:
+      vtype = VM_TYPE_PTR; break;
+    case ICLASS_WRL_I:
+    case ICLASS_WRL_P:
+    case ICLASS_WRG_I:
+    case ICLASS_WRG_P:
+    case ICLASS_JUMP:
+    case ICLASS_CALL:
+      vtype = VM_TYPE_NONE; break;
+    default:
+      printf("FATAL ERROR: unhandled iclass %i in traceval_to_stack\n",
+	     (int)GET_ICLASS(insn));
+      abort(); return;
+    }
+
+    assert(vtype != VM_TYPE_NONE);
+    if(vtype == VM_TYPE_VECT || vtype == VM_TYPE_ROT)
+      vtype = VM_TYPE_FLOAT;
+    for(int i = 0; i < tv_num; i++)
+      stack.push_back(vtype);
+
+    cur = st->tracevals[tv_ip];
+  }
+
+  vm_function *func = NULL;
+  for(int i = 0; i < st->num_funcs; i++) {
+    if(st->funcs[i].insn_ptr == 0) continue;
+    if(st->funcs[i].insn_ptr <= ip && 
+       ip < st->funcs[i].insn_end) {
+      func = &st->funcs[i]; 
+    }
+  }
+  assert(func != NULL);
+
+  traceval_stack args;
+  int count = TRACEVAL_COUNT(cur);
+#if 0
+  for(uint8_t *arg_type = func->arg_types+func->arg_count-1;
+      arg_type >= func->arg_types && count > 0; arg_type--) {
+#else
+    for(int argno = 0; argno < func->arg_count && count > 0; argno++) {
+      uint8_t *arg_type = func->arg_types+argno;
+#endif
+    switch(*arg_type) {
+    case VM_TYPE_INT:
+    case VM_TYPE_FLOAT:
+    case VM_TYPE_STR:
+    case VM_TYPE_KEY:
+    case VM_TYPE_LIST:
+      args.push_back(*arg_type); count--;
+      break;
+    case VM_TYPE_ROT:
+      if(count > 0) { args.push_back(VM_TYPE_FLOAT); count--; }
+      /* fall through */
+    case VM_TYPE_VECT:
+      if(count > 0) { args.push_back(VM_TYPE_FLOAT); count--; }
+      if(count > 0) { args.push_back(VM_TYPE_FLOAT); count--; }
+      if(count > 0) { args.push_back(VM_TYPE_FLOAT); count--; }
+      break;
+    default:
+      printf("FATAL ERROR: unhandled arg type %i in traceval_to_stack\n",
+	     *arg_type);
+      abort(); break;
+    }
+  }
+  if(count > 0) {
+    printf("FATAL ERROR: excess args %i in traceval_to_stack\n",
+	   count);
+    abort();
+  }
+  while(!args.empty()) {
+    stack.push_back(args.back()); args.pop_back();
+  }
+}
+
+static int verify_pass2(unsigned char * visited, uint16_t *bytecode, 
+			vm_function *func, script_state *st) {
   std::vector<pass2_state> pending; const char* err = NULL;
   std::map<uint32_t,asm_verify*> done;
   {
+    int arg_size_tv = 0;
+    for(int i = 0; i < func->arg_count; i++) {
+      arg_size_tv += traceval_type_to_count(func->arg_types[i]);
+    }
+    if(arg_size_tv > 255) {
+      err = "Arguments too big for traceval code"; goto out;
+    }
+
     asm_verify* verify = new asm_verify(err, func, ptr_stack_sz());
-    pending.push_back(pass2_state(func->insn_ptr, verify));
+    pending.push_back(pass2_state(func->insn_ptr, 
+				  build_traceval(0, arg_size_tv), verify));
   }
   
   func->max_stack_use = 0;
@@ -761,7 +922,10 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 
 
       uint16_t insn = bytecode[vs.ip];
-      // printf("DEBUG: verifying 0x%04x @ %i\n", (unsigned)insn, (int)vs.ip);
+#ifdef DEBUG_TRACEVALS
+      printf("DEBUG: verifying 0x%04x @ %i, trace=0x%lx\n",
+	     (unsigned)insn, (int)vs.ip, (unsigned long)vs.trace);
+#endif
       uint32_t next_ip = vs.ip+1;
       
       switch(GET_ICLASS(insn)) {
@@ -771,10 +935,57 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  assert(ival < NUM_INSNS); // checked pass 1
 
 	  insn_info info = vm_insns[ival];
-	  vs.verify->pop_val(info.arg2); 
+	  vs.verify->pop_val(info.arg2);
 	  vs.verify->pop_val(info.arg1);
 	  vs.verify->push_val(info.ret);
 	  if(err != NULL) { delete vs.verify; goto out; }
+
+	  vs.trace = traceval_pop(vs.trace, info.arg2, st);
+#ifdef DEBUG_TRACEVALS
+	  printf("DEBUG: popped type %i, new trace 0x%lx\n",
+		 info.arg2, (unsigned long)vs.trace);
+#endif
+	  vs.trace = traceval_pop(vs.trace, info.arg1, st);
+#ifdef DEBUG_TRACEVALS
+	  printf("DEBUG: popped type %i, new trace 0x%lx\n",
+		 info.arg1, (unsigned long)vs.trace);
+#endif
+	  st->tracevals[vs.ip] = vs.trace;
+	  if(info.ret != VM_TYPE_NONE) {
+	    int tv_count = traceval_type_to_count(info.ret);
+	    assert(tv_count > 0);
+	    vs.trace = build_traceval(vs.ip, tv_count);
+	  }
+
+#ifdef DEBUG_TRACEVALS
+	  {
+	    traceval_stack tv_stack;
+	    traceval_to_stack(vs.trace, st, vs.ip, tv_stack);
+	    printf("DEBUG: traceval stack:");
+	    for(std::vector<uint8_t>::iterator tv_iter = tv_stack.end();
+		tv_iter != tv_stack.begin(); /* */) {
+	      tv_iter--;
+	      printf(" %i", (int) *tv_iter);
+	    }
+	    printf("\n");
+
+	    std::vector<uint8_t>::iterator vs_iter = 
+	      vs.verify->stack_types.end();
+	    for(std::vector<uint8_t>::iterator tv_iter = tv_stack.begin();
+		tv_iter != tv_stack.end(); tv_iter++) {
+	      assert(vs_iter != vs.verify->stack_types.begin());
+	      vs_iter--;
+	      if(caj_vm_check_types(*tv_iter, *vs_iter)) {
+		printf("INTERNAL ERROR: traceval/verify stack mismatch %i %i\n",
+		       (int)*tv_iter, (int)*vs_iter);
+		vs.verify->dump_stack("verify ");
+		fflush(stdout); abort();
+	      }
+	    }
+
+	    tv_stack.clear();
+	  }
+#endif
 
 	  switch(info.special) {
 	  case IVERIFY_INVALID: 
@@ -786,7 +997,7 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	    delete vs.verify; goto next_chunk;
 	  case IVERIFY_COND:
 	    // execution could skip the next instruction...
-	    pending.push_back(pass2_state(next_ip+1, vs.verify->dup()));
+	    pending.push_back(pass2_state(next_ip+1, vs.trace, vs.verify->dup()));
 	    break;
 	  case IVERIFY_NORMAL: // not interesting yet
 	  default: break;
@@ -798,6 +1009,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  int16_t ival = GET_IVAL(insn);
 	  int fudge = vs.verify->check_rdl_i(ival)*(ptr_stack_sz()-1);
 	  if(err != NULL) { delete vs.verify; goto out; }
+	  st->tracevals[vs.ip] = vs.trace;
+	  vs.trace = build_traceval(vs.ip, 1);
 	  if(fudge + ival >= VM_MAX_IVAL) {
 	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
 	    delete vs.verify; goto out;
@@ -813,6 +1026,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  int16_t ival = GET_IVAL(insn);
 	  int fudge = vs.verify->check_wrl_i(ival)*(ptr_stack_sz()-1);
 	  if(err != NULL) { delete vs.verify; goto out; }
+	  vs.trace = traceval_pop(vs.trace, VM_TYPE_INT, st);
+	  st->tracevals[vs.ip] = vs.trace;
 	  if(fudge + ival >= VM_MAX_IVAL) {
 	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
 	    delete vs.verify; goto out;
@@ -828,6 +1043,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  int16_t ival = GET_IVAL(insn);
 	  int fudge = vs.verify->check_rdl_p(ival)*(ptr_stack_sz()-1);
 	  if(err != NULL) { delete vs.verify; goto out; }
+	  st->tracevals[vs.ip] = vs.trace;
+	  vs.trace = build_traceval(vs.ip, 1);
 	  if(fudge + ival >= VM_MAX_IVAL) {
 	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
 	    delete vs.verify; goto out;
@@ -843,6 +1060,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  int16_t ival = GET_IVAL(insn);
 	  int fudge = vs.verify->check_wrl_p(ival)*(ptr_stack_sz()-1);
 	  if(err != NULL) { delete vs.verify; goto out; }
+	  vs.trace = traceval_pop(vs.trace, VM_TYPE_PTR, st);
+	  st->tracevals[vs.ip] = vs.trace;
 	  if(fudge + ival >= VM_MAX_IVAL) {
 	    err = "64-bit fudge exceeds max ival. Try on a 32-bit VM?";
 	    delete vs.verify; goto out;
@@ -861,6 +1080,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  } else {
 	    vs.verify->push_val(VM_TYPE_INT);
 	  }
+	  if(err != NULL) { delete vs.verify; goto out; };
+	  st->tracevals[vs.ip] = vs.trace;
+	  vs.trace = build_traceval(vs.ip, 1);
 	  break;
 	}
       case ICLASS_WRG_I:
@@ -871,6 +1093,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  } else {
 	    vs.verify->pop_val(VM_TYPE_INT);
 	  }
+	  if(err != NULL) { delete vs.verify; goto out; };
+	  vs.trace = traceval_pop(vs.trace, VM_TYPE_INT, st);
+	  st->tracevals[vs.ip] = vs.trace;
 	  break;
 	}
       case ICLASS_RDG_P:
@@ -881,6 +1106,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  } else {
 	    vs.verify->push_val(st->gptr_types[ival]);
 	  }
+	  if(err != NULL) { delete vs.verify; goto out; };
+	  st->tracevals[vs.ip] = vs.trace;
+	  vs.trace = build_traceval(vs.ip, 1);
 	  break;
 	}
       case ICLASS_WRG_P:
@@ -891,6 +1119,9 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  } else {
 	    vs.verify->pop_val(st->gptr_types[ival]);
 	  }
+	  if(err != NULL) { delete vs.verify; goto out; };
+	  vs.trace = traceval_pop(vs.trace, VM_TYPE_PTR, st);
+	  st->tracevals[vs.ip] = vs.trace;
 	  break;
 	}	
       case ICLASS_JUMP:
@@ -918,6 +1149,12 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode, vm_function
 	  // bit hacky, but should work...
 	  vs.verify->pop_val(func->ret_type);
 	  vs.verify->push_val(func->ret_type);
+
+	  if(err != NULL) { delete vs.verify; goto out; };
+
+	  for(int i = func->arg_count - 1; i >= 0; i--)
+	    vs.trace = traceval_pop(vs.trace,func->arg_types[i] , st);
+	  vs.trace = traceval_pop(vs.trace, VM_TYPE_RET_ADDR, st);
 	}
 	break;
       default:
@@ -971,6 +1208,8 @@ static int verify_code(script_state *st) {
     memcpy(st->patched_bytecode, st->bytecode, 
 	   st->bytecode_len*sizeof(uint16_t));
   }
+
+  st->tracevals = new vm_traceval[st->bytecode_len];
 
   unsigned char *visited = new uint8_t[st->bytecode_len];
   memset(visited, 0, st->bytecode_len);
