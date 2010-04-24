@@ -1,0 +1,51 @@
+The Cajeput LSL compiler and VM
+-------------------------------
+
+Cajeput uses a custom-developed compiler and virtual machine to run LSL scripts. This document will explain how it works.
+
+TODO.
+
+Tracevals
+---------
+Tracevals are a clever way of unwinding the stack if an exception occurs or we need to serialise a script that's currently running. Possibly too clever.
+
+Every single instruction in the code has a traceval associated with it, which describes the contents of the stack after it's popped its arguments and before it's pushed its results. 
+
+The traceval doesn't describe the contents of the stack directly; instead it contains two things:
+ - the address of the instruction that pushed the topmost stack item
+ - the number of stack items pushed by that instruction that are still on
+   the stack.
+
+Because the stack is accessed in a strictly last-in, first-out order, this is enough to extract the entire stack contents.
+
+For example, take the following code:
+
+double(string msg, integer value) {
+   llOwnerSay(msg+(2*value));
+}
+
+This might compile to:
+xx: instruction     | traceval
+01: BEGIN_CALL      | 0x0000, 2
+02: RDL_P 3         | 0x0001, 1
+03: RDG_I 0         | 0x0002, 1
+04: RDL_I 4         | 0x0003, 1
+05: MUL_II          | 0x0002, 1
+06: CAST_I2S        | 0x0002, 1
+07: ADD_SS          | 0x0001, 1
+08: CALL llOwnerSay | 0x0000, 2
+09: DROP_I          | 0x0000, 1
+0A: DROP_P          | 0x0000, 0
+0B: RET             | 0x0000, 0
+
+Suppose the current IP is 0x0002, and we want to know the types on the stack. The traceval is [0x0001, 1], which means the topmost item was pushed by 0001: BEGIN_CALL and and is a RET_ADDR. Its traceval is [0x0000, 2], which means the next things are the bottommost two items from the function arguments: an INT and a STR. So the stack looks like this:
+(top) RET_ADDR INT STR (caller's address) ...
+
+Now, suppose that the current IP is instead 0x0006. Firstly, we note that CAST_I2S pops an INT from the stack that isn't included in its traceval. So the topmost item is an INT. Then we follow the tracevals back:
+
+06: [0x0002, 1] -> 02: RDL_P -> PTR on stack
+02: [0x0001, 1] -> 01: BEGIN_CALL -> RET_ADDR on stack
+01: [0x0000, 2] -> arguments -> INT, STR on stack
+
+This means the final stack contents are:
+(top) INT PTR RET_ADDR INT STR (caller's address) ...
