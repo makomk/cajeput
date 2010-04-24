@@ -927,8 +927,18 @@ static void script_calc_stack(script_state *st, traceval_stack &stack) {
   case ICLASS_WRG_P:
     stack.push_back(VM_TYPE_PTR); break;
   case ICLASS_JUMP:
-  case ICLASS_CALL:
     break;
+  case ICLASS_CALL:
+    {
+      uint16_t ival = GET_IVAL(insn);
+      assert(ival < st->num_funcs);
+      vm_function *func = &st->funcs[ival];
+      for(int i = func->arg_count - 1; i >= 0; i--) {
+	calc_stack_curop(stack, func->arg_types[i]);
+      }
+      calc_stack_curop(stack, VM_TYPE_RET_ADDR);
+      break;
+    }
   default:
     printf("FATAL ERROR: unhandled iclass %i in traceval_to_stack\n",
 	   (int)GET_ICLASS(insn));
@@ -1184,6 +1194,7 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
 	}	
       case ICLASS_JUMP:
 	{
+	  st->tracevals[vs.ip] = vs.trace;
 	  uint16_t ival = GET_IVAL(insn);
 	  if(ival & 0x800) {
 	    next_ip -= ival & 0x7ff;
@@ -1213,6 +1224,7 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
 	  for(int i = func->arg_count - 1; i >= 0; i--)
 	    vs.trace = traceval_pop(vs.trace,func->arg_types[i] , st);
 	  vs.trace = traceval_pop(vs.trace, VM_TYPE_RET_ADDR, st);
+	  st->tracevals[vs.ip] = vs.trace;
 	}
 	break;
       default:
