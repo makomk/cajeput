@@ -4,8 +4,8 @@ GLIB_LIBS := $(shell pkg-config glib-2.0 --libs) $(shell pkg-config libxml-2.0 -
 BULLET_LIBS := -lBulletDynamics -lBulletCollision -lLinearMath
 
 WARNING_OPTS=-Wall -Werror=format-security -Werror=init-self -Werror=parentheses -Werror=sequence-point
-CXXFLAGS=$(WARNING_OPTS) -O -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG
-CFLAGS=$(WARNING_OPTS) -O -ggdb $(GLIB_INCLUDES)
+CXXFLAGS=$(WARNING_OPTS) -O0 -I /usr/include/bullet $(GLIB_INCLUDES)  -ggdb -DDEBUG
+CFLAGS=$(WARNING_OPTS) -O0 -ggdb $(GLIB_INCLUDES)
 
 # we dont bother compiling caj_llsd_test anymore; not useful
 all: cajeput_sim cajeput_j2k_test lsl_compile
