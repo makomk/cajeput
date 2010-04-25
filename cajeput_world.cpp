@@ -328,8 +328,18 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
   uuid_copy(chat.source,prim->ob.id);
   uuid_copy(chat.owner,prim->owner);
   chat.source_type = CHAT_SOURCE_OBJECT;
-  world_send_chat(sim, &chat);
-   
+
+  if(chat_type == CHAT_TYPE_OWNER_SAY) {
+    user_ctx *ctx = user_find_ctx(sim, prim->owner);
+    if(ctx != NULL) {
+      if(ctx->userh != NULL && ctx->userh->chat_callback != NULL)
+	ctx->userh->chat_callback(ctx->user_priv, &chat);
+    } else {
+      printf("DEBUG: discarding llOwnerSay for absent user\n");
+    }
+  } else {
+    world_send_chat(sim, &chat);
+  }
 }
 
 

@@ -395,6 +395,18 @@ static void llWhisper_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);
 }
 
+static void llOwnerSay_cb(script_state *st, void *sc_priv, int func_id) {
+  sim_script *scr = (sim_script*)sc_priv;
+  char* message;
+  vm_func_get_args(st, func_id, &message);
+
+  printf("DEBUG: llOwnerSay: %s\n", message);
+  do_say(scr, 0, message, CHAT_TYPE_OWNER_SAY);
+
+  vm_func_return(st, func_id);
+}
+
+
 static void llResetTime_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
   scr->time = g_timer_elapsed(scr->simscr->timer, NULL);
@@ -1608,9 +1620,14 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		     VM_TYPE_STR, VM_TYPE_KEY);
   
 
-  vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
-  vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
-  vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 
+		    2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llShout", VM_TYPE_NONE, llShout_cb, 
+		    2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llWhisper", VM_TYPE_NONE, llWhisper_cb, 
+		    2, VM_TYPE_INT, VM_TYPE_STR); 
+  vm_world_add_func(simscr->vmw, "llOwnerSay", VM_TYPE_NONE, llOwnerSay_cb, 
+		    1, VM_TYPE_STR);
 
   vm_world_add_func(simscr->vmw, "llSetTimerEvent", VM_TYPE_NONE, llSetTimerEvent_cb, 1, VM_TYPE_FLOAT);
   vm_world_add_func(simscr->vmw, "llResetTime", VM_TYPE_NONE, llResetTime_cb, 0); 
