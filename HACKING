@@ -1,0 +1,9 @@
+This should hopefully help you get started on modifying the Cajeput code.
+
+A few things to bear in mind:
+- While most of the Cajeput source code is C++, it's not really written as a C++ application. In particular, it doesn't make much use of classes or other C++ features itself.
+- All interfaces between different modules must be pure C. Note that what counts as different modules may be hard to determine.
+- Cajeput is event-driven and mostly single-threaded. If you run time-consuming code in the main thread - and almost everything runs in the main thread - the entire sim will stop responding while it runs. Don't even think about blocking on any sort of network I/O, use the glib event loop instead. 
+- Since this is a C/C++ application, object lifetimes are everything.
+
+TODO: write this

@@ -1,9 +1,29 @@
 The Cajeput LSL compiler and VM
--------------------------------
+===============================
 
-Cajeput uses a custom-developed compiler and virtual machine to run LSL scripts. This document will explain how it works.
+Cajeput uses a custom-developed compiler and virtual machine to run LSL scripts. This document will explain how it works and how to extend it.
+
+Adding new LSL functions
+------------------------
+See HACKING.LSL. You may also wish to add broadly useful functions that aren't dependent on the rest of Cajeput, such as list manipulation, to the core VM in caj_vm.cpp. In this case, the call to vm_world_add_func goes in vm_world_new.
+
+Some functions are actually implemented as LSL opcodes. See the next section for details.
+
+Adding new LSL opcodes
+----------------------
+
+Edit opcode_data.txt, then modify step_script to implement the new opcode. For iteroperability reasons, please co-ordinate any opcode additions with me. 
+
+BIG FAT WARNING:
+You can abort execution by jumping to abort_exec, but be sure to make sure that the stack is in the same state as it would be if the opcode had executed normally. (Exception: pointers may be NULL, which isn't allowed in normal execution.) Also make sure that any reference counts are correct.
+
+TODO. Use the source, Luke.
+
+Internals
+=========
 
 TODO.
+
 
 Tracevals
 ---------
