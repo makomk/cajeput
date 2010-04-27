@@ -1340,9 +1340,12 @@ static void unwind_stack(script_state * st) {
       case VM_TYPE_KEY:
       case VM_TYPE_LIST:
       case VM_TYPE_PTR:
-	heap_ref_decr(get_stk_ptr(st->stack_top+1), st); 
-	st->stack_top += ptr_stack_sz();
-	break;
+	{
+	  heap_header *p = get_stk_ptr(st->stack_top+1);
+	  if(p != NULL) heap_ref_decr(p, st); 
+	  st->stack_top += ptr_stack_sz();
+	  break;
+	}
       default:
 	printf("FATAL: unhandled type %i in unwind_stack\n", (int)*iter);
 	fflush(stdout); abort(); return;
@@ -2170,6 +2173,7 @@ char* vm_script_get_error(script_state *st) {
   case VM_SCRAM_STACK_OVERFLOW: return strdup("Stack overflow error");
   case VM_SCRAM_BAD_OPCODE: return strdup("Bad/unimplemented opcode. FIXME");
   case VM_SCRAM_MISSING_FUNC: return strdup("Call to non-existent native func");
+  case VM_SCRAM_MEM_LIMIT: return strdup("Memory limit reached");
   default: return strdup("Script error with unknown code. FIXME.");
   }
 }
