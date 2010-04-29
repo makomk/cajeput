@@ -174,6 +174,26 @@ struct user_hooks {
 		       int32_t channel);
 };
 
+struct chat_message {
+  int32_t channel;
+  caj_vector3 pos;
+  uuid_t source;
+  uuid_t owner;
+  uint8_t source_type, chat_type;
+  char *name;
+  char *msg;
+};
+
+typedef void(*obj_chat_callback)(struct simulator_ctx *sim, struct world_obj *obj,
+				 const struct chat_message *msg, void *user_data);
+
+struct obj_chat_listener {
+  // int32_t chan;
+  struct world_obj *obj;
+  obj_chat_callback callback;
+  void *user_data;  
+};
+
 struct user_ctx {
   struct user_ctx* next;
   char *first_name, *last_name, *name, *group_title;
@@ -240,32 +260,20 @@ struct user_ctx {
   // Blech. Remove this/move to seperate struct?
   caj_vector3 start_pos, start_look_at;
 
+  struct obj_chat_listener listen;
+
   user_ctx(simulator_ctx* our_sim) : sim(our_sim), av(NULL) {
   }
 };
 
 struct world_obj;
 
-struct chat_message {
-  int32_t channel;
-  caj_vector3 pos;
-  uuid_t source;
-  uuid_t owner;
-  uint8_t source_type, chat_type;
-  char *name;
-  char *msg;
-};
-
-typedef void(*obj_chat_callback)(struct simulator_ctx *sim, struct world_obj *obj,
-				 const struct chat_message *msg, void *user_data);
 
 // goes in world_obj.chat
-struct obj_chat_listener {
+struct obj_chat_listeners {
   struct world_obj *obj;
   // msg and all strings pointed to by it owned by caller
-  obj_chat_callback callback;
-  void *user_data;
-  std::set<int32_t> channels;
+  std::set<std::pair<int32_t, obj_chat_listener*> > channels;
 };
 
 struct asset_cb_desc {
@@ -369,10 +377,8 @@ struct simulator_ctx {
 void sim_call_shutdown_hook(struct simulator_ctx *sim);
 
 void sim_int_init_udp(struct simulator_ctx *sim);
-void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,
-			   obj_chat_callback callback, void *user_data);
-void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
-			   int32_t channel);
+void world_obj_add_listen(struct simulator_ctx *sim, struct world_obj *ob,
+			  int32_t channel, struct obj_chat_listener* listen);
 
 // FIXME - rename and export more widely!
 void llsd_soup_set_response(SoupMessage *msg, caj_llsd *llsd);

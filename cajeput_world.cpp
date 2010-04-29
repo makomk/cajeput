@@ -235,10 +235,11 @@ void world_octree_move(struct world_octree* tree, struct world_obj* obj,
   old_leaf->objects.erase(obj);
   new_leaf->objects.insert(obj);
   if(obj->chat != NULL) {
-    for(std::set<int32_t>::iterator iter = obj->chat->channels.begin(); 
-	iter != obj->chat->channels.end(); iter++) {
-      octree_add_chat(new_leaf, *iter, obj->chat);
-      octree_del_chat(old_leaf, *iter, obj->chat);
+    for(std::set<std::pair<int32_t, obj_chat_listener*> >::iterator iter = 
+	  obj->chat->channels.begin(); iter != obj->chat->channels.end();
+	iter++) {
+      octree_add_chat(new_leaf, iter->first, iter->second);
+      octree_del_chat(old_leaf, iter->first, iter->second);
     }
   }
 }
@@ -250,9 +251,10 @@ void world_octree_delete(struct world_octree* tree, struct world_obj* obj) {
 						 (int)obj->world_pos.z, false);
   leaf->objects.erase(obj);
   if(obj->chat != NULL) {
-    for(std::set<int32_t>::iterator iter = obj->chat->channels.begin(); 
-	iter != obj->chat->channels.end(); iter++) {
-      octree_del_chat(leaf, *iter, obj->chat);
+    for(std::set<std::pair<int32_t, obj_chat_listener*> >::iterator iter = 
+	  obj->chat->channels.begin(); iter != obj->chat->channels.end();
+	iter++) {
+      octree_del_chat(leaf, iter->first, iter->second);
     }
   }
 }
@@ -343,28 +345,23 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
 }
 
 
-/* Note: listener is removed by world_remove_obj */
-void world_obj_listen_chat(struct simulator_ctx *sim, struct world_obj *ob,
-			   obj_chat_callback callback, void *user_data) {
-  assert(ob->chat == NULL);
-  ob->chat = new obj_chat_listener();
-  ob->chat->obj = ob;
-  ob->chat->callback = callback;
-  ob->chat->user_data = user_data;
-}
-
 /* WARNING: do not call this until the object has been added to the octree.
    Seriously, just don't. It's not a good idea */
-void world_obj_add_channel(struct simulator_ctx *sim, struct world_obj *ob,
-			   int32_t channel) {
-  assert(ob->chat != NULL);
+void world_obj_add_listen(struct simulator_ctx *sim, struct world_obj *ob,
+			  int32_t channel, struct obj_chat_listener* listen) {
+  if(ob->chat == NULL) {
+    ob->chat = new obj_chat_listeners();
+    ob->chat->obj = ob;
+  }
   struct world_ot_leaf* leaf = world_octree_find(sim->world_tree, 
 						 (int)ob->world_pos.x,
 						 (int)ob->world_pos.y,
 						 (int)ob->world_pos.z, false);
   assert(leaf != NULL);
-  ob->chat->channels.insert(channel);
-  octree_add_chat(leaf, channel, ob->chat);
+  listen->obj = ob;
+  ob->chat->channels.insert(std::pair<int, obj_chat_listener*>(channel, 
+							       listen));
+  octree_add_chat(leaf, channel, listen);
 }
 
 void world_add_attachment(struct simulator_ctx *sim, struct avatar_obj *av, 

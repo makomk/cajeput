@@ -53,7 +53,7 @@ struct world_obj {
   uint32_t local_id;
   struct world_obj *parent;
   void *phys;
-  struct obj_chat_listener *chat;
+  struct obj_chat_listeners *chat;
 };
 
 // again internal, flags
