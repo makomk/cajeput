@@ -251,6 +251,38 @@ struct primitive_obj {
   void world_script_link_message(struct simulator_ctx* sim, 
 				 struct primitive_obj *prim, int link_num, 
 				 int num, char *str, char *id);
+
+
+struct chat_message {
+  int32_t channel;
+  caj_vector3 pos;
+  uuid_t source;
+  uuid_t owner;
+  uint8_t source_type, chat_type;
+  char *name;
+  char *msg;
+};
+
+typedef void(*obj_chat_callback)(struct simulator_ctx *sim, struct world_obj *obj,
+				 const struct chat_message *msg, void *user_data);
+
+struct obj_chat_listener {
+  // int32_t chan;
+  struct world_obj *obj;
+  obj_chat_callback callback;
+  void *user_data;  
+};
+
+struct script_chat_listener {
+  struct obj_chat_listener l;
+  int32_t chan;
+  struct primitive_obj *prim; // not the same as l.obj!
+  struct simulator_ctx *sim; // TODO: figure out some way to remove this.
+};
+
+
+  void world_script_add_listen(struct script_chat_listener *listen);
+  void world_script_remove_listen(struct script_chat_listener *listen);
   
 
 // ----- PHYSICS GLUE -------------

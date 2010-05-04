@@ -830,7 +830,7 @@ int user_complete_movement(user_ctx *ctx) {
     
     uuid_copy(ctx->av->ob.id, ctx->user_id);
     world_insert_obj(ctx->sim, &ctx->av->ob);
-    //world_obj_listen_chat(ctx->sim,&ctx->av->ob,user_av_chat_callback,ctx);
+
     ctx->listen.callback = user_av_chat_callback;
     ctx->listen.user_data = ctx;
     world_obj_add_listen(ctx->sim,&ctx->av->ob,0, &ctx->listen);

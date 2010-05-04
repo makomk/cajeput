@@ -364,6 +364,40 @@ void world_obj_add_listen(struct simulator_ctx *sim, struct world_obj *ob,
   octree_add_chat(leaf, channel, listen);
 }
 
+
+void world_obj_remove_listen(struct simulator_ctx *sim, struct world_obj *ob,
+			     int32_t channel, struct obj_chat_listener* listen) {
+  assert(ob->chat != NULL);
+  struct world_ot_leaf* leaf = world_octree_find(sim->world_tree, 
+						 (int)ob->world_pos.x,
+						 (int)ob->world_pos.y,
+						 (int)ob->world_pos.z, false);
+  assert(leaf != NULL);
+  ob->chat->channels.erase(std::pair<int, obj_chat_listener*>(channel, 
+							       listen));
+  octree_del_chat(leaf, channel, listen);
+}
+
+static world_obj *prim_find_listen_obj(primitive_obj* prim) {
+  world_obj *cur = &prim->ob;
+  while(cur->parent != NULL && cur->type != OBJ_TYPE_AVATAR)
+    cur = cur->parent;
+  return cur;
+}
+
+void world_script_add_listen(struct script_chat_listener *listen) {
+  world_obj *root = prim_find_listen_obj(listen->prim);
+  world_obj_add_listen(listen->sim, root, listen->chan, 
+		       &listen->l);
+}
+
+void world_script_remove_listen(struct script_chat_listener *listen) {
+  world_obj *root = prim_find_listen_obj(listen->prim);
+  if(root->chat == NULL) return; // prim is probably being removed
+  world_obj_remove_listen(listen->sim, root, listen->chan, 
+			  &listen->l);
+}
+
 void world_add_attachment(struct simulator_ctx *sim, struct avatar_obj *av, 
 			  struct primitive_obj *prim, uint8_t attach_point) {
   assert(attach_point < NUM_ATTACH_POINTS && attach_point != ATTACH_TO_LAST);

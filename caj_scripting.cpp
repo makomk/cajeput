@@ -103,6 +103,7 @@ struct list_head {
 #define EVENT_COLLISION 7
 #define EVENT_COLLISION_END 8
 #define EVENT_LINK_MESSAGE 9
+#define EVENT_CHAT_MESSAGE 10
 
 // internal - various script states for the main thread code.
 #define SCR_MT_COMPILING 1
@@ -112,6 +113,9 @@ struct list_head {
 #define SCR_MT_KILLING 5
 
 #define SCRIPT_MAGIC 0xd0f87153
+
+// FIXME - check this!
+#define MAX_LISTENS 16
 
 struct compiler_output {
   GIOChannel *stdout, *stderr;
@@ -174,6 +178,20 @@ struct link_message_event : generic_event {
   }
 };
 
+
+struct chat_message_event : generic_event {
+  int channel;
+  char *name, *id, *msg;
+  chat_message_event(int channel, char *name, char *id, char *msg) :
+    generic_event(EVENT_CHAT_MESSAGE), channel(channel), 
+    name(strdup(name)), id(strdup(id)), msg(strdup(msg)) {
+  }
+
+  ~chat_message_event() {
+    free(name); free(id); free(msg);
+  }
+};
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -191,6 +209,7 @@ struct sim_script {
   int mt_state; // state as far as main thread is concerned
   primitive_obj *prim;
   compiler_output *comp_out;
+  std::vector<script_chat_listener*> listens;
   int evmask;
 
   // used by both threads, basically read-only 
@@ -244,6 +263,9 @@ struct script_msg {
 #define MAX_QUEUED_EVENTS 32
 
 static void rpc_func_return(script_state *st, sim_script *scr, int func_id);
+
+static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
+			    const struct chat_message *msg, void *user_data);
 
 // -------------- script thread code -----------------------------------------
 
@@ -916,6 +938,46 @@ static void llMessageLinked_rpc(script_state *st, sim_script *scr, int func_id) 
 
 RPC_TO_MAIN(llMessageLinked, 0.0);
 
+static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
+  int channel; char *name, *id, *message;
+  script_chat_listener *listen;
+  vm_func_get_args(st, func_id, &channel, &name, &id, &message);
+
+  int listen_id = -1;
+  for(int i = 0; i < scr->listens.size(); i++) {
+    if(scr->listens[i] == NULL) {
+      listen_id = i; break;
+    }
+  }
+  if(listen_id < 0) {
+    if(scr->listens.size() >= MAX_LISTENS) {
+      printf("DEBUG: max listens exceeded\n");
+      goto out; 
+    } else {
+      listen_id = scr->listens.size(); 
+      scr->listens.push_back(NULL);
+    }
+  }
+  
+  // FIXME - filter events correctly!
+
+  listen = new script_chat_listener();
+  listen->l.callback = listen_callback;
+  listen->l.user_data = scr;
+  listen->chan = channel; listen->prim = scr->prim; 
+  listen->sim = scr->simscr->sim;
+
+  world_script_add_listen(listen);
+  scr->listens[listen_id] = listen;
+
+ out:
+  free(name); free(id); free(message);
+  vm_func_set_int_ret(st, func_id, listen_id+1);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llListen, 0.0); // FIXME - delay?!
+
 static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
   char *avatar_id, *msg; heap_header *buttons; int channel;
   uuid_t avatar_uuid;
@@ -1082,6 +1144,14 @@ static gpointer script_thread(gpointer data) {
 	      vm_call_event(scr->vm,  EVENT_LINK_MESSAGE, lmsg->sender_num, 
 			    lmsg->num, lmsg->str, lmsg->id);
 	      delete lmsg;
+	      break;
+	    }
+	  case EVENT_CHAT_MESSAGE:
+	    {
+	      chat_message_event *cmsg = static_cast<chat_message_event*>(event);
+	      vm_call_event(scr->vm, EVENT_CHAT_MESSAGE, cmsg->channel, 
+			    cmsg->name, cmsg->id, cmsg->msg);
+	      delete cmsg;
 	      break;
 	    }
 	  default:
@@ -1435,6 +1505,17 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
   scr->prim = NULL;
+
+  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+      iter != scr->listens.end(); iter++) {
+    if(*iter != NULL) {
+      script_chat_listener* listen = *iter;
+      world_script_remove_listen(listen);
+      delete listen;
+    }
+  }
+  scr->listens.clear();
+
   if(scr->mt_state == SCR_MT_RUNNING) {
     scr->mt_state = SCR_MT_KILLING;
     script_msg *msg = new script_msg();
@@ -1524,6 +1605,22 @@ static void handle_collision(simulator_ctx *sim, void *priv, void *script,
     uuid_copy(det->key, obj->id);
     send_event(simscr, scr, det);
   }
+}
+
+static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
+			    const struct chat_message *msg, void *user_data) {
+  sim_script *scr = (sim_script*)user_data;
+  if(scr->prim == NULL || 
+     uuid_compare(scr->prim->ob.id, msg->source) == 0) {
+    return;
+  }
+  
+  // TODO
+
+  char id[40]; uuid_unparse(msg->source, id);
+  chat_message_event *event = new chat_message_event(msg->channel, msg->name,
+						     id, msg->msg);
+  send_event(scr->simscr, scr, event);
 }
 
 static void handle_link_message(simulator_ctx *sim, void *priv, void *script,
@@ -1618,6 +1715,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_event(simscr->vmw, "link_message", VM_TYPE_NONE, 
 		     EVENT_LINK_MESSAGE, 4, VM_TYPE_INT, VM_TYPE_INT,
 		     VM_TYPE_STR, VM_TYPE_KEY);
+  vm_world_add_event(simscr->vmw, "listen", VM_TYPE_NONE, 
+		     EVENT_CHAT_MESSAGE, 4, VM_TYPE_INT, VM_TYPE_STR,
+		     VM_TYPE_KEY, VM_TYPE_STR);
   
 
   vm_world_add_func(simscr->vmw, "llSay", VM_TYPE_NONE, llSay_cb, 
@@ -1698,6 +1798,10 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llDialog", VM_TYPE_NONE,
 		    llDialog_cb, 4, VM_TYPE_KEY, VM_TYPE_STR, 
 		    VM_TYPE_LIST, VM_TYPE_INT);
+
+  vm_world_add_func(simscr->vmw, "llListen", VM_TYPE_INT, llListen_cb,
+		    4, VM_TYPE_INT, VM_TYPE_STR, VM_TYPE_KEY, VM_TYPE_STR);
+		    
 
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
 		    osGetSimulatorVersion_cb, 0);
