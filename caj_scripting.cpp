@@ -540,6 +540,16 @@ static void llSetRot_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llSetRot, 0.2)
 
+static void llSetScale_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_multi_upd upd; upd.flags = CAJ_MULTI_UPD_SCALE;
+  vm_func_get_args(st, func_id, &upd.scale);
+  // FIXME - limit size!
+  world_multi_update_obj(scr->simscr->sim, &scr->prim->ob, &upd);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llSetScale, 0.2) // FIXME - what should the delay be?
+
 
 static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &spp ) {
   int len = vm_list_get_count(rules), index = 0;
@@ -739,6 +749,14 @@ static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id
 }
 
 RPC_TO_MAIN(llGetRootRotation, 0.0)
+
+static void llGetScale_rpc(script_state *st, sim_script *scr, int func_id) {
+  vm_func_set_vect_ret(st, func_id, &scr->prim->ob.scale);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetScale, 0.0)
+
 
 static void llGetObjectName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, scr->prim->name);
@@ -1821,11 +1839,14 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetLocalRot", VM_TYPE_ROT, llGetLocalRot_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetRootPosition", VM_TYPE_VECT, llGetRootPosition_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetRootRotation", VM_TYPE_ROT, llGetRootRotation_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetScale", VM_TYPE_VECT, llGetScale_cb, 0);
 
   vm_world_add_func(simscr->vmw, "llSetPos", VM_TYPE_NONE, llSetPos_cb, 
 		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSetRot", VM_TYPE_NONE, llSetRot_cb, 
 		    1, VM_TYPE_ROT);
+  vm_world_add_func(simscr->vmw, "llSetScale", VM_TYPE_NONE, llSetScale_cb, 
+		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSetPrimitiveParams", VM_TYPE_NONE,
 		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParams", VM_TYPE_NONE,

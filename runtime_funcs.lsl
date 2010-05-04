@@ -73,6 +73,7 @@ rotation llGetLocalRot() { }
 vector llGetRootPosition() { }
 rotation llGetRootRotation() { }
 key llGetKey() { }
+vector llGetScale() { }
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
 llSetScriptState(string name, integer run) { }
@@ -86,6 +87,7 @@ llSetText(string text, vector color, float alpha) { }
 llApplyImpulse( vector force, integer local ) { }
 llSetPos(vector pos) { }
 llSetRot(rotation rot) { }
+llSetScale(vector scale) { }
 llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
 llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }
