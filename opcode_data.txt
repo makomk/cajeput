@@ -154,7 +154,11 @@
 120 NEQ_KK: key != key -> int
 121 SET_STATE: int ->
 
-122 FLOOR: float -> int func:llFloor // TODO
-123 CEIL: float -> int func:llCeil // TODO
-124 ROUND: float -> int func:llRound // TODO
+122 FLOOR: float -> int func:llFloor
+123 CEIL: float -> int func:llCeil
+124 ROUND: float -> int func:llRound
 
+125 EQ_VV: vect == vect -> int // TODO
+126 NEQ_VV: vect != vect -> int // TODO
+127 EQ_RR: rot == rot -> int // TODO
+128 NEQ_RR: rot != rot -> int // TODO

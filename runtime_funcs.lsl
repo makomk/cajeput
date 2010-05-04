@@ -13,6 +13,7 @@ llShout(integer channel, string message) { }
 llWhisper(integer channel, string message) { }
 llOwnerSay(string message) { }
 llInstantMessage(key user, string message) { } // TODO
+llGiveInventory(key dest, string inventory) { } // TODO
 
 llResetTime( ) { }
 float llGetTime( ) { }
@@ -73,6 +74,8 @@ string llList2CSV(list src) { }
 list llListSort(list src, integer stride, integer ascending) { }
 list llListReplaceList(list dest, list src, integer start, integer end) { }
 list llDeleteSubList(list src, integer start, integer end) { }
+list llList2List(list src, integer start, integer end) { }
+list llListInsertList(list dest, list src, integer pos) { }
 
 // TODO
 string llGetSubString(string src, integer start, integer end) { }
@@ -95,9 +98,19 @@ vector llGetLocalPos() { }
 rotation llGetLocalRot() { }
 vector llGetRootPosition() { }
 rotation llGetRootRotation() { }
+integer llGetNumberOfPrims() { } // TODO
 key llGetKey() { }
 key llGetOwner() { }
 vector llGetScale() { }
+
+key llGetLinkKey(integer linknum) { } // TODO
+
+key llGetOwnerKey(key id) { }
+
+key llGetLandOwnerAt(vector pos) { } // TODO
+vector llGetAgentSize(key id) { } // TODO
+
+
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
 llSetScriptState(string name, integer run) { }

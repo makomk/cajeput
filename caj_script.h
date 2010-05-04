@@ -102,4 +102,7 @@
 // for llHTTPRequest
 #define HTTP_METHOD 0 // lsl:int
 
+// for texture-related stuff
+#define ALL_SIDES -1 // lsl:int
+
 #endif

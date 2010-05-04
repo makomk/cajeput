@@ -466,7 +466,6 @@ static void llGetGMTclock_cb(script_state *st, void *sc_priv, int func_id) {
 
 static void llSleep_cb(script_state *st, void *sc_priv, int func_id) {
   sim_script *scr = (sim_script*)sc_priv;
-  struct timeval tv;
   float delay;
   vm_func_get_args(st, func_id, &delay);
   if(finite(delay) && delay > 0.0f) {
@@ -787,6 +786,59 @@ static void llGetObjectDesc_rpc(script_state *st, sim_script *scr, int func_id) 
 
 RPC_TO_MAIN(llGetObjectDesc, 0.0)
 
+
+static void llKey2Name_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *id; uuid_t uuid;
+  vm_func_get_args(st, func_id, &id);
+  if(uuid_parse(id, uuid) != 0) {
+    vm_func_set_str_ret(st, func_id, "");
+  } else {
+    world_obj* obj = world_object_by_id(scr->simscr->sim, uuid);
+    if(obj == NULL) {
+      vm_func_set_str_ret(st, func_id, "");
+    } else if(obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      vm_func_set_str_ret(st, func_id, prim->name);
+    } else if(obj->type == OBJ_TYPE_AVATAR) {
+      user_ctx *user = user_find_ctx(scr->simscr->sim, uuid);
+      if(user == NULL) {
+	vm_func_set_str_ret(st, func_id, "[ERROR: avatar with no user]");
+      } else {
+	vm_func_set_str_ret(st, func_id, user_get_name(user));
+      }
+    } else {
+      vm_func_set_str_ret(st, func_id, "[FIXME]");
+    }
+  }
+  free(id);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(llKey2Name, 0.0);
+
+static void llGetOwnerKey_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *id; uuid_t uuid;
+  vm_func_get_args(st, func_id, &id);
+  if(uuid_parse(id, uuid) != 0) {
+    uuid_clear(uuid); // FIXME - return original string?
+    vm_func_set_key_ret(st, func_id, uuid);
+  } else {
+    world_obj* obj = world_object_by_id(scr->simscr->sim, uuid);
+    if(obj != NULL && obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      vm_func_set_key_ret(st, func_id, prim->owner);
+    } else {
+      // return original
+      vm_func_set_key_ret(st, func_id, uuid);
+    }
+  }
+  free(id);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(llGetOwnerKey, 0.0);
+
+
 // We're not as paranoid as OpenSim yet, so this isn't restricted. May be
 // modified to provide restricted version information to untrusted scripts at
 // some point in the future.
@@ -951,34 +1003,6 @@ static void llDetectedTouchST_cb(script_state *st, void *sc_priv, int func_id) {
 }
 
 
-static void llKey2Name_rpc(script_state *st, sim_script *scr, int func_id) {
-  char *id; uuid_t uuid;
-  vm_func_get_args(st, func_id, &id);
-  if(uuid_parse(id, uuid) != 0) {
-    vm_func_set_str_ret(st, func_id, "");
-  } else {
-    world_obj* obj = world_object_by_id(scr->simscr->sim, uuid);
-    if(obj == NULL) {
-      vm_func_set_str_ret(st, func_id, "");
-    } else if(obj->type == OBJ_TYPE_PRIM) {
-      primitive_obj *prim = (primitive_obj*)obj;
-      vm_func_set_str_ret(st, func_id, prim->name);
-    } else if(obj->type == OBJ_TYPE_AVATAR) {
-      user_ctx *user = user_find_ctx(scr->simscr->sim, uuid);
-      if(user == NULL) {
-	vm_func_set_str_ret(st, func_id, "[ERROR: avatar with no user]");
-      } else {
-	vm_func_set_str_ret(st, func_id, user_get_name(user));
-      }
-    } else {
-      vm_func_set_str_ret(st, func_id, "[FIXME]");
-    }
-  }
-  free(id);
-  rpc_func_return(st, scr, func_id);  
-}
-
-RPC_TO_MAIN(llKey2Name, 0.0);
 
 static void llGetRegionName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, sim_get_name(scr->simscr->sim));
@@ -1917,6 +1941,12 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetObjectDesc", VM_TYPE_STR,
 		    llGetObjectDesc_cb, 0);
 
+  vm_world_add_func(simscr->vmw, "llKey2Name", VM_TYPE_STR, 
+		    llKey2Name_cb, 1, VM_TYPE_KEY);
+  vm_world_add_func(simscr->vmw, "llGetOwnerKey", VM_TYPE_KEY, 
+		    llGetOwnerKey_cb, 1, VM_TYPE_KEY);
+  
+
   vm_world_add_func(simscr->vmw, "llDetectedName", VM_TYPE_STR, llDetectedName_cb,
 		    1, VM_TYPE_INT);
    vm_world_add_func(simscr->vmw, "llDetectedType", VM_TYPE_INT, llDetectedType_cb,
@@ -1936,8 +1966,6 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llDetectedTouchST", VM_TYPE_VECT, 
 		    llDetectedTouchST_cb, 1, VM_TYPE_INT);
 
-  vm_world_add_func(simscr->vmw, "llKey2Name", VM_TYPE_STR, 
-		    llKey2Name_cb, 1, VM_TYPE_KEY);
 
   // llGetRegion*
   vm_world_add_func(simscr->vmw, "llGetRegionCorner", VM_TYPE_VECT,
