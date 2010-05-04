@@ -92,6 +92,8 @@ static int verify_code(script_state *st);
 static void script_calc_stack(script_state *st, traceval_stack &stack);
 static void unwind_stack(script_state * st);
 
+void vm_func_set_ptr_ret(script_state *st, int func_no, heap_header *p);
+
 static inline int ptr_stack_sz(void) {
   if(sizeof(uint32_t) == sizeof(void*)) 
     return 1;
@@ -2315,11 +2317,89 @@ static void llVecMag_cb(script_state *st, void *sc_priv, int func_id) {
 
 // FIXME - TODO - llVecDist
 
+static void unpack_seps(heap_header *list, std::vector<char*> &out) {
+  int32_t len = vm_list_get_count(list);
+  if(len > 8) len = 8;
+  for(int i = 0; i < len; i++) {
+    char *sep = vm_list_get_str(list, i);
+    if(sep != NULL); out.push_back(sep);
+  }
+}
+
+static bool prefix_match(char *str, char *prefix) {
+  for(; *str == *prefix && *prefix != 0; str++, prefix++);
+  return *prefix == 0;
+}
+
+static heap_header* pack_string(script_state *st, char *start, char *end) {
+  heap_header* ret = script_alloc(st, end-start, VM_TYPE_STR);
+  if(ret != NULL) {
+    memcpy(script_getptr(ret), start, end-start);
+  }
+  return ret;
+}
+
+static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) {
+  char *str; heap_header *seps_l, *spacers_l, *ret = NULL;
+  vm_func_get_args(st, func_id, &str, &seps_l, &spacers_l);
+  std::vector<char*> seps;
+  std::vector<heap_header*> outlist;
+  unpack_seps(seps_l, seps);
+
+  char *start = str, *end = str;
+ main_loop:
+  while(*end != 0) {
+    for(std::vector<char*>::iterator iter = seps.begin(); 
+	iter != seps.end(); iter++) {
+      if(**iter == 0) continue;
+      if(prefix_match(end, *iter)) {
+	if(start != end) {
+	  heap_header *p = pack_string(st, start, end);
+	  if(p == NULL) goto out;
+	  outlist.push_back(p);
+	}
+	end += strlen(*iter); start = end;
+	goto main_loop;
+      }
+    }
+    end++;
+  }
+
+  // FIXME - need to handle spacers too!
+
+  if(start != end)
+    outlist.push_back(pack_string(st, start, end));
+
+  for(std::vector<char*>::iterator iter = seps.begin(); 
+	iter != seps.end(); iter++)
+    free(*iter);
+  free(str);
+
+  ret = script_alloc_list(st, outlist.size());
+ out:
+  if(ret != NULL) {
+    heap_header **items = (heap_header**)script_getptr(ret);
+    for(unsigned i = 0; i < outlist.size(); i++) {
+      items[i] = outlist[i];
+    }
+  } else {
+    for(unsigned i = 0; i < outlist.size(); i++) {
+      if(outlist[i] != NULL)
+	heap_ref_decr(outlist[i], st);
+    }
+  }
+
+  vm_func_set_ptr_ret(st, func_id, ret);
+  vm_func_return(st, func_id);
+}
+
 struct vm_world* vm_world_new(void) {
   vm_world *w = new vm_world;
   w->num_events = 0;
   vm_world_add_func(w, "llVecNorm", VM_TYPE_VECT, llVecNorm_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 
+  vm_world_add_func(w, "llParseString2List", VM_TYPE_LIST, llParseString2List_cb, 
+		    3, VM_TYPE_STR, VM_TYPE_LIST, VM_TYPE_LIST); 
   return w;
 }
 
@@ -2543,6 +2623,20 @@ void vm_func_set_str_ret(script_state *st, int func_no, const char* ret) {
   memcpy(script_getptr(p), ret, len);
   // it may make more sense to deref the old val *before* setting the new one,
   // but that requires some monkeying around...
+  heap_ref_decr(get_stk_ptr(frame_ptr+2), st);
+  put_stk_ptr(frame_ptr+2,p);
+}
+
+void vm_func_set_ptr_ret(script_state *st, int func_no, heap_header *p) {
+  vm_nfunc_desc &desc = st->world->nfuncs[func_no];
+  assert(desc.ret_type == VM_TYPE_STR || desc.ret_type == VM_TYPE_KEY ||
+	 desc.ret_type == VM_TYPE_LIST);
+
+  // FIXME - just use func.frame_size here
+  int32_t *frame_ptr = st->stack_top;
+  for(int i = 0; i < desc.arg_count; i++)
+    frame_ptr += vm_vtype_size(desc.arg_types[i]);
+
   heap_ref_decr(get_stk_ptr(frame_ptr+2), st);
   put_stk_ptr(frame_ptr+2,p);
 }
