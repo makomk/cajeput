@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -1668,6 +1668,18 @@ static void step_script(script_state* st, int num_steps) {
 	  stack_top[1] = (p1->len == p2->len && 
 			  strncmp((char*)script_getptr(p1), 
 				  (char*)script_getptr(p2), p1->len) == 0);
+	  heap_ref_decr(p1,st); heap_ref_decr(p2,st); 
+	  break;
+	}
+      case INSN_NEQ_SS:
+      case INSN_NEQ_KK:
+	{
+	  heap_header *p2 = get_stk_ptr(stack_top+1); 
+	  heap_header *p1 = get_stk_ptr(stack_top+1+ptr_stack_sz()); 
+	  stack_top += ptr_stack_sz()*2 - 1;
+	  stack_top[1] = (p1->len != p2->len || 
+			  strncmp((char*)script_getptr(p1), 
+				  (char*)script_getptr(p2), p1->len) != 0);
 	  heap_ref_decr(p1,st); heap_ref_decr(p2,st); 
 	  break;
 	}

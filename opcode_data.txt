@@ -143,10 +143,12 @@
 112 ADD_LL: list + list -> list
 
 // TODO: implement these!
-// 11? ADD_LI: list + int -> list
-// 11? ADD_LF: list + float -> list
-// 11? ADD_LS: list + str -> list
-// 11? ADD_LK: list + key -> list
-// 11? ADD_LV: list + vect -> list
-// 11? ADD_LR: list + rot -> list
+// 113 ADD_LI: list + int -> list
+// 114 ADD_LF: list + float -> list
+// 115 ADD_LS: list + str -> list
+// 116 ADD_LK: list + key -> list
+// 117 ADD_LV: list + vect -> list
+// 118 ADD_LR: list + rot -> list
 
+119 NEQ_SS: str != str -> int
+120 NEQ_KK: key != key -> int
