@@ -576,6 +576,13 @@ public:
 	  printf("ERROR: bad length of section\n"); return NULL;
 	}
 	break;	
+      case VM_SECT_STATE_ID: // optional
+	st->state_id = read_u32();
+	if(has_failed) return NULL;
+	if(pos != sect_end) {
+	  printf("ERROR: bad length of section\n"); return NULL;
+	}
+	break;
       default:
 	pos = sect_end; break;
       }
@@ -675,6 +682,7 @@ unsigned char* vm_serialise_script(script_state *st, size_t *len) {
   for(unsigned i = 0; i < st->num_funcs; i++) {
     serial.add_func(&st->funcs[i]);
   }
+  serial.set_cur_state_id(st->state_id);
   unsigned char *ret = serial.serialise(len);
   for(std::vector<unsigned char*>::iterator iter = tmpbufs.begin();
       iter != tmpbufs.end(); iter++) {

@@ -226,6 +226,7 @@ class asm_verify {
 #define VM_SECT_HEAP 0xca17da7aUL
 #define VM_SECT_GLOBALS 0xca17610bUL
 #define VM_SECT_FUNCS 0xca17ca11UL
+#define VM_SECT_STATE_ID 0xca175717UL
 #define VM_MAGIC_END 0xcabcde0dUL
 #define VM_VALID_SECT_ID(id) ( ((id) & 0xffff0000UL) == 0xca170000UL)
 
@@ -237,7 +238,7 @@ class vm_serialiser {
   uint16_t* bytecode; uint32_t bytecode_len;
   int32_t *gvals; uint16_t gvals_len;
   uint32_t *gptrs; uint16_t gptrs_len;
-  int sect_start;
+  int sect_start; int32_t cur_state_id;
 
   void make_space(int len) {
     if(data_len+len > data_alloc) {
@@ -275,7 +276,7 @@ class vm_serialiser {
 
  public:
  vm_serialiser() : data(NULL), bytecode(NULL), gvals(NULL), gptrs(NULL),
-    sect_start(0) {
+    sect_start(0), cur_state_id(0) {
      
   }
 
@@ -314,6 +315,10 @@ class vm_serialiser {
 
   void set_gptrs(uint32_t* vals, uint16_t len) {
     gptrs = vals; gptrs_len = len;
+  }
+
+  void set_cur_state_id(int32_t id) {
+    cur_state_id = id;
   }
 
   void add_func(vm_function *func) {
@@ -392,6 +397,10 @@ class vm_serialiser {
     for(unsigned int i = 0; i < bytecode_len; i++) {
       write_u16(bytecode[i]);
     }
+    end_sect();
+    
+    begin_sect(VM_SECT_STATE_ID);
+    write_u32(cur_state_id);
     end_sect();
 
     write_u32(VM_MAGIC_END);
