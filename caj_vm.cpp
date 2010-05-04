@@ -2393,6 +2393,49 @@ static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) 
   vm_func_return(st, func_id);
 }
 
+static bool heap_items_match(heap_header *a, heap_header *b) {
+  if(heap_entry_vtype(a) != heap_entry_vtype(b) ||
+     a->len != b->len)
+    return false;
+  
+  switch(heap_entry_vtype(a)) {
+  case VM_TYPE_STR:
+  case VM_TYPE_KEY:
+    return strncmp((char*)script_getptr(a), 
+		   (char*)script_getptr(b), a->len) == 0;
+  case VM_TYPE_LIST:
+    return true; // not used.
+  default:
+    printf("FIXME: unhandled type in heap_items_match\n");
+    return false; // FIXME - TODO!
+  }
+}
+
+static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
+  char *str; heap_header *haystack, *needle;
+  vm_func_get_args(st, func_id, &haystack, &needle);
+  int ret = -1;
+  int hcnt = vm_list_get_count(haystack), ncnt = vm_list_get_count(needle);
+  heap_header **hitems = (heap_header**)script_getptr(haystack);
+  heap_header **nitems = (heap_header**)script_getptr(needle);
+
+  for(int i = 0; i <= hcnt - ncnt; i++) {
+    bool is_match = true;
+    for(int j = 0; j < ncnt; j++) {
+      if(!heap_items_match(hitems[i+j], nitems[j]))
+	is_match = false; break;
+    }
+    if(is_match) {
+      ret = i; break;
+    }
+  }
+
+  vm_func_set_int_ret(st, func_id, ret);
+  vm_func_return(st, func_id);
+  
+}
+
+
 struct vm_world* vm_world_new(void) {
   vm_world *w = new vm_world;
   w->num_events = 0;
@@ -2400,6 +2443,8 @@ struct vm_world* vm_world_new(void) {
   vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llParseString2List", VM_TYPE_LIST, llParseString2List_cb, 
 		    3, VM_TYPE_STR, VM_TYPE_LIST, VM_TYPE_LIST); 
+  vm_world_add_func(w, "llListFindList", VM_TYPE_INT, llListFindList_cb, 
+		    2, VM_TYPE_LIST, VM_TYPE_LIST); 
   return w;
 }
 
