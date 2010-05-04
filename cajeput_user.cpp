@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -1000,7 +1000,7 @@ struct os_object_part {
   int script_pin;
   caj_vector3 group_pos, offset_pos;
   caj_quat rot_offset;
-  caj_vector3 velocity, rot_velocity, angular_vel;
+  caj_vector3 velocity, /* rot_velocity, */ angular_vel;
   caj_vector3 accel;
   char *description;
   // ?? colour
@@ -1206,7 +1206,7 @@ static xml_serialisation_desc deserialise_object_part[] = {
   { "OffsetPosition", XML_STYPE_STRUCT, offsetof(os_object_part, offset_pos), deserialise_vect3 },
   { "RotationOffset", XML_STYPE_STRUCT, offsetof(os_object_part, rot_offset), deserialise_quat },
   { "Velocity", XML_STYPE_STRUCT, offsetof(os_object_part, velocity), deserialise_vect3 },
-  { "RotationalVelocity", XML_STYPE_STRUCT, offsetof(os_object_part, rot_velocity), deserialise_vect3 },
+  //  { "RotationalVelocity", XML_STYPE_STRUCT, offsetof(os_object_part, rot_velocity), deserialise_vect3 },
   { "AngularVelocity", XML_STYPE_STRUCT, offsetof(os_object_part, angular_vel), deserialise_vect3 },
   { "Acceleration", XML_STYPE_STRUCT, offsetof(os_object_part, accel), deserialise_vect3 },
   { "Description", XML_STYPE_STRING, offsetof(os_object_part, description) },

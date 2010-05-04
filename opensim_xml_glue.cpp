@@ -1,8 +1,32 @@
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *    * Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *    * Redistributions in binary form must reproduce the above copyright
+ *      notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY AIDAN THORNTON ''AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL AIDAN THORNTON BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF 
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "opensim_xml_glue.h"
 #include "string.h"
 #include "uuid/uuid.h"
 #include "caj_types.h"
 #include <glib.h>
+#include <map>
+#include <string>
 
 static int check_node(xmlNodePtr node, const char* name) {
   if(node == NULL) {
@@ -43,13 +67,24 @@ int osglue_deserialise_xml(xmlDocPtr doc, xmlNodePtr node,
 			   xml_serialisation_desc* serial,
 			   void* out) {
   unsigned char* outbuf = (unsigned char*)out;
+  std::map<std::string, xmlNodePtr> nodes;
+  while(node != NULL) {
+    if(node->type == XML_ELEMENT_NODE) {
+      nodes[(char*)node->name] = node;
+    }
+    node = node->next;
+  }
+  
+
   for(int i = 0; serial[i].name != NULL; i++) {
-    while(node != NULL && (node->type == XML_TEXT_NODE || 
-			   node->type == XML_COMMENT_NODE))
-      node = node->next;
-    if(!check_node(node,serial[i].name)) {
+    std::map<std::string, xmlNodePtr>::iterator iter = 
+      nodes.find(serial[i].name);
+    if(iter == nodes.end()) {
+      printf("ERROR: missing %s node\n", serial[i].name); 
       free_partial_deserial_xml(serial, out, i);
       return 0;
+    } else {
+      node = iter->second;
     }
     switch(serial[i].type) {
     case XML_STYPE_SKIP:
