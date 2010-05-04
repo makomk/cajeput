@@ -2093,6 +2093,15 @@ static void step_script(script_state* st, int num_steps) {
 	  st->world->state_change_cb(st, st->priv);
 	  break;
 	}
+      case INSN_CEIL:
+	stack_top[1] = (int)ceil(((float*)stack_top)[1]);
+	break;
+      case INSN_FLOOR:
+	stack_top[1] = (int)floor(((float*)stack_top)[1]);
+	break;
+      case INSN_ROUND:
+	stack_top[1] = (int)round(((float*)stack_top)[1]);
+	break;
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
