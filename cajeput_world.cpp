@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -675,6 +675,40 @@ void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
   world_free_prim(prim);
 }
 
+static void prim_disable_listens(struct simulator_ctx *sim, 
+			  struct primitive_obj* prim) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->spriv != NULL) {
+      script_info *sinfo = (script_info*)inv->spriv;
+      if(sinfo->priv != NULL && sim->scripth.disable_listens != NULL)
+	sim->scripth.disable_listens(sim, sim->script_priv, sinfo->priv);
+    }
+  }
+
+  for(unsigned i = 0; i < prim->num_children; i++) {
+    prim_disable_listens(sim, prim->children[i]);
+  }
+}
+
+static void prim_reenable_listens(struct simulator_ctx *sim, 
+			  struct primitive_obj* prim) {
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+
+    if(inv->spriv != NULL) {
+      script_info *sinfo = (script_info*)inv->spriv;
+      if(sinfo->priv != NULL && sim->scripth.reenable_listens != NULL)
+	sim->scripth.reenable_listens(sim, sim->script_priv, sinfo->priv);
+    }
+  }
+
+  for(unsigned i = 0; i < prim->num_children; i++) {
+    prim_reenable_listens(sim, prim->children[i]);
+  }
+}
+
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
 		     struct primitive_obj* child) {
   if(main->ob.parent != NULL || child->ob.parent != NULL || child->num_children != 0) {
@@ -689,7 +723,10 @@ void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main,
   main->children = (primitive_obj**)realloc(main->children, 
 			   sizeof(primitive_obj*)*(main->num_children+1));
   main->children[main->num_children++] = child;
+  // need to move all listeners to the new root prim
+  prim_disable_listens(sim, child);
   child->ob.parent = &main->ob;
+  prim_reenable_listens(sim, child);
 
   world_mark_object_updated(sim, &child->ob, CAJ_OBJUPD_PARENT);
   world_mark_object_updated(sim, &main->ob, CAJ_OBJUPD_CHILDREN);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -223,7 +223,7 @@ struct primitive_obj {
 				 int output_len);
 
   struct cajeput_script_hooks {
-    
+    // most of these hooks are mandatory.
     void* (*add_script)(simulator_ctx *sim, void *priv, primitive_obj *prim, 
 			inventory_item *inv, simple_asset *asset, 
 			compile_done_cb cb, void *cb_priv);
@@ -243,6 +243,10 @@ struct primitive_obj {
 			 int sender_num,  int num, char *str, char *id);
 
     void(*shutdown)(struct simulator_ctx *sim, void *priv);
+
+    // these are optional if you don't use any chat listeners.
+    void (*disable_listens)(simulator_ctx *sim, void *priv, void *script);
+    void (*reenable_listens)(simulator_ctx *sim, void *priv, void *script);
   };
 
   int caj_scripting_init(int api_version, struct simulator_ctx* sim, 

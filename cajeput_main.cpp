@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -654,6 +654,7 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
     printf("Couldn't init physics engine!\n"); return;
   }
 
+  memset(&sim->scripth, 0, sizeof(sim->scripth));
   if(!caj_scripting_init(CAJEPUT_API_VERSION, sim, &sim->script_priv,
 			 &sim->scripth)) {
     printf("Couldn't init script engine!\n"); return;

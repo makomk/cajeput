@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -1527,6 +1527,34 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   }
 }
 
+static void disable_listens(simulator_ctx *sim, void *priv, void *script) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  assert(scr->magic == SCRIPT_MAGIC);
+
+  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+      iter != scr->listens.end(); iter++) {
+    if(*iter != NULL) {
+      script_chat_listener* listen = *iter;
+      world_script_remove_listen(listen);
+    }
+  }
+}
+
+static void reenable_listens(simulator_ctx *sim, void *priv, void *script) {
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  assert(scr->magic == SCRIPT_MAGIC);
+
+  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+      iter != scr->listens.end(); iter++) {
+    if(*iter != NULL) {
+      script_chat_listener* listen = *iter;
+      world_script_add_listen(listen);
+    }
+  }
+}
+
 static int get_evmask(simulator_ctx *sim, void *priv, void *script) {
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
@@ -1838,6 +1866,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->touch_event = handle_touch;
   hooks->collision_event = handle_collision;
   hooks->link_message = handle_link_message;
+  hooks->disable_listens = disable_listens;
+  hooks->reenable_listens = reenable_listens;
 
   return 1;
 }
