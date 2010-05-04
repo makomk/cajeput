@@ -2403,6 +2403,10 @@ static bool heap_items_match(heap_header *a, heap_header *b) {
   case VM_TYPE_KEY:
     return strncmp((char*)script_getptr(a), 
 		   (char*)script_getptr(b), a->len) == 0;
+  case VM_TYPE_INT:
+    return *(int32_t*)script_getptr(a) == *(int32_t*)script_getptr(b);
+  case VM_TYPE_FLOAT:
+    return *(float*)script_getptr(a) == *(float*)script_getptr(b);
   case VM_TYPE_LIST:
     return true; // not used.
   default:
@@ -2422,8 +2426,9 @@ static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
   for(int i = 0; i <= hcnt - ncnt; i++) {
     bool is_match = true;
     for(int j = 0; j < ncnt; j++) {
-      if(!heap_items_match(hitems[i+j], nitems[j]))
+      if(!heap_items_match(hitems[i+j], nitems[j])) {
 	is_match = false; break;
+      }
     }
     if(is_match) {
       ret = i; break;
