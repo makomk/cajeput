@@ -153,3 +153,8 @@
 119 NEQ_SS: str != str -> int
 120 NEQ_KK: key != key -> int
 121 SET_STATE: int ->
+
+122 FLOOR: float -> int func:llFloor // TODO
+123 CEIL: float -> int func:llCeil // TODO
+124 ROUND: float -> int func:llRound // TODO
+

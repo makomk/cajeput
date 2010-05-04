@@ -57,12 +57,27 @@ string llGetObjectDesc() { }
 // FIXME - how to implement this
 float llFrand(float mag) { }
 
-// FIXME - will be really fun to implement
 integer llListen(integer channel, string name, key id, string message) { }
 llListenRemove(integer listen_id) { }
 llDialog(key avatar, string message, list buttons, integer chat_channel) { }
+
 integer llListFindList(list src, list test) { }
 list llParseString2List(string src, list seperators, list spacers) { }
+
+string llDumpList2String(list src, string seperator) { }
+string llList2CSV(list src) { }
+
+// FIXME - TODO. This is a huge PITA.
+list llListSort(list src, integer stride, integer ascending) { }
+list llListReplaceList(list dest, list src, integer start, integer end) { }
+list llDeleteSubList(list src, integer start, integer end) { }
+
+// TODO
+string llGetSubString(string src, integer start, integer end) { }
+string llDeleteSubString(string src, integer start, integer end) { }
+integer llSubStringIndex(string src, string pattern) { }
+string llToLower(string src) { }
+string llToUpper(string src) { }
 
 // bunch of stuff I need to implement
 llMessageLinked(integer linknum, integer num, string str, key id) { }
@@ -73,6 +88,7 @@ rotation llGetLocalRot() { }
 vector llGetRootPosition() { }
 rotation llGetRootRotation() { }
 key llGetKey() { }
+key llGetOwner() { } // TODO!
 vector llGetScale() { }
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
@@ -92,3 +108,4 @@ llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
 llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }
 string osGetSimulatorVersion() { }
+string llKey2Name(key id) { } // TODO!

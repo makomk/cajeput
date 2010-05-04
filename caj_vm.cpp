@@ -1388,11 +1388,14 @@ static heap_header *list_2_str(heap_header* list, int32_t pos, script_state *st)
   heap_ref_decr(list, st); return ret;
 }
 
-static heap_header *cast_list2s(heap_header* list, script_state *st) {
+ static heap_header *dump_list_to_str(heap_header* list, script_state *st,
+				      const char *sep) {
   heap_header **items = (heap_header**)script_getptr(list);
   uint32_t count = list->len; char buffer[60];
   std::string str;
   for(uint32_t i = 0; i < count; i++) {
+    if(i != 0 && sep != NULL) str.append(sep);
+
     heap_header *item = items[i];
     switch(heap_entry_vtype(item)) {
     case VM_TYPE_STR:
@@ -1428,8 +1431,6 @@ static heap_header *cast_list2s(heap_header* list, script_state *st) {
       break;
     }
   }
-  heap_ref_decr(list, st);
-  
   return make_vm_string(st, str);
 }
 
@@ -1947,9 +1948,9 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_CAST_LIST2S:
 	{
 	   heap_header *list = get_stk_ptr(stack_top+1);
-	   heap_header *str = cast_list2s(list, st);
+	   heap_header *str = dump_list_to_str(list, st, NULL);
 	   put_stk_ptr(stack_top+1, str);
-	   // cast_list2s handles refcounting.
+	   heap_ref_decr(list, st);
 	   if(list == NULL) goto abort_exec;
 	   break;
 	}
@@ -2457,6 +2458,24 @@ static bool heap_items_match(heap_header *a, heap_header *b) {
   }
 }
 
+static void llList2CSV_cb(script_state *st, void *sc_priv, int func_id) {
+  // FIXME - check this is actually correct
+  heap_header *list;
+  vm_func_get_args(st, func_id, &list);
+  heap_header *ret = dump_list_to_str(list, st, ", ");
+  vm_func_set_ptr_ret(st, func_id, ret);
+  vm_func_return(st, func_id);
+}
+
+static void llDumpList2String_cb(script_state *st, void *sc_priv, int func_id) {
+  heap_header *list; char *sep;
+  vm_func_get_args(st, func_id, &list, &sep);
+  heap_header *ret = dump_list_to_str(list, st, sep);
+  free(sep);
+  vm_func_set_ptr_ret(st, func_id, ret); 
+  vm_func_return(st, func_id);
+}
+
 static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
   char *str; heap_header *haystack, *needle;
   vm_func_get_args(st, func_id, &haystack, &needle);
@@ -2491,6 +2510,10 @@ struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
   vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llParseString2List", VM_TYPE_LIST, llParseString2List_cb, 
 		    3, VM_TYPE_STR, VM_TYPE_LIST, VM_TYPE_LIST); 
+  vm_world_add_func(w, "llList2CSV", VM_TYPE_STR, llList2CSV_cb, 
+		    1, VM_TYPE_LIST); 
+  vm_world_add_func(w, "llDumpList2String", VM_TYPE_STR, llDumpList2String_cb, 
+		    2, VM_TYPE_LIST, VM_TYPE_STR); 
   vm_world_add_func(w, "llListFindList", VM_TYPE_INT, llListFindList_cb, 
 		    2, VM_TYPE_LIST, VM_TYPE_LIST); 
   return w;
