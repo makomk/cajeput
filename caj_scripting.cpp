@@ -946,6 +946,7 @@ RPC_TO_MAIN(llMessageLinked, 0.0);
 
 static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
   int channel; char *name, *id, *message;
+  uuid_t uuid;
   filtered_chat_listener *listen;
   vm_func_get_args(st, func_id, &channel, &name, &id, &message);
 
@@ -965,8 +966,6 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
     }
   }
   
-  // FIXME - filter events correctly!
-
   listen = new filtered_chat_listener();
   listen->l.l.callback = listen_callback;
   listen->l.l.user_data = scr;
@@ -975,9 +974,12 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
 
   if(name[0] != 0) listen->name = strdup(name);
   else listen->name = NULL;
-  listen->id = NULL; // FIXME!!!
   if(message[0] != 0) listen->msg = strdup(message);
   else listen->msg = NULL;
+
+  if(uuid_parse(id, uuid) == 0 && !uuid_is_null(uuid)) 
+    listen->id = strdup(id);
+  else listen->id = NULL;
   
 
   world_script_add_listen(&listen->l);
@@ -1684,13 +1686,12 @@ static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
     return;
   }
   
+  char id[40]; uuid_unparse(msg->source, id);
   if((listen->name != NULL && strcmp(msg->name, listen->name) != 0) ||
-     (listen->msg != NULL && strcmp(msg->msg, listen->msg) != 0))
+     (listen->msg != NULL && strcmp(msg->msg, listen->msg) != 0) ||
+     (listen->id != NULL && strcasecmp(id, listen->id) != 0))
     return;
 
-  // TODO - filter by ID!
-
-  char id[40]; uuid_unparse(msg->source, id);
   chat_message_event *event = new chat_message_event(msg->channel, msg->name,
 						     id, msg->msg);
   send_event(scr->simscr, scr, event);
