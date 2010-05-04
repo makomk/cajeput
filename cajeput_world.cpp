@@ -280,7 +280,7 @@ static void real_octree_send_chat(struct simulator_ctx *sim, struct world_octree
 	for(octree_chat_map_iter iter = span.first; iter != span.second;iter++) {
 	  obj_chat_listener* listen = iter->second;
 	  if(caj_vect3_dist(&listen->obj->world_pos, &chat->pos) < range)
-	    listen->callback(sim, listen->obj, chat, listen->user_data);
+	    listen->callback(sim, listen->obj, chat, listen, listen->user_data);
 	}
       }
     }

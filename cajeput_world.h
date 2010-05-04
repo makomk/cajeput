@@ -268,7 +268,8 @@ struct chat_message {
 };
 
 typedef void(*obj_chat_callback)(struct simulator_ctx *sim, struct world_obj *obj,
-				 const struct chat_message *msg, void *user_data);
+				 const struct chat_message *msg, 
+				 struct obj_chat_listener *listen, void *user_data);
 
 struct obj_chat_listener {
   // int32_t chan;
@@ -278,7 +279,7 @@ struct obj_chat_listener {
 };
 
 struct script_chat_listener {
-  struct obj_chat_listener l;
+  struct obj_chat_listener l; // must be first item.
   int32_t chan;
   struct primitive_obj *prim; // not the same as l.obj!
   struct simulator_ctx *sim; // TODO: figure out some way to remove this.

@@ -380,7 +380,8 @@ void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim) {
 }
 
 void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
-			   const struct chat_message *msg, void *user_data) {
+			   const struct chat_message *msg, 
+			   struct obj_chat_listener *listen, void *user_data) {
   struct user_ctx* ctx = (user_ctx*)user_data;
   if(ctx->userh != NULL && ctx->userh->chat_callback != NULL)
     ctx->userh->chat_callback(ctx->user_priv, msg);
@@ -398,7 +399,7 @@ void user_send_message(struct user_ctx *ctx, const char* msg) {
   chat.msg = (char*)msg;
 
   // slightly evil hack
-  user_av_chat_callback(ctx->sim, NULL, &chat, ctx);
+  user_av_chat_callback(ctx->sim, NULL, &chat, NULL, ctx);
 }
 
 void user_send_alert_message(struct user_ctx *ctx, const char* msg,

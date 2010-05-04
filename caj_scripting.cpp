@@ -192,6 +192,11 @@ struct chat_message_event : generic_event {
   }
 };
 
+struct filtered_chat_listener {
+  script_chat_listener l;
+  char *name, *id, *msg;
+};
+
 struct sim_script {
   // section used by scripting thread
   list_head list;
@@ -209,7 +214,7 @@ struct sim_script {
   int mt_state; // state as far as main thread is concerned
   primitive_obj *prim;
   compiler_output *comp_out;
-  std::vector<script_chat_listener*> listens;
+  std::vector<filtered_chat_listener*> listens;
   int evmask;
 
   // used by both threads, basically read-only 
@@ -265,7 +270,8 @@ struct script_msg {
 static void rpc_func_return(script_state *st, sim_script *scr, int func_id);
 
 static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
-			    const struct chat_message *msg, void *user_data);
+			    const struct chat_message *msg,
+			    struct obj_chat_listener *listen, void *user_data);
 
 // -------------- script thread code -----------------------------------------
 
@@ -940,7 +946,7 @@ RPC_TO_MAIN(llMessageLinked, 0.0);
 
 static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
   int channel; char *name, *id, *message;
-  script_chat_listener *listen;
+  filtered_chat_listener *listen;
   vm_func_get_args(st, func_id, &channel, &name, &id, &message);
 
   int listen_id = -1;
@@ -961,13 +967,20 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
   
   // FIXME - filter events correctly!
 
-  listen = new script_chat_listener();
-  listen->l.callback = listen_callback;
-  listen->l.user_data = scr;
-  listen->chan = channel; listen->prim = scr->prim; 
-  listen->sim = scr->simscr->sim;
+  listen = new filtered_chat_listener();
+  listen->l.l.callback = listen_callback;
+  listen->l.l.user_data = scr;
+  listen->l.chan = channel; listen->l.prim = scr->prim; 
+  listen->l.sim = scr->simscr->sim;
 
-  world_script_add_listen(listen);
+  if(name[0] != 0) listen->name = strdup(name);
+  else listen->name = NULL;
+  listen->id = NULL; // FIXME!!!
+  if(message[0] != 0) listen->msg = strdup(message);
+  else listen->msg = NULL;
+  
+
+  world_script_add_listen(&listen->l);
   scr->listens[listen_id] = listen;
 
  out:
@@ -980,7 +993,7 @@ RPC_TO_MAIN(llListen, 0.0); // FIXME - delay?!
 
 static void llListenRemove_rpc(script_state *st, sim_script *scr, int func_id) {
   int listen_id;
-  script_chat_listener *listen;
+  filtered_chat_listener *listen;
   vm_func_get_args(st, func_id, &listen_id);
   listen_id--; // we have an offset of 1;
   if(listen_id < 0 || listen_id >= (int)scr->listens.size()) {
@@ -994,7 +1007,8 @@ static void llListenRemove_rpc(script_state *st, sim_script *scr, int func_id) {
     goto out;
   }
 
-  world_script_remove_listen(listen);
+  world_script_remove_listen(&listen->l);
+  free(listen->name); free(listen->id); free(listen->msg);
   delete listen;
  out:
   rpc_func_return(st, scr, func_id);
@@ -1530,11 +1544,12 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
   assert(scr->magic == SCRIPT_MAGIC);
   scr->prim = NULL;
 
-  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+  for(std::vector<filtered_chat_listener*>::iterator iter = scr->listens.begin();
       iter != scr->listens.end(); iter++) {
     if(*iter != NULL) {
-      script_chat_listener* listen = *iter;
-      world_script_remove_listen(listen);
+      filtered_chat_listener* listen = *iter;
+      world_script_remove_listen(&listen->l);
+      free(listen->name); free(listen->id); free(listen->msg);
       delete listen;
     }
   }
@@ -1556,11 +1571,11 @@ static void disable_listens(simulator_ctx *sim, void *priv, void *script) {
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
 
-  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+  for(std::vector<filtered_chat_listener*>::iterator iter = scr->listens.begin();
       iter != scr->listens.end(); iter++) {
     if(*iter != NULL) {
-      script_chat_listener* listen = *iter;
-      world_script_remove_listen(listen);
+      filtered_chat_listener* listen = *iter;
+      world_script_remove_listen(&listen->l);
     }
   }
 }
@@ -1570,11 +1585,11 @@ static void reenable_listens(simulator_ctx *sim, void *priv, void *script) {
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
 
-  for(std::vector<script_chat_listener*>::iterator iter = scr->listens.begin();
+  for(std::vector<filtered_chat_listener*>::iterator iter = scr->listens.begin();
       iter != scr->listens.end(); iter++) {
     if(*iter != NULL) {
-      script_chat_listener* listen = *iter;
-      world_script_add_listen(listen);
+      filtered_chat_listener* listen = *iter;
+      world_script_add_listen(&listen->l);
     }
   }
 }
@@ -1660,14 +1675,20 @@ static void handle_collision(simulator_ctx *sim, void *priv, void *script,
 }
 
 static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
-			    const struct chat_message *msg, void *user_data) {
+			    const struct chat_message *msg, 
+			    struct obj_chat_listener *l, void *user_data) {
   sim_script *scr = (sim_script*)user_data;
+  filtered_chat_listener *listen = (filtered_chat_listener*)l;
   if(scr->prim == NULL || 
      uuid_compare(scr->prim->ob.id, msg->source) == 0) {
     return;
   }
   
-  // TODO
+  if((listen->name != NULL && strcmp(msg->name, listen->name) != 0) ||
+     (listen->msg != NULL && strcmp(msg->msg, listen->msg) != 0))
+    return;
+
+  // TODO - filter by ID!
 
   char id[40]; uuid_unparse(msg->source, id);
   chat_message_event *event = new chat_message_event(msg->channel, msg->name,
