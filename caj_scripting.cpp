@@ -944,7 +944,7 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_get_args(st, func_id, &channel, &name, &id, &message);
 
   int listen_id = -1;
-  for(int i = 0; i < scr->listens.size(); i++) {
+  for(unsigned i = 0; i < scr->listens.size(); i++) {
     if(scr->listens[i] == NULL) {
       listen_id = i; break;
     }
@@ -977,6 +977,30 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
 }
 
 RPC_TO_MAIN(llListen, 0.0); // FIXME - delay?!
+
+static void llListenRemove_rpc(script_state *st, sim_script *scr, int func_id) {
+  int listen_id;
+  script_chat_listener *listen;
+  vm_func_get_args(st, func_id, &listen_id);
+  listen_id--; // we have an offset of 1;
+  if(listen_id < 0 || listen_id >= (int)scr->listens.size()) {
+    printf("DEBUG: llListenRemove: listen ID out of range\n");
+    goto out;
+  }
+
+  listen = scr->listens[listen_id]; scr->listens[listen_id] = NULL;
+  if(listen == NULL) {
+    printf("DEBUG: llListenRemove: listen ID invalid\n");
+    goto out;
+  }
+
+  world_script_remove_listen(listen);
+  delete listen;
+ out:
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llListenRemove, 0.0);
 
 static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
   char *avatar_id, *msg; heap_header *buttons; int channel;
@@ -1528,7 +1552,7 @@ static void kill_script(simulator_ctx *sim, void *priv, void *script) {
 }
 
 static void disable_listens(simulator_ctx *sim, void *priv, void *script) {
-  sim_scripts *simscr = (sim_scripts*)priv;
+  //sim_scripts *simscr = (sim_scripts*)priv;
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
 
@@ -1542,7 +1566,7 @@ static void disable_listens(simulator_ctx *sim, void *priv, void *script) {
 }
 
 static void reenable_listens(simulator_ctx *sim, void *priv, void *script) {
-  sim_scripts *simscr = (sim_scripts*)priv;
+  //sim_scripts *simscr = (sim_scripts*)priv;
   sim_script *scr = (sim_script*)script;
   assert(scr->magic == SCRIPT_MAGIC);
 
@@ -1829,6 +1853,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 
   vm_world_add_func(simscr->vmw, "llListen", VM_TYPE_INT, llListen_cb,
 		    4, VM_TYPE_INT, VM_TYPE_STR, VM_TYPE_KEY, VM_TYPE_STR);
+  vm_world_add_func(simscr->vmw, "llListenRemove", VM_TYPE_NONE,
+		    llListenRemove_cb, 1, VM_TYPE_INT);
 		    
 
   vm_world_add_func(simscr->vmw, "osGetSimulatorVersion", VM_TYPE_STR, 
