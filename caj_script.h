@@ -92,5 +92,14 @@
 #define PRIM_POINT_LIGHT 23 // lsl:int
 #define PRIM_TEXT 26 // lsl:int
 
+//permission flags
+#define PERMISSION_DEBIT 0x2 // lsl:int
+#define PERMISSION_TAKE_CONTROLS 0x4 // lsl:int
+#define PERMISSION_REMAP_CONTROLS 0x8 // lsl:int
+#define PERMISSION_TRIGGER_ANIMATION 0x10 // lsl:int
+#define PERMISSION_ATTACH 0x20 // lsl:int
+
+// for llHTTPRequest
+#define HTTP_METHOD 0 // lsl:int
 
 #endif

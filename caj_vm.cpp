@@ -2391,7 +2391,8 @@ static heap_header* pack_string(script_state *st, char *start, char *end) {
   return ret;
 }
 
-static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) {
+ static void parse_string_to_list(script_state *st, void *sc_priv, 
+				  int func_id, bool keep_nulls) {
   char *str; heap_header *seps_l, *spacers_l, *ret = NULL;
   vm_func_get_args(st, func_id, &str, &seps_l, &spacers_l);
   std::vector<char*> seps;
@@ -2405,7 +2406,7 @@ static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) 
 	iter != seps.end(); iter++) {
       if(**iter == 0) continue;
       if(prefix_match(end, *iter)) {
-	if(start != end) {
+	if(keep_nulls || start != end) {
 	  heap_header *p = pack_string(st, start, end);
 	  if(p == NULL) goto out;
 	  outlist.push_back(p);
@@ -2419,7 +2420,7 @@ static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) 
 
   // FIXME - need to handle spacers too!
 
-  if(start != end)
+  if(keep_nulls || start != end)
     outlist.push_back(pack_string(st, start, end));
 
   for(std::vector<char*>::iterator iter = seps.begin(); 
@@ -2443,6 +2444,14 @@ static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) 
 
   vm_func_set_ptr_ret(st, func_id, ret);
   vm_func_return(st, func_id);
+}
+
+static void llParseString2List_cb(script_state *st, void *sc_priv, int func_id) {
+  parse_string_to_list(st, sc_priv, func_id, false);
+}
+
+static void llParseStringKeepNulls_cb(script_state *st, void *sc_priv, int func_id) {
+  parse_string_to_list(st, sc_priv, func_id, true);
 }
 
 static bool heap_items_match(heap_header *a, heap_header *b) {
@@ -2518,6 +2527,8 @@ struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
   vm_world_add_func(w, "llVecNorm", VM_TYPE_VECT, llVecNorm_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llParseString2List", VM_TYPE_LIST, llParseString2List_cb, 
+		    3, VM_TYPE_STR, VM_TYPE_LIST, VM_TYPE_LIST); 
+  vm_world_add_func(w, "llParseStringKeepNulls", VM_TYPE_LIST, llParseStringKeepNulls_cb, 
 		    3, VM_TYPE_STR, VM_TYPE_LIST, VM_TYPE_LIST); 
   vm_world_add_func(w, "llList2CSV", VM_TYPE_STR, llList2CSV_cb, 
 		    1, VM_TYPE_LIST); 

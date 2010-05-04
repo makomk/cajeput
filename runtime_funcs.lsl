@@ -11,14 +11,14 @@ float llVecDist(vector v1, vector v2) {}
 llSay(integer channel, string message) { }
 llShout(integer channel, string message) { }
 llWhisper(integer channel, string message) { }
-llOwnerSay(string message) { } // TODO
+llOwnerSay(string message) { }
 llInstantMessage(key user, string message) { } // TODO
 
 llResetTime( ) { }
 float llGetTime( ) { }
 float llGetAndResetTime( ) { }
 llSetTimerEvent(float interval) { }
-llSleep(float delay) { } // TODO
+llSleep(float delay) { }
 
 string llGetTimestamp( ) { } // TODO
 integer llGetUnixTime( ) { }
@@ -63,6 +63,8 @@ llDialog(key avatar, string message, list buttons, integer chat_channel) { }
 
 integer llListFindList(list src, list test) { }
 list llParseString2List(string src, list seperators, list spacers) { }
+list llParseStringKeepNulls(string src, list seperators, list spacers) { }
+
 
 string llDumpList2String(list src, string seperator) { }
 string llList2CSV(list src) { }
@@ -78,6 +80,12 @@ string llDeleteSubString(string src, integer start, integer end) { }
 integer llSubStringIndex(string src, string pattern) { }
 string llToLower(string src) { }
 string llToUpper(string src) { }
+
+// FIXME - TODO
+integer llGetPermissions() { }
+
+// FIXME - TODO (probably a big pain) - also check return type
+key llHTTPRequest(string url, list parameters, string body) { }
 
 // bunch of stuff I need to implement
 llMessageLinked(integer linknum, integer num, string str, key id) { }
