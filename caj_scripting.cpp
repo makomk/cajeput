@@ -757,6 +757,21 @@ static void llGetScale_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llGetScale, 0.0)
 
+static void llGetKey_rpc(script_state *st, sim_script *scr, int func_id) {
+  // FIXME - should this be the root prim?
+  vm_func_set_key_ret(st, func_id, scr->prim->ob.id);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetKey, 0.0)
+
+static void llGetOwner_rpc(script_state *st, sim_script *scr, int func_id) {
+  // FIXME - should this be the root prim?
+  vm_func_set_key_ret(st, func_id, scr->prim->owner);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetOwner, 0.0)
 
 static void llGetObjectName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, scr->prim->name);
@@ -934,6 +949,36 @@ static void llDetectedTouchST_cb(script_state *st, void *sc_priv, int func_id) {
   }
   vm_func_return(st, func_id);
 }
+
+
+static void llKey2Name_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *id; uuid_t uuid;
+  vm_func_get_args(st, func_id, &id);
+  if(uuid_parse(id, uuid) != 0) {
+    vm_func_set_str_ret(st, func_id, "");
+  } else {
+    world_obj* obj = world_object_by_id(scr->simscr->sim, uuid);
+    if(obj == NULL) {
+      vm_func_set_str_ret(st, func_id, "");
+    } else if(obj->type == OBJ_TYPE_PRIM) {
+      primitive_obj *prim = (primitive_obj*)obj;
+      vm_func_set_str_ret(st, func_id, prim->name);
+    } else if(obj->type == OBJ_TYPE_AVATAR) {
+      user_ctx *user = user_find_ctx(scr->simscr->sim, uuid);
+      if(user == NULL) {
+	vm_func_set_str_ret(st, func_id, "[ERROR: avatar with no user]");
+      } else {
+	vm_func_set_str_ret(st, func_id, user_get_name(user));
+      }
+    } else {
+      vm_func_set_str_ret(st, func_id, "[FIXME]");
+    }
+  }
+  free(id);
+  rpc_func_return(st, scr, func_id);  
+}
+
+RPC_TO_MAIN(llKey2Name, 0.0);
 
 static void llGetRegionName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, sim_get_name(scr->simscr->sim));
@@ -1848,6 +1893,10 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetRootRotation", VM_TYPE_ROT, llGetRootRotation_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetScale", VM_TYPE_VECT, llGetScale_cb, 0);
 
+  vm_world_add_func(simscr->vmw, "llGetKey", VM_TYPE_KEY,
+		    llGetKey_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetOwner", VM_TYPE_KEY,
+		    llGetOwner_cb, 0);
   vm_world_add_func(simscr->vmw, "llSetPos", VM_TYPE_NONE, llSetPos_cb, 
 		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSetRot", VM_TYPE_NONE, llSetRot_cb, 
@@ -1886,6 +1935,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    llDetectedTouchUV_cb, 1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llDetectedTouchST", VM_TYPE_VECT, 
 		    llDetectedTouchST_cb, 1, VM_TYPE_INT);
+
+  vm_world_add_func(simscr->vmw, "llKey2Name", VM_TYPE_STR, 
+		    llKey2Name_cb, 1, VM_TYPE_KEY);
 
   // llGetRegion*
   vm_world_add_func(simscr->vmw, "llGetRegionCorner", VM_TYPE_VECT,

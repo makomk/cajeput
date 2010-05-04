@@ -88,7 +88,7 @@ rotation llGetLocalRot() { }
 vector llGetRootPosition() { }
 rotation llGetRootRotation() { }
 key llGetKey() { }
-key llGetOwner() { } // TODO!
+key llGetOwner() { }
 vector llGetScale() { }
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
@@ -108,4 +108,4 @@ llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
 llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }
 string osGetSimulatorVersion() { }
-string llKey2Name(key id) { } // TODO!
+string llKey2Name(key id) { }
