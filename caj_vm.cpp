@@ -2519,6 +2519,49 @@ static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
   
 }
 
+static void llGetSubString_cb(script_state *st, void *sc_priv, int func_id) {
+  char *src; int len, begin, end;
+  vm_func_get_args(st, func_id, &src, &begin, &end);
+  len = strlen(src);
+  if(begin < 0) begin = len + begin;
+  if(begin < 0) begin = 0;
+  if(end < 0) end = len + end;
+  if(end < 0) end = 0;
+  end++; // LSL uses ranges that include end
+  if(end > len) end = len;
+  // FIXME - our handling of begin > end is sensible, but possibly 
+  // too sensible for LSL?
+  if(begin > end) begin = end;
+  src[end] = 0; 
+  vm_func_set_str_ret(st, func_id, src+begin);
+  free(src);
+  vm_func_return(st, func_id);  
+}
+
+static void llDeleteSubString_cb(script_state *st, void *sc_priv, int func_id) {
+  char *src; int len, begin, end;
+  vm_func_get_args(st, func_id, &src, &begin, &end);
+  len = strlen(src);
+  if(begin < 0) begin = len + begin;
+  if(begin < 0) begin = 0;
+  if(end < 0) end = len + end;
+  if(end < 0) end = 0;
+  end++; // LSL uses ranges that include end
+  if(end > len) end = len;
+  // FIXME - our handling of begin > end is sensible, but possibly 
+  // too sensible for LSL?
+  if(begin > end) begin = end;
+  char *left = src+begin, *right = src+end;
+  for( ; *right != NULL; left++, right++) {
+    *left = *right;
+  }
+  *left = NULL;
+  vm_func_set_str_ret(st, func_id, src);
+  free(src);
+  vm_func_return(st, func_id);  
+}
+
+
 
 struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
   vm_world *w = new vm_world;
@@ -2536,6 +2579,10 @@ struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
 		    2, VM_TYPE_LIST, VM_TYPE_STR); 
   vm_world_add_func(w, "llListFindList", VM_TYPE_INT, llListFindList_cb, 
 		    2, VM_TYPE_LIST, VM_TYPE_LIST); 
+  vm_world_add_func(w, "llGetSubString", VM_TYPE_STR, llGetSubString_cb, 
+		    3, VM_TYPE_STR, VM_TYPE_INT, VM_TYPE_INT); 
+  vm_world_add_func(w, "llDeleteSubString", VM_TYPE_STR, llDeleteSubString_cb, 
+		    3, VM_TYPE_STR, VM_TYPE_INT, VM_TYPE_INT); 
   return w;
 }
 
