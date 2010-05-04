@@ -1248,8 +1248,20 @@ static void produce_code(vm_asm &vasm, lsl_compile_state &st,
       }
       break;
     case STMT_STATE:
-      do_error(st, "ERROR: state changes not supported yet\n");
-      return;
+      {
+	if(!st.states.count(statem->s)) {
+	  do_error(st, "ERROR: state %s does not exist\n", statem->s);
+	  return;
+	}
+	int state_id = st.states[statem->s];
+	vasm.const_int(state_id);
+	vasm.insn(INSN_SET_STATE);
+	if(vasm.get_error() != NULL) {
+	  do_error(st, "ASSEMBLER ERROR: %s\n", vasm.get_error());
+	  return;
+	}
+	break;
+      }
     default:
       do_error(st, "ERROR: unhandled statement type %i\n", statem->stype);
       return;

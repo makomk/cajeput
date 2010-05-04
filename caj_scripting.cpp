@@ -1123,6 +1123,13 @@ static void awaken_script(sim_script *scr, list_head *running) {
   }
 }
 
+static void state_change_cb(script_state *st, void *sc_priv) {
+  sim_script *scr = (sim_script*)sc_priv;
+  scr->state_entry = 1;
+  script_upd_evmask(scr);
+  // FIXME - need to do a whole bunch of other stuff.
+}
+
 static gpointer script_thread(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   list_head running, waiting;
@@ -1784,7 +1791,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   }
 
   simscr->sim = sim;
-  simscr->vmw = vm_world_new();
+  simscr->vmw = vm_world_new(state_change_cb);
   vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, EVENT_STATE_ENTRY, 0);
   vm_world_add_event(simscr->vmw, "touch_start", VM_TYPE_NONE, EVENT_TOUCH_START,
 		     1, VM_TYPE_INT);

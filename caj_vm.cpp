@@ -56,6 +56,7 @@ struct vm_world {
   std::vector<vm_nfunc_desc> nfuncs;
   std::map<std::string, int> nfunc_map;
   std::map<std::string, vm_nfunc_desc> event_map; // may want to give own type
+  vm_state_change_cb state_change_cb;
   int num_events;
 };
 
@@ -85,12 +86,14 @@ struct script_state {
   uint16_t *cur_state; // event functions for current state
   vm_world *world;
   void *priv; // for the user of the VM
+  int32_t state_id;
   int scram_flag;
 };
 
 static int verify_code(script_state *st);
 static void script_calc_stack(script_state *st, traceval_stack &stack);
 static void unwind_stack(script_state * st);
+static void vm_bind_events(script_state *st);
 
 void vm_func_set_ptr_ret(script_state *st, int func_no, heap_header *p);
 
@@ -113,7 +116,7 @@ static script_state *new_script(void) {
   st->stack_start = st->stack_top = NULL;
   st->gvals = NULL; st->gptr_types = NULL;
   st->gptrs = NULL; st->funcs = NULL;
-  st->cur_state = NULL;
+  st->cur_state = NULL; st->state_id = 0;
   return st;
 }
 
@@ -2071,6 +2074,16 @@ static void step_script(script_state* st, int num_steps) {
 	  break;
 	}
 	// FIXME - TODO - bunch of vector ops
+      case INSN_SET_STATE:
+	{ 
+	  int new_state = *(++stack_top);
+	  printf("DEBUG: setting state %i\n", new_state);
+	  st->state_id = new_state; 
+	  vm_bind_events(st); // FIXME - this is excessively inefficient.
+	  if(st->scram_flag) goto abort_exec;
+	  st->world->state_change_cb(st, st->priv);
+	  break;
+	}
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
@@ -2201,15 +2214,13 @@ int check_ncall_args(const vm_nfunc_desc &nfunc, const vm_function &func) {
   return 0;
 }
 
-// the native funcs array is generally global so we don't free it
-void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
-  assert(st->stack_top == NULL);
-  st->stack_start = new int32_t[1024]; // FIXME - pick this properly;
-  st->stack_top = st->stack_start+1023;
-  st->world = w; st->priv = priv;
-
-  st->cur_state = new uint16_t[w->num_events];
+static void vm_bind_events(script_state *st) {
+  vm_world *w = st->world;
   for(int i = 0; i < w->num_events; i++) st->cur_state[i] = 0xffff;
+
+  char state_prefix[20];
+  int prefix_len = snprintf(state_prefix, 19, "%i", st->state_id);
+  state_prefix[prefix_len++] = ':';
  
   for(unsigned i = 0; i < st->num_funcs; i++) {
     if(st->funcs[i].insn_ptr == 0) {
@@ -2222,7 +2233,7 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
 	}
 	st->funcs[i].insn_ptr = 0x80000000 | iter->second;
       }
-    } else if(st->funcs[i].name[0] == '0' && st->funcs[i].name[1] == ':') {
+    } else if(strncmp(st->funcs[i].name, state_prefix, prefix_len) == 0) {
       // FIXME - need to handle multiple states!
 
       std::map<std::string, vm_nfunc_desc>::iterator iter = 
@@ -2237,7 +2248,18 @@ void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
 	printf("WARNING: failed to bind event function %s\n", st->funcs[i].name);
       }
     }
-  }
+  }  
+}
+
+// the native funcs array is generally global so we don't free it
+void vm_prepare_script(script_state *st, void *priv, vm_world *w) {
+  assert(st->stack_top == NULL);
+  st->stack_start = new int32_t[1024]; // FIXME - pick this properly;
+  st->stack_top = st->stack_start+1023;
+  st->world = w; st->priv = priv;
+
+  st->cur_state = new uint16_t[w->num_events];
+  vm_bind_events(st);
 }
 
 void vm_call_event(script_state *st, int event_id, ...) {
@@ -2453,8 +2475,9 @@ static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
 }
 
 
-struct vm_world* vm_world_new(void) {
+struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
   vm_world *w = new vm_world;
+  w->state_change_cb = state_change_cb;
   w->num_events = 0;
   vm_world_add_func(w, "llVecNorm", VM_TYPE_VECT, llVecNorm_cb, 1, VM_TYPE_VECT); 
   vm_world_add_func(w, "llVecMag", VM_TYPE_FLOAT, llVecMag_cb, 1, VM_TYPE_VECT); 

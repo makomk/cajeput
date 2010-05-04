@@ -139,7 +139,10 @@ struct heap_header;
 
 typedef void(*vm_native_func_cb)(script_state *st, void *sc_priv, int func_id);
 
-struct vm_world* vm_world_new(void);
+// so we can call state_entry, update event masks etc on state change.
+typedef void(*vm_state_change_cb)(script_state *st, void *sc_priv);
+
+struct vm_world* vm_world_new(vm_state_change_cb state_change_cb);
 void vm_world_add_func(vm_world *w, const char* name, uint8_t ret_type, 
 		       vm_native_func_cb cb, int arg_count, ...);
 int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type, 
