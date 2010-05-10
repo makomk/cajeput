@@ -95,7 +95,6 @@ integer llGetPermissions() { }
 // FIXME - TODO (probably a big pain) - also check return type
 key llHTTPRequest(string url, list parameters, string body) { }
 
-// bunch of stuff I need to implement
 llMessageLinked(integer linknum, integer num, string str, key id) { }
 vector llGetPos() { }
 rotation llGetRot() { }
@@ -119,7 +118,7 @@ list llGetObjectDetails(key id, list params) { } // TODO
 key llGetLandOwnerAt(vector pos) { } // TODO
 vector llGetAgentSize(key id) { } // TODO
 
-
+// bunch of stuff I need to implement
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }
 llSetScriptState(string name, integer run) { }
