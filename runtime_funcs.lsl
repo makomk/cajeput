@@ -7,6 +7,7 @@ vector llVecNorm(vector v) {}
 float llVecMag(vector v) {}
 float llVecDist(vector v1, vector v2) {}
 // rotation llAxisAngle2Rot(vector axis, float angle) {}
+rotation llEuler2Rot(vector v) { } // TODO
 
 llSay(integer channel, string message) { }
 llShout(integer channel, string message) { }
@@ -85,6 +86,8 @@ string llDeleteSubString(string src, integer start, integer end) { }
 integer llSubStringIndex(string src, string pattern) { }
 string llToLower(string src) { }
 string llToUpper(string src) { }
+string llStringTrim(string src, integer how) { } 
+string llInsertString(string dest, integer pos, string src) { }
 
 // FIXME - TODO
 integer llGetPermissions() { }
@@ -100,10 +103,13 @@ vector llGetLocalPos() { }
 rotation llGetLocalRot() { }
 vector llGetRootPosition() { }
 rotation llGetRootRotation() { }
-integer llGetNumberOfPrims() { } // TODO
+integer llGetNumberOfPrims() { }
 key llGetKey() { }
 key llGetOwner() { }
 vector llGetScale() { }
+integer llGetAttached() {} // TODO
+integer llSameGroup(key id) {} // TODO
+float llGetAlpha(integer face) {} // TODO
 
 key llGetLinkKey(integer linknum) { } // TODO
 
@@ -126,12 +132,27 @@ llSetTimerEvent(float interval) { }
 llSetText(string text, vector color, float alpha) { }
 llApplyImpulse( vector force, integer local ) { }
 llSetPos(vector pos) { }
-llSetRot(rotation rot) { }
+llSetRot(rotation rot) { } // FIXME - check this is implemented right
+llSetLocalRot(rotation rot) { } // TODO
 llSetScale(vector scale) { }
 llSetColor(vector color, integer face) { } // TODO
 llSetLinkColor(integer linknum, vector color, integer face) { } // TODO
+llSetAlpha(float alpha, integer face) { } // TODO
+llSetLinkAlpha(integer linknum, float alpha, integer face) { } // TODO
 llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
 llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }
 string osGetSimulatorVersion() { }
 string llKey2Name(key id) { }
+
+// TODO
+llRequestPermissions(key agent, integer perm) { }
+integer llGetPermissions() { }
+key llGetPermissionsKey() { }
+llClearCameraParams() {}
+llSetCameraParams(list rules) {}
+vector llGetCameraPos() {}
+rotation llGetCameraRot() {}
+llStartAnimation(string anim) {}
+llStopAnimation(string anim) {}
+llPlaySound(string sound, float volume) {}

@@ -162,3 +162,5 @@
 126 NEQ_VV: vect != vect -> int // TODO
 127 EQ_RR: rot == rot -> int // TODO
 128 NEQ_RR: rot != rot -> int // TODO
+
+129 LIST_TYPE: list int -> int func:llGetListEntryType // TODO

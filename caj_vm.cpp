@@ -2103,6 +2103,21 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top[1] = (int)round(((float*)stack_top)[1]);
 	break;
 	// FIXME: TODO - vector and rotation inequality
+      case INSN_LIST_TYPE:
+	{
+	  int32_t ret;
+	  int32_t off = stack_top[1];
+	  heap_header *p = get_stk_ptr(stack_top+2);
+	  if(off < 0 || off >= p->len) {
+	    ret = VM_TYPE_NONE;
+	  } else {
+	    heap_header **items = (heap_header**)script_getptr(p);
+	    ret = heap_entry_vtype(items[off]);
+	  }
+	  heap_ref_decr(p, st); stack_top += ptr_stack_sz();
+	  stack_top[1] = ret;
+	  break;
+	}
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 ip--; st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;

@@ -115,4 +115,21 @@
 // for texture-related stuff
 #define ALL_SIDES -1 // lsl:int
 
+// for llStringTrim
+#define STRING_TRIM_HEAD 1 // lsl:int
+#define STRING_TRIM_TAIL 2 // lsl:int
+#define STRING_TRIM 3 // lsl:int
+
+// for llGetListEntryType; match VM internal type IDs
+#define TYPE_INVALID 0 // lsl:int
+#define TYPE_INTEGER 1 // lsl:int
+#define TYPE_FLOAT 2 // lsl:int
+#define TYPE_STRING 3 // lsl:int
+#define TYPE_KEY 4 // lsl:int
+#define TYPE_VECTOR 5 // lsl:int
+#define TYPE_ROTATION 6 // lsl:int 
+// #define TYPE_LIST 7 - not used
+
+
+
 #endif
