@@ -2141,6 +2141,7 @@ static void step_script(script_state* st, int num_steps) {
 	ip = st->funcs[ival].insn_ptr;
 	if(ip == 0) {
 	  printf("SCRIPT ERROR: unbound native function %s\n", st->funcs[ival].name);
+	  ip = stack_top[st->funcs[ival].frame_sz] - 1;
 	  st->scram_flag = VM_SCRAM_MISSING_FUNC; goto abort_exec;
 	} else if(ip & 0x80000000) {
 	  uint32_t func_no = ip & 0x7fffffff;
@@ -2149,6 +2150,7 @@ static void step_script(script_state* st, int num_steps) {
 	  return;
 	} else if(st->funcs[ival].max_stack_use > (stack_top - st->stack_start)) { 
 	  printf("ERROR: potential stack overflow, aborting\n");
+	  ip = stack_top[st->funcs[ival].frame_sz] - 1;
 	  st->scram_flag = VM_SCRAM_STACK_OVERFLOW; goto abort_exec;
 	}
       }
@@ -2232,8 +2234,24 @@ char* vm_script_get_error(script_state *st) {
   case VM_SCRAM_ERR: return strdup("Unspecified script error. FIXME");
   case VM_SCRAM_DIV_ZERO: return strdup("Divide by zero error");
   case VM_SCRAM_STACK_OVERFLOW: return strdup("Stack overflow error");
-  case VM_SCRAM_BAD_OPCODE: return strdup("Bad/unimplemented opcode. FIXME");
-  case VM_SCRAM_MISSING_FUNC: return strdup("Call to non-existent native func");
+  case VM_SCRAM_BAD_OPCODE: 
+    if(st->ip != 0) {
+      char *err = (char*)malloc(64);
+      snprintf(err, 64, "Bad/unimplemented opcode %i. FIXME",
+	       (int)st->bytecode[st->ip]);
+      return err;
+    } else {
+      return strdup("Bad/unimplemented opcode. FIXME");
+    }
+  case VM_SCRAM_MISSING_FUNC: 
+    if(st->ip != 0 && GET_ICLASS(st->bytecode[st->ip]) == ICLASS_CALL) {
+      char *err = (char*)malloc(64);
+      snprintf(err, 64, "Call to non-existent native func %s",
+	       st->funcs[GET_IVAL(st->bytecode[st->ip])].name);
+      return err;
+    } else {
+      return strdup("Call to non-existent native func");
+    }
   case VM_SCRAM_MEM_LIMIT: return strdup("Memory limit reached");
   default: return strdup("Script error with unknown code. FIXME.");
   }
