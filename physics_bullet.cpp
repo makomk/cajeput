@@ -824,7 +824,7 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
 	physobjA->parts != NULL && physobjB != NULL && physobjB->parts != NULL) {
        for (int j=0; j<numContacts; j++) {
 	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
-	 if (pt.getDistance() < 0.0f) {
+	 if (pt.getDistance() < 0.005f) {
 	   caj_phys_collision collision;
 	   collision.collidee = get_collider_id(physobjA, pt.m_index0);
 	   collision.collider = physobjB->parts->parts[0];
@@ -837,7 +837,7 @@ void tick_callback(btDynamicsWorld *world, btScalar timeStep) {
 	physobjB->parts != NULL && physobjA != NULL && physobjA->parts != NULL) {
        for (int j=0; j<numContacts; j++) {
 	 btManifoldPoint& pt = contactManifold->getContactPoint(j);
-	 if (pt.getDistance() < 0.0f) {
+	 if (pt.getDistance() < 0.005f) {
 	   caj_phys_collision collision;
 	   collision.collidee = get_collider_id(physobjB, pt.m_index1);
 	   collision.collider = physobjA->parts->parts[0];
