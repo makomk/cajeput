@@ -70,11 +70,13 @@ list llParseStringKeepNulls(string src, list seperators, list spacers) { }
 string llDumpList2String(list src, string seperator) { }
 string llList2CSV(list src) { }
 
-// FIXME - TODO. This is a huge PITA.
+// FIXME - TODO. These will be a huge PITA.
 list llListSort(list src, integer stride, integer ascending) { }
 list llListReplaceList(list dest, list src, integer start, integer end) { }
 list llDeleteSubList(list src, integer start, integer end) { }
 list llList2List(list src, integer start, integer end) { }
+list llList2ListStrided(list src, integer start, integer end, 
+     integer stride) { }
 list llListInsertList(list dest, list src, integer pos) { }
 
 // TODO
@@ -106,6 +108,7 @@ vector llGetScale() { }
 key llGetLinkKey(integer linknum) { } // TODO
 
 key llGetOwnerKey(key id) { }
+list llGetObjectDetails(key id, list params) { } // TODO
 
 key llGetLandOwnerAt(vector pos) { } // TODO
 vector llGetAgentSize(key id) { } // TODO
@@ -125,6 +128,8 @@ llApplyImpulse( vector force, integer local ) { }
 llSetPos(vector pos) { }
 llSetRot(rotation rot) { }
 llSetScale(vector scale) { }
+llSetColor(vector color, integer face) { } // TODO
+llSetLinkColor(integer linknum, vector color, integer face) { } // TODO
 llSetPrimitiveParams(list rules) { }
 llSetLinkPrimitiveParams(integer link_num, list rules) { }
 llSetLinkPrimitiveParamsFast(integer link_num, list rules) { }

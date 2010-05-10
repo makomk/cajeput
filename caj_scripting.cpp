@@ -749,6 +749,15 @@ static void llGetRootRotation_rpc(script_state *st, sim_script *scr, int func_id
 
 RPC_TO_MAIN(llGetRootRotation, 0.0)
 
+static void llGetNumberOfPrims_rpc(script_state *st, sim_script *scr, int func_id) {
+  // FIXME - revisit and check when we support sitting on prims
+  primitive_obj *root = world_get_root_prim(scr->prim);
+  vm_func_set_int_ret(st, func_id, root->num_children+1);
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetNumberOfPrims, 0.0)
+
 static void llGetScale_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_vect_ret(st, func_id, &scr->prim->ob.scale);
   rpc_func_return(st, scr, func_id);
@@ -1915,6 +1924,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llGetLocalRot", VM_TYPE_ROT, llGetLocalRot_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetRootPosition", VM_TYPE_VECT, llGetRootPosition_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetRootRotation", VM_TYPE_ROT, llGetRootRotation_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetNumberOfPrims", VM_TYPE_INT,
+		    llGetNumberOfPrims_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetScale", VM_TYPE_VECT, llGetScale_cb, 0);
 
   vm_world_add_func(simscr->vmw, "llGetKey", VM_TYPE_KEY,

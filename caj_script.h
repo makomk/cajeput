@@ -92,6 +92,16 @@
 #define PRIM_POINT_LIGHT 23 // lsl:int
 #define PRIM_TEXT 26 // lsl:int
 
+//for llGetObjectDetails
+#define OBJECT_NAME 1 // lsl:int
+#define OBJECT_DESC 2 // lsl:int
+#define OBJECT_POS 3 // lsl:int
+#define OBJECT_ROT 4 // lsl:int
+#define OBJECT_VELOCITY 5 // lsl:int
+#define OBJECT_OWNER 6 // lsl:int
+#define OBJECT_GROUP 7 // lsl:int
+#define OBJECT_CREATOR 8 // lsl:int
+
 //permission flags
 #define PERMISSION_DEBIT 0x2 // lsl:int
 #define PERMISSION_TAKE_CONTROLS 0x4 // lsl:int
