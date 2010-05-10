@@ -781,6 +781,37 @@ static void llGetOwner_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llGetOwner, 0.0)
 
+static void llGetAttached_rpc(script_state *st, sim_script *scr, int func_id) {
+  primitive_obj* root = world_get_root_prim(scr->prim);
+  if(root->ob.parent != NULL && root->ob.parent->type == OBJ_TYPE_AVATAR) {
+    vm_func_set_int_ret(st, func_id, root->attach_point);
+  } else {
+    vm_func_set_int_ret(st, func_id, 0);
+  }
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetAttached, 0.0)
+
+
+static void llGetLinkKey_rpc(script_state *st, sim_script *scr, int func_id) {
+
+  int link_num;
+  vm_func_get_args(st, func_id, &link_num);
+
+  primitive_obj *prim = world_prim_by_link_id(scr->simscr->sim, scr->prim, 
+					      link_num);
+  if(prim != NULL) {
+    vm_func_set_key_ret(st, func_id, prim->ob.id);
+  } else {
+    uuid_t zero_uuid; uuid_clear(zero_uuid);
+    vm_func_set_key_ret(st, func_id, zero_uuid);
+  }
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llGetLinkKey, 0.0)
+
 static void llGetObjectName_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_set_str_ret(st, func_id, scr->prim->name);
   rpc_func_return(st, scr, func_id);
@@ -1932,6 +1963,10 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    llGetKey_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetOwner", VM_TYPE_KEY,
 		    llGetOwner_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetAttached", VM_TYPE_INT,
+		    llGetAttached_cb, 0);
+  vm_world_add_func(simscr->vmw, "llGetLinkKey", VM_TYPE_KEY,
+		    llGetLinkKey_cb, 1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llSetPos", VM_TYPE_NONE, llSetPos_cb, 
 		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSetRot", VM_TYPE_NONE, llSetRot_cb, 

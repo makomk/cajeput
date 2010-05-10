@@ -107,11 +107,11 @@ integer llGetNumberOfPrims() { }
 key llGetKey() { }
 key llGetOwner() { }
 vector llGetScale() { }
-integer llGetAttached() {} // TODO
+integer llGetAttached() {}
 integer llSameGroup(key id) {} // TODO
 float llGetAlpha(integer face) {} // TODO
 
-key llGetLinkKey(integer linknum) { } // TODO
+key llGetLinkKey(integer linknum) { }
 
 key llGetOwnerKey(key id) { }
 list llGetObjectDetails(key id, list params) { } // TODO
