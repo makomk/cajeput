@@ -2102,9 +2102,10 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_ROUND:
 	stack_top[1] = (int)round(((float*)stack_top)[1]);
 	break;
+	// FIXME: TODO - vector and rotation inequality
       default:
 	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
-	 st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
+	 ip--; st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
       }
       break;
     case ICLASS_JUMP:
@@ -2184,7 +2185,7 @@ static void step_script(script_state* st, int num_steps) {
       }
     default:
       printf("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
-      st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
+      ip--; st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
     }
   }
  out:
