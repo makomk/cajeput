@@ -27,7 +27,6 @@
 #include "cajeput_int.h"
 #include "cajeput_user.h"
 #include "cajeput_world.h"
-#include "cajeput_grid_glue.h" // FIXME!
 #include "cajeput_user_glue.h"
 #include "cajeput_anims.h"
 #include "cajeput_prim.h"
@@ -515,8 +514,8 @@ static void handle_MapBlockRequest_msg(struct omuser_ctx* lctx, struct sl_messag
   priv->name = NULL; priv->x = pos->MinX; priv->y = pos->MinY;
   user_add_self_pointer(&priv->ctx);
   sl_dump_packet(msg);
-  ctx->sgrp->gridh.map_block_request(ctx->sgrp, pos->MinX, pos->MaxX, pos->MinY, 
-				     pos->MaxY, map_block_req_cb, priv);
+  caj_map_block_request(user_get_sgrp(ctx), pos->MinX, pos->MaxX, 
+			pos->MinY, pos->MaxY, map_block_req_cb, priv);
 }
 
 static void handle_MapNameRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -529,8 +528,8 @@ static void handle_MapNameRequest_msg(struct omuser_ctx* lctx, struct sl_message
   priv->ctx = ctx; priv->flags = ad->Flags; priv->lctx = lctx;
   priv->name = strdup((char*)name->Name.data);
   user_add_self_pointer(&priv->ctx);
-  ctx->sgrp->gridh.map_name_request(ctx->sgrp, priv->name, 
-				    map_block_req_cb, priv);
+  caj_map_name_request(user_get_sgrp(ctx), priv->name, 
+		       map_block_req_cb, priv);
 }
 
 
@@ -1036,7 +1035,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     user_get_session_id(ctx, ad2->SessionID);
     dat->Position = ctx->av->ob.local_pos; // FIXME - local pos or global?
     dat->LookAt = ctx->start_look_at;
-    dat->RegionHandle = sim_get_region_handle(ctx->sim);
+    dat->RegionHandle = sim_get_region_handle(lctx->lsim->sim);
     dat->Timestamp = time(NULL);
     caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
     sl_send_udp(lctx, &amc);
@@ -2265,8 +2264,8 @@ static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
       uuid_copy(asset.id, xfer->asset_id);
       asset.name = "no name"; // can't see *any* way to fill these out
       asset.description = "no description";
-      lctx->u->sgrp->gridh.put_asset(lctx->u->sgrp, &asset, 
-				     asset_save_cb, NULL);
+      caj_put_asset(user_get_sgrp(lctx->u), &asset, 
+		    asset_save_cb, NULL);
     }
   } else {
     free(xfer->data); // note: sim_add_local_texture take ownership of buffer

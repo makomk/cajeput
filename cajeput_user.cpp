@@ -695,8 +695,8 @@ void user_teleport_by_region_name(struct user_ctx* ctx, char *region_name,
   if(!is_from_viewer && ctx->userh->teleport_begin != NULL) {
     ctx->userh->teleport_begin(ctx, desc);
   }
-  ctx->sgrp->gridh.map_region_by_name(ctx->sgrp, region_name, 
-				      tp_region_name_cb, desc);
+  caj_map_region_by_name(ctx->sgrp, region_name, 
+			 tp_region_name_cb, desc);
 }
 
 void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {

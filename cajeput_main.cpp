@@ -178,6 +178,22 @@ void sim_shutdown_release(struct simulator_ctx *sim) {
 
 static GMainLoop *main_loop;
 
+void caj_map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x, 
+			   int min_y, int max_y, caj_find_regions_cb cb, 
+			   void *cb_priv) {
+  sgrp->gridh.map_block_request(sgrp, min_x, max_x, min_y, max_y, cb, cb_priv);
+}
+
+void caj_map_name_request(struct simgroup_ctx* sgrp, const char* name,
+			  caj_find_regions_cb cb, void *cb_priv) {
+  sgrp->gridh.map_name_request(sgrp, name, cb, cb_priv);
+}
+
+void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
+			    caj_find_region_cb cb, void *cb_priv) {
+  sgrp->gridh.map_region_by_name(sgrp, name, cb, cb_priv);
+}
+
 
 // FIXME - remove these!
 #define PCODE_PRIM 9

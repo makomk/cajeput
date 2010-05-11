@@ -227,3 +227,8 @@ void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
   default: assert(0);
   }
 }
+
+void caj_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
+		   caj_put_asset_cb cb, void *cb_priv) {
+  sgrp->gridh.put_asset(sgrp, asset, cb, cb_priv);
+}
