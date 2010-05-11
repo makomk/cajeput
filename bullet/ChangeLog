@@ -1,9 +1,13 @@
-Bullet Continuous Collision Detection and Physics Library
-Primary author and maintainer: Erwin Coumans
+Cajeput import of Bullet Continuous Collision Detection and Physics Library
+Original author and maintainer: Erwin Coumans
+Imported into Cajeput in modified and partial form by Aidan Thornton
 
 This ChangeLog is incomplete, for an up-to-date list of all fixed issues see http://bullet.googlecode.com
 using http://tinyurl.com/yabmjjj
 
+2010 May 11, Cajeput import
+	-  Initial import of Bullet 2.76, minus Demos, Extras, BulletSoftBody, BulletMultiThreaded, the user manual and various miscellanious associated cruft
+	- Disabled Quickprof, since it's not thread safe.
 
 2010 February
 	- Bullet 2.76 release, revision 2010
