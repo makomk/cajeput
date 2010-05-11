@@ -79,6 +79,10 @@ void *user_get_grid_priv(struct user_ctx *user) {
   return user->grid_priv;
 }
 
+void *user_get_priv(struct user_ctx *user) {
+  return user->user_priv;
+}
+
 struct simulator_ctx* user_get_sim(struct user_ctx *user) {
   return user->sim;
 }
@@ -438,11 +442,12 @@ void user_relinquish_god_powers(user_ctx *ctx) {
 }
 
 
-void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
+void user_fetch_inventory_folder(user_ctx *user, 
 				 uuid_t folder_id, uuid_t owner_id,
 				  void(*cb)(struct inventory_contents* inv, 
 					    void* priv),
 				  void *cb_priv) {
+  simgroup_ctx *sgrp = user->sgrp;
   if(uuid_compare(owner_id, user->user_id) == 0) {
     sgrp->gridh.fetch_inventory_folder(sgrp,user,user->grid_priv,
 				       folder_id,cb,cb_priv);

@@ -342,6 +342,9 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 
 // ---------- MISC WORLD STUFF ---------------------------------------
 
+  // generally, I'd prefer it if you didn't use this directly
+void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
+
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 
 void world_add_attachment(struct simulator_ctx *sim, struct avatar_obj *av, 

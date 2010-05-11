@@ -311,15 +311,7 @@ void user_send_teleport_failed(struct user_ctx* ctx, const char* reason);
 void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t flags);
 void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp);
 
-// takes ownership of the passed LLSD
-void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body);
 
-int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
-int user_can_delete_object(struct user_ctx* ctx, struct world_obj *obj);
-int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim);
-
-void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
-			 caj_vector3 position);
 
 void user_call_delete_hook(struct user_ctx *ctx);
 
@@ -343,7 +335,6 @@ void world_load_script_state(inventory_item *inv, caj_string *state);
 
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 
-void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
 
 // --------- CAPS STUFF -----------------------------
 

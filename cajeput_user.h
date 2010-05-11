@@ -170,8 +170,8 @@ void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
 				const char* last, void *priv),
 		      void *cb_priv);
 
-void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
-				 uuid_t folder_id,  uuid_t owner_id,
+void user_fetch_inventory_folder(user_ctx *user,
+				 uuid_t folder_id, uuid_t owner_id,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
@@ -208,9 +208,8 @@ struct caj_touch_info {
   caj_vector3 pos, normal, binormal;
 };
 
-void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type,
-		     const struct caj_touch_info *info);
+void user_prim_touch(struct user_ctx *ctx,struct primitive_obj* prim, 
+		     int touch_type, const struct caj_touch_info *info);
 
 // check whether the asset can be retrieved without giving an inventory item
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);

@@ -800,9 +800,9 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   }
 }
 
-void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type,
-		     const struct caj_touch_info *info) {
+void user_prim_touch(struct user_ctx *ctx, struct primitive_obj* prim, 
+		     int touch_type, const struct caj_touch_info *info) {
+  struct simulator_ctx *sim = ctx->sim;
   printf("DEBUG: in user_prim_touch, type %i\n", touch_type);
   int handled = 0;
 
@@ -830,7 +830,7 @@ void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
     printf("DEBUG: passing touch event to parent prim\n");
-    user_prim_touch(sim, ctx, (primitive_obj*)prim->ob.parent, 
+    user_prim_touch(ctx, (primitive_obj*)prim->ob.parent, 
 		    touch_type, info);
   }
 }

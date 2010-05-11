@@ -26,6 +26,7 @@
 #include <uuid/uuid.h>
 #include "caj_types.h"
 #include <stdint.h>
+#include "caj_llsd.h"
 
 /* !!!     WARNING   WARNING   WARNING    !!!
    Changing the user_hooks structure breaks ABI compatibility. Also,
@@ -67,6 +68,10 @@ int user_complete_movement(user_ctx *ctx);
 
 user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
 			uint32_t circ_code, struct user_hooks* hooks);
+void *user_get_priv(struct user_ctx *user);
+
+// takes ownership of the passed LLSD
+void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body);
 
 void user_set_draw_dist(struct user_ctx *ctx, float far);
 void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
@@ -74,5 +79,12 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
 void user_update_throttles(struct user_ctx *ctx);
 void user_throttle_expend(struct user_ctx *ctx, int id, float amount);
 float user_throttle_level(struct user_ctx *ctx, int id);
+
+int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
+int user_can_delete_object(struct user_ctx* ctx, struct world_obj *obj);
+int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim);
+
+void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
+			 caj_vector3 position);
 
 #endif
