@@ -29,11 +29,10 @@
 #include "caj_llsd.h"
 
 /* !!!     WARNING   WARNING   WARNING    !!!
-   Changing the user_hooks structure breaks ABI compatibility. Also,
-   doing anything except inserting a new hook at the end breaks API 
-   compatibility, potentially INVISIBLY! 
-   Be sure to bump the ABI version after any change.
-   !!!     WARNING   WARNING   WARNING    !!!
+   Any change to user_hooks except inserting a new hook at the end breaks ABI 
+   compatibility.  Be sure to bump the ABI version in cajeput_plugin.h after
+   ANY change. Adding a new hook at the end requires bumping the minor version,
+   any other change means bumping the major version.
 */
 struct user_hooks {
   void(*teleport_begin)(struct user_ctx* ctx, struct teleport_desc *tp);
