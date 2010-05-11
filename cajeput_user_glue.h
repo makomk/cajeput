@@ -89,9 +89,14 @@ int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim);
 void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
 			 caj_vector3 position);
 
+uint16_t* user_get_dirty_terrain_array(struct user_ctx *user);
+
 // hacky object update stuff
 uint32_t user_get_next_deleted_obj(user_ctx *ctx);
 int user_has_pending_deleted_objs(user_ctx *ctx);
 int user_get_next_updated_obj(user_ctx *ctx, uint32_t *localid, int *flags);
+
+// FIXME - this is really hacky and wrong
+int32_t user_get_an_anim_seq(struct user_ctx *ctx);
 
 #endif

@@ -24,7 +24,6 @@
 #include "sl_udp_proto.h"
 //#include "caj_llsd.h"
 #include "cajeput_core.h"
-#include "cajeput_int.h"
 #include "cajeput_user.h"
 #include "cajeput_world.h"
 #include "cajeput_user_glue.h"
@@ -228,7 +227,7 @@ static void handle_AgentAnimation_msg(struct omuser_ctx* lctx, struct sl_message
     if(aitem->StartAnim) {
       animation_desc anim;
       uuid_copy(anim.anim, aitem->AnimID);
-      anim.sequence = lctx->u->anim_seq++; // FIXME
+      anim.sequence = user_get_an_anim_seq(lctx->u); // FIXME
       anim.caj_type = CAJ_ANIM_TYPE_NORMAL;
       user_get_uuid(lctx->u, anim.obj);
       user_add_animation(lctx->u, &anim, false);
@@ -1030,7 +1029,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     user_get_uuid(ctx, ad2->AgentID);
     user_get_session_id(ctx, ad2->SessionID);
     user_get_position(ctx, &dat->Position);
-    dat->LookAt = ctx->start_look_at;
+    user_get_initial_look_at(ctx, &dat->LookAt);
     dat->RegionHandle = sim_get_region_handle(lctx->lsim->sim);
     dat->Timestamp = time(NULL);
     caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
@@ -2790,11 +2789,12 @@ static void send_av_animations(user_ctx* ctx, user_ctx* av_user) {
   user_get_uuid(av_user, sender->ID);
   
   {
+    const animation_desc *default_anim = user_get_default_anim(av_user);
     SL_DECLBLK(AvatarAnimation,AnimationList,anim,&aa);
-    uuid_copy(anim->AnimID, av_user->default_anim.anim);
-    anim->AnimSequenceID = av_user->default_anim.sequence; // FIXME - ???
+    uuid_copy(anim->AnimID, default_anim->anim);
+    anim->AnimSequenceID = default_anim->sequence; // FIXME - ???
     SL_DECLBLK(AvatarAnimation,AnimationSourceList,source,&aa);
-    uuid_copy(source->ObjectID,av_user->default_anim.obj); // FIXME!!!
+    uuid_copy(source->ObjectID, default_anim->obj); // FIXME!!!
   }
   
   // FIXME - copy non-default animations too
@@ -2988,10 +2988,11 @@ static gboolean obj_update_timer(gpointer data) {
 
     // FIXME - should probably move this elsewhere
     int i = 0;
+    uint16_t *dirty_terrain = user_get_dirty_terrain_array(ctx);
     while(user_throttle_level(ctx, SL_THROTTLE_LAND) > 0.0f && 
 	  i < 16) {
-      if(ctx->dirty_terrain[i] == 0) { i++; continue; }
-      int patch_cnt = 0; int patches[4]; uint16_t dirty = ctx->dirty_terrain[i];
+      if(dirty_terrain[i] == 0) { i++; continue; }
+      int patch_cnt = 0; int patches[4]; uint16_t dirty = dirty_terrain[i];
 
       // in the worst case, we could only fit 2 texture patches per packet
       // (this is probably unlikely, but best to be safe anyway, especially as
@@ -3011,7 +3012,7 @@ static gboolean obj_update_timer(gpointer data) {
 			     patch_cnt, &ldat->Data);
       layer.flags |= MSG_RELIABLE;
       sl_send_udp_throt(lctx, &layer, SL_THROTTLE_LAND);
-      ctx->dirty_terrain[i] = dirty;
+      dirty_terrain[i] = dirty;
     }
   }
 

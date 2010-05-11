@@ -149,8 +149,16 @@ const caj_string* user_get_visual_params(struct user_ctx *user) {
   return &user->visual_params;
 }
 
+const struct animation_desc* user_get_default_anim(struct user_ctx *user) {
+  return &user->default_anim;
+}
+
 const wearable_desc* user_get_wearables(struct user_ctx* user) {
   return user->wearables;
+}
+
+uint16_t* user_get_dirty_terrain_array(struct user_ctx *user) {
+  return user->dirty_terrain;
 }
 
 world_obj* user_get_avatar(struct user_ctx* user) {
@@ -165,6 +173,10 @@ void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
   } else {
     pos->x = 0.0f; pos->y = 0.0f; pos->z = 0.0f;
   }
+}
+
+void user_get_initial_look_at(struct user_ctx* user, caj_vector3 *pos) {
+  *pos = user->start_look_at;
 }
 
 float user_get_draw_dist(struct user_ctx *user) {
@@ -377,6 +389,10 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
       }
     }
   }  
+}
+
+int32_t user_get_an_anim_seq(struct user_ctx *ctx) {
+  return ctx->anim_seq++;
 }
 
 // FIXME - optimise this
