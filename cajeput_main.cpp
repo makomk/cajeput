@@ -113,6 +113,9 @@ float* sim_get_heightfield(struct simulator_ctx *sim) {
 float sim_get_terrain_height(struct simulator_ctx *sim, int x, int y) {
   return sim->terrain[x + y*256];
 }
+double caj_get_timer(struct simgroup_ctx *sgrp) {
+  return g_timer_elapsed(sgrp->timer, NULL);
+}
 // --- END sim query code ---
 
 

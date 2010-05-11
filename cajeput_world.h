@@ -217,6 +217,14 @@ struct primitive_obj {
 #define CHAT_TYPE_OWNER_SAY 8
 #define CHAT_TYPE_REGION_SAY 0xff // ???
 
+#define CHAT_AUDIBLE_FULLY 1
+#define CHAT_AUDIBLE_BARELY 0
+#define CHAT_AUDIBLE_NO -1
+
+#define CHAT_SOURCE_SYSTEM 0
+#define CHAT_SOURCE_AVATAR 1
+#define CHAT_SOURCE_OBJECT 2
+
 // -------- SCRIPTING GLUE --------------------
 
   typedef void(*compile_done_cb)(void *priv, int success, const char* output, 
@@ -360,6 +368,8 @@ struct inventory_item* world_prim_alloc_inv_item(void);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
+			  int32_t chan, const char *msg, int chat_type);
+void world_chat_from_user(struct user_ctx* ctx,
 			  int32_t chan, const char *msg, int chat_type);
 void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 			 const char *text, uint8_t color[4]);

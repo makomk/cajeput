@@ -344,6 +344,24 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
   }
 }
 
+void world_chat_from_user(struct user_ctx* ctx,
+			  int32_t chan, const char *msg, int chat_type) {
+  struct chat_message chat;
+  if(ctx->av == NULL) return; // I have no mouth and I must scream...
+  if(chat_type == CHAT_TYPE_WHISPER || chat_type == CHAT_TYPE_NORMAL ||
+     chat_type == CHAT_TYPE_SHOUT) { 
+    chat.channel = chan;
+    chat.pos = ctx->av->ob.world_pos;
+    chat.name = ctx->name;
+    uuid_copy(chat.source,ctx->user_id);
+    uuid_clear(chat.owner); // FIXME - ???
+    chat.source_type = CHAT_SOURCE_AVATAR;
+    chat.chat_type = chat_type;
+    chat.msg = (char*)msg;
+    world_send_chat(ctx->sim, &chat);
+  }  
+}
+
 
 /* WARNING: do not call this until the object has been added to the octree.
    Seriously, just don't. It's not a good idea */

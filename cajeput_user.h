@@ -91,9 +91,12 @@ typedef void(*user_generic_cb)(user_ctx* user, void* priv);
 
 void *user_get_grid_priv(struct user_ctx *user);
 struct simulator_ctx* user_get_sim(struct user_ctx *user);
+struct simgroup_ctx* user_get_sgrp(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
 void user_get_secure_session_id(struct user_ctx *user, uuid_t u);
+int user_check_session(struct user_ctx *user, 
+		       uuid_t agent, uuid_t session);
 uint32_t user_get_circuit_code(struct user_ctx *user);
 float user_get_draw_dist(struct user_ctx *user);
 
@@ -223,8 +226,6 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id,
 		     uuid_t owner_id, caj_vector3 pos);
 void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point);
 void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim);
-
-void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much

@@ -63,6 +63,8 @@ void sim_set_script_priv(struct simulator_ctx *sim, void* p);
 float* sim_get_heightfield(struct simulator_ctx *sim);
 float sim_get_terrain_height(struct simulator_ctx *sim, int x, int y);
 
+double caj_get_timer(struct simgroup_ctx *sgrp);
+
 // These, on the other hand, require you to g_free the returned string
 char *sgrp_config_get_value(struct simgroup_ctx *sim, const char* section,
 			    const char* key);

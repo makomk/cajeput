@@ -83,6 +83,10 @@ struct simulator_ctx* user_get_sim(struct user_ctx *user) {
   return user->sim;
 }
 
+struct simgroup_ctx* user_get_sgrp(struct user_ctx *user) {
+  return user->sgrp;
+}
+
 void user_get_uuid(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->user_id);
 }
@@ -93,6 +97,11 @@ void user_get_session_id(struct user_ctx *user, uuid_t u) {
 
 void user_get_secure_session_id(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->secure_session_id);
+}
+
+int user_check_session(struct user_ctx *user, 
+		       uuid_t agent, uuid_t session) {
+  return uuid_compare(user->user_id, agent) != 0 || uuid_compare(user->session_id, session) != 0;
 }
 
 uint32_t user_get_circuit_code(struct user_ctx *user) {
@@ -133,6 +142,10 @@ void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
 
 float user_get_draw_dist(struct user_ctx *user) {
   return user->draw_dist;
+}
+
+void user_set_draw_dist(struct user_ctx *user, float far) {
+  user->draw_dist = far;
 }
 
 uint32_t user_get_flags(struct user_ctx *user) {
@@ -245,6 +258,14 @@ void user_update_throttles(struct user_ctx *ctx) {
     }
     ctx->throttles[i].time = time_now;
   }  
+}
+
+void user_throttle_expend(struct user_ctx *ctx, int id, float amount) {
+  ctx->throttles[id].level -= amount;
+}
+
+float user_throttle_level(struct user_ctx *ctx, int id) {
+  return ctx->throttles[id].level;
 }
 
 // FIXME - move this somewhere saner!

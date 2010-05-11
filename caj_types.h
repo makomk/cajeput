@@ -25,6 +25,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <uuid/uuid.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -135,6 +136,40 @@ static inline caj_vector3 operator-(const caj_vector3 &v1, const caj_vector3 &v2
   out.x = v1.x - v2.x; out.y = v1.y - v2.y; out.z = v1.z - v2.z;
   return out;
 }
+
+struct obj_uuid_t {
+  uuid_t u;
+  obj_uuid_t() {
+    uuid_clear(u);
+  }
+  obj_uuid_t(const obj_uuid_t &u2) {
+    *this = u2;
+  }
+  obj_uuid_t(const uuid_t u2) {
+    uuid_copy(u, u2);
+  }
+};
+
+static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) < 0;
+};
+
+static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) <= 0;
+};
+
+static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) == 0;
+};
+
+static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) > 0;
+};
+
+static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) >= 0;
+};
+
 
 #endif // __cplusplus
 

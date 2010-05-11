@@ -25,6 +25,10 @@
 //#include "caj_llsd.h"
 #include "cajeput_core.h"
 #include "cajeput_int.h"
+#include "cajeput_user.h"
+#include "cajeput_world.h"
+#include "cajeput_grid_glue.h" // FIXME!
+#include "cajeput_user_glue.h"
 #include "cajeput_anims.h"
 #include "cajeput_prim.h"
 #include "caj_helpers.h"
@@ -64,14 +68,14 @@ void sl_send_udp_throt(struct omuser_ctx* lctx, struct sl_message* msg, int thro
       //printf("DEBUG: couldn't send message\n");
       perror("sending UDP message");
     }
-    if(throt_id >= 0) lctx->u->throttles[throt_id].level -= len;
+    if(throt_id >= 0) user_throttle_expend(lctx->u, throt_id, len);
   } else {
     printf("DEBUG: couldn't pack message, not sending\n");
   }
   if(len > 0 && (msg->flags & MSG_RELIABLE)) {
     // FIXME - remove acks on resend?
     udp_resend_desc *resend = new udp_resend_desc();
-    resend->time = g_timer_elapsed(lctx->u->sgrp->timer, NULL) + RESEND_INTERVAL;
+    resend->time = caj_get_timer(user_get_sgrp(lctx->u)) + RESEND_INTERVAL;
     resend->ctr = 0;
     resend->msg = *msg;
     lctx->resends[msg->seqno] = resend;
@@ -123,15 +127,15 @@ static void free_resend_data(omuser_ctx* lctx) {
 
 static gboolean resend_timer(gpointer data) {
   struct omuser_sim_ctx* lsim = (omuser_sim_ctx*)data;
-  double time_now = g_timer_elapsed(lsim->sim->sgrp->timer, NULL);
+  double time_now = caj_get_timer(sim_get_simgroup(lsim->sim));
 
   for(omuser_ctx* lctx = lsim->ctxts; lctx != NULL; lctx = lctx->next) {    
-    if(lctx->u->flags & (AGENT_FLAG_IN_SLOW_REMOVAL|AGENT_FLAG_PURGE))
+    if(user_get_flags(lctx->u) & (AGENT_FLAG_IN_SLOW_REMOVAL|AGENT_FLAG_PURGE))
       continue;
     
     user_update_throttles(lctx->u);
 
-    while(lctx->u->throttles[SL_THROTTLE_RESEND].level > 0.0f) {
+    while(user_throttle_level(lctx->u, SL_THROTTLE_RESEND) > 0.0f) {
       std::multimap<double,udp_resend_desc*>::iterator iter =
 	lctx->resend_sched.begin();
       if(iter == lctx->resend_sched.end() || iter->first > time_now) {
@@ -167,7 +171,7 @@ static gboolean resend_timer(gpointer data) {
 	  //printf("DEBUG: couldn't send message\n");
 	  perror("sending UDP message");
 	}
-	lctx->u->throttles[SL_THROTTLE_RESEND].level -= len;
+	user_throttle_expend(lctx->u, SL_THROTTLE_RESEND, len);
       } else {
 	printf("DEBUG: couldn't pack resent message, not sending\n");
       }
@@ -194,14 +198,14 @@ static void send_pending_acks(struct omuser_sim_ctx *sim) {
   }
 }
 
-#define VALIDATE_SESSION(ad) (uuid_compare(lctx->u->user_id, ad->AgentID) != 0 || uuid_compare(lctx->u->session_id, ad->SessionID) != 0)
-#define VALIDATE_SESSION_2(aid,sid) (uuid_compare(lctx->u->user_id, aid) != 0 || uuid_compare(lctx->u->session_id, sid) != 0)
+#define VALIDATE_SESSION(ad) user_check_session(lctx->u, ad->AgentID, ad->SessionID)
+#define VALIDATE_SESSION_2(aid,sid) user_check_session(lctx->u, (aid), (sid))
 
 static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentUpdate, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   user_ctx *ctx = lctx->u;
-  ctx->draw_dist = ad->Far;
+  user_set_draw_dist(ctx, ad->Far);
   if(ctx->av != NULL) {
     if(!caj_quat_equal(&ctx->av->ob.rot, &ad->BodyRotation)) {
       ctx->av->ob.rot = ad->BodyRotation;
@@ -349,25 +353,12 @@ static void send_alert_message(void *user_priv, const char* msg, int is_modal) {
 static void handle_ChatFromViewer_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(ChatFromViewer, AgentData, ad, msg);
   SL_DECLBLK_GET1(ChatFromViewer, ChatData, cdata, msg);
-  struct chat_message chat;
   if(ad == NULL || cdata == NULL || VALIDATE_SESSION(ad)) return;
 
   printf("DEBUG: got ChatFromViewer\n");
-  // FIXME - factor this out?
   if(cdata->Channel < 0) return; // can't send on negative channels
-  if(lctx->u->av == NULL) return; // I have no mouth and I must scream...
-  if(cdata->Type == CHAT_TYPE_WHISPER || cdata->Type == CHAT_TYPE_NORMAL ||
-     cdata->Type == CHAT_TYPE_SHOUT) { 
-    chat.channel = cdata->Channel;
-    chat.pos = lctx->u->av->ob.world_pos;
-    chat.name = lctx->u->name;
-    uuid_copy(chat.source,lctx->u->user_id);
-    uuid_clear(chat.owner); // FIXME - ???
-    chat.source_type = CHAT_SOURCE_AVATAR;
-    chat.chat_type = cdata->Type;
-    chat.msg = (char*)cdata->Message.data;
-    world_send_chat(lctx->u->sim, &chat);
-  }
+  world_chat_from_user(lctx->u, cdata->Channel,
+		       (char*)cdata->Message.data, cdata->Type);
 }
 
 static void handle_ScriptDialogReply_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2511,7 +2502,7 @@ static gboolean texture_send_timer(gpointer data) {
     std::map<obj_uuid_t,image_request*>::iterator req_iter =
       lctx->image_reqs.begin(); // FIXME - do by priority
     user_update_throttles(lctx->u);
-    while(lctx->u->throttles[SL_THROTTLE_TEXTURE].level > 0.0f) {
+    while(user_throttle_level(lctx->u, SL_THROTTLE_TEXTURE) > 0.0f) {
       if(req_iter == lctx->image_reqs.end()) break;
       image_request *req = req_iter->second;
       if(req->texture->flags & CJP_TEXTURE_MISSING) {
@@ -2970,7 +2961,7 @@ static gboolean obj_update_timer(gpointer data) {
       continue;
     user_update_throttles(ctx);
     std::vector<uint32_t>::iterator diter = ctx->deleted_objs.begin();
-    while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
+    while(user_throttle_level(ctx, SL_THROTTLE_TASK) > 0.0f && 
 	  diter != ctx->deleted_objs.end()) {
       SL_DECLMSG(KillObject, kill);
       for(int i = 0; i < 256 && diter != ctx->deleted_objs.end(); i++, diter++) {
@@ -2982,7 +2973,7 @@ static gboolean obj_update_timer(gpointer data) {
       diter = ctx->deleted_objs.begin();
     }
     std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
-    while(ctx->throttles[SL_THROTTLE_TASK].level > 0.0f && 
+    while(user_throttle_level(ctx, SL_THROTTLE_TASK) > 0.0f && 
 	  iter != ctx->obj_upd.end()) {
 
       /* FIXME - we should support compressed updates too */
@@ -3000,7 +2991,7 @@ static gboolean obj_update_timer(gpointer data) {
 
     // FIXME - should probably move this elsewhere
     int i = 0;
-    while(ctx->throttles[SL_THROTTLE_LAND].level > 0.0f && 
+    while(user_throttle_level(ctx, SL_THROTTLE_LAND) > 0.0f && 
 	  i < 16) {
       if(ctx->dirty_terrain[i] == 0) { i++; continue; }
       int patch_cnt = 0; int patches[4]; uint16_t dirty = ctx->dirty_terrain[i];
