@@ -2960,33 +2960,30 @@ static gboolean obj_update_timer(gpointer data) {
     if((user_flags & AGENT_FLAG_RHR) == 0 || (user_flags & AGENT_FLAG_PAUSED)) 
       continue;
     user_update_throttles(ctx);
-    std::vector<uint32_t>::iterator diter = ctx->deleted_objs.begin();
     while(user_throttle_level(ctx, SL_THROTTLE_TASK) > 0.0f && 
-	  diter != ctx->deleted_objs.end()) {
+	  user_has_pending_deleted_objs(ctx)) {
       SL_DECLMSG(KillObject, kill);
-      for(int i = 0; i < 256 && diter != ctx->deleted_objs.end(); i++, diter++) {
+      for(int i = 0; i < 256 && user_has_pending_deleted_objs(ctx); i++) {
 	SL_DECLBLK(KillObject, ObjectData, objd, &kill);
-	objd->ID = *diter;
+	objd->ID = user_get_next_deleted_obj(ctx);
       }
       sl_send_udp_throt(lctx, &kill, SL_THROTTLE_TASK);
-      ctx->deleted_objs.erase(ctx->deleted_objs.begin(),diter);
-      diter = ctx->deleted_objs.begin();
     }
-    std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
-    while(user_throttle_level(ctx, SL_THROTTLE_TASK) > 0.0f && 
-	  iter != ctx->obj_upd.end()) {
+    while(user_throttle_level(ctx, SL_THROTTLE_TASK) > 0.0f) {
+      uint32_t localid; int flags;
+      if(!user_get_next_updated_obj(ctx, &localid, &flags))
+	break;
 
       /* FIXME - we should support compressed updates too */
-      if(iter->second & (CAJ_OBJUPD_CREATED|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_SHAPE|
+      if(flags & (CAJ_OBJUPD_CREATED|CAJ_OBJUPD_SCALE|CAJ_OBJUPD_SHAPE|
 			 CAJ_OBJUPD_TEXTURE|CAJ_OBJUPD_FLAGS|CAJ_OBJUPD_MATERIAL|
 			 CAJ_OBJUPD_TEXT|CAJ_OBJUPD_PARENT|
 			 CAJ_OBJUPD_EXTRA_PARAMS)) {
-	printf("DEBUG: sending full update for %u\n", iter->first);
-	obj_send_full_upd(lctx, world_object_by_localid(lsim->sim, iter->first));
-      } else if(iter->second & CAJ_OBJUPD_POSROT) {
-	obj_send_terse_upd(lctx, world_object_by_localid(lsim->sim, iter->first));
+	printf("DEBUG: sending full update for %u\n", localid);
+	obj_send_full_upd(lctx, world_object_by_localid(lsim->sim, localid));
+      } else if(flags & CAJ_OBJUPD_POSROT) {
+	obj_send_terse_upd(lctx, world_object_by_localid(lsim->sim, localid));
       }
-      iter->second = 0; iter++; continue;
     }
 
     // FIXME - should probably move this elsewhere

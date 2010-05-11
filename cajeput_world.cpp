@@ -26,6 +26,7 @@
 #include "cajeput_prim.h"
 #include "caj_script.h"
 #include "caj_helpers.h"
+#include "cajeput_user_glue.h"
 #include <cassert>
 #include <stdio.h>
 
@@ -1455,6 +1456,31 @@ void world_int_init_obj_updates(user_ctx *ctx) {
   }
 }
 
+uint32_t user_get_next_deleted_obj(user_ctx *ctx) {
+  std::deque<uint32_t>::iterator diter = ctx->deleted_objs.begin();
+  if(diter != ctx->deleted_objs.end()) {
+    uint32_t localid = *diter; 
+    ctx->deleted_objs.erase(diter); 
+    return localid;
+  } else {
+    return 0;
+  }
+}
+
+int user_has_pending_deleted_objs(user_ctx *ctx) {
+  return ctx->deleted_objs.size() != 0;
+}
+
+int user_get_next_updated_obj(user_ctx *ctx, uint32_t *localid, int *flags) {
+  std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
+  if(iter != ctx->obj_upd.end()) {
+    *localid = iter->first; *flags = iter->second; 
+    ctx->obj_upd.erase(iter); return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
 static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj) {
   // interestingly, this does handle avatars as well as prims.
 
@@ -1491,6 +1517,8 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
   world_move_root_obj_int(sim, ob, *new_pos);
   mark_object_updated_nophys(sim, ob, CAJ_OBJUPD_POSROT);
 }
+
+// ------- END of object update code -----------------
 
 void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
 			      caj_vector3 impulse, int is_local) {
