@@ -3,4 +3,4 @@ FIXME - looks like xmlNodeListGetString can return NULL!!!
 (process:10852): GLib-CRITICAL **: g_async_queue_pop: assertion `queue' failed <-- ???
 
 To valgrind the program:
-G_SLICE=always-malloc valgrind --leak-check=full ./server_demo
+G_SLICE=always-malloc valgrind --leak-check=full --suppressions=glib.supp ./cajeput_sim
