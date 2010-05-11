@@ -6,7 +6,10 @@ pkg_check_modules (GLIB2 REQUIRED  glib-2.0)
 pkg_check_modules (LIBXML2 REQUIRED libxml-2.0)
 pkg_check_modules (LIBSOUP REQUIRED libsoup-2.4)
 pkg_check_modules (JSONGLIB REQUIRED json-glib-1.0)
-pkg_check_modules (BULLET REQUIRED bullet)
+#pkg_check_modules (BULLET REQUIRED bullet)
+
+set(BULLET_INCLUDE_DIRS bullet/src)
+set(BULLET_LIBRARIES BulletDynamics BulletCollision LinearMath)
 
 include_directories(${GLIB2_INCLUDE_DIRS} ${LIBXML2_INCLUDE_DIRS} ${LIBSOUP_INCLUDE_DIRS} ${JSONGLIB_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
 
@@ -30,3 +33,5 @@ add_executable(lsl_compile lsl.tab.c lsl-lex.c caj_lsl_compile.cpp lsl_consts.c 
 add_custom_command(OUTPUT lsl.tab.c lsl.tab.h COMMAND bison -d -v lsl.y DEPENDS lsl.y)
 add_custom_command(OUTPUT lsl-lex.c COMMAND flex -o lsl-lex.c lsl.lex DEPENDS lsl.lex lsl.tab.h)
 add_custom_command(OUTPUT lsl_consts.c COMMAND python lsl_consts.py DEPENDS lsl_consts.py caj_script.h)
+
+add_subdirectory(bullet)
