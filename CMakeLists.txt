@@ -18,10 +18,11 @@ add_library(openjpeg STATIC libopenjpeg/bio.c libopenjpeg/cio.c libopenjpeg/dwt.
 # FIXME this is broken
 add_custom_target(make_caj_version.h ALL COMMAND ./make_caj_version.sh DEPENDS caj_version.h.in)
 
-add_executable(cajeput_sim caj_omv_udp.cpp cajeput_main.cpp cajeput_caps.cpp sl_messages.c sl_udp_proto.c caj_llsd.c physics_bullet.cpp cajeput_inventory.cpp cajeput_assets.cpp opensim_xml_glue.cpp cajeput_j2k.c terrain_compress.c cajeput_anims.c cajeput_evqueue.cpp cajeput_hooks.cpp caj_parse_nini.c caj_scripting.cpp caj_types.cpp caj_vm.cpp cajeput_dump.cpp cajeput_world.cpp cajeput_user.cpp caj_vm_insns.h sl_messages.h)
+add_executable(cajeput_sim cajeput_main.cpp cajeput_caps.cpp caj_llsd.c physics_bullet.cpp cajeput_inventory.cpp cajeput_assets.cpp opensim_xml_glue.cpp cajeput_j2k.c terrain_compress.c cajeput_anims.c cajeput_evqueue.cpp cajeput_hooks.cpp caj_parse_nini.c caj_scripting.cpp caj_types.cpp caj_vm.cpp cajeput_dump.cpp cajeput_world.cpp cajeput_user.cpp caj_vm_insns.h)
 add_dependencies(cajeput_sim make_caj_version.h)
 
 add_library(grid_opensim MODULE opensim_grid_glue.cpp opensim_robust_xml.cpp opensim_inventory_glue.cpp opensim_asset_glue.cpp opensim_intersim.cpp)
+add_library(caj_omv_udp MODULE caj_omv_udp.cpp sl_messages.c sl_udp_proto.c sl_messages.h)
 
 target_link_libraries(cajeput_sim ${GLIB2_LIBRARIES} ${LIBXML2_LIBRARIES} ${LIBSOUP_LIBRARIES} ${JSONGLIB_LIBRARIES} ${BULLET_LIBRARIES} uuid openjpeg)
 

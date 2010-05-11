@@ -98,6 +98,9 @@ void sim_add_shutdown_hook(struct simulator_ctx *sim,
 void sim_remove_shutdown_hook(struct simulator_ctx *sim,
 			      sim_generic_cb cb, void *priv);
 
+void cajeput_add_sim_added_hook(struct simgroup_ctx *sgrp,
+				sim_generic_cb cb, void *priv);
+
 // ------ MAP STUFF -----------------
 
 struct map_block_info {

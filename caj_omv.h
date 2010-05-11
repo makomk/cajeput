@@ -34,6 +34,7 @@
 struct omuser_sim_ctx;
 struct omuser_ctx;
 struct asset_xfer;
+struct user_hooks;
 
 // FIXME - rename these to something saner
 typedef void(*sl_msg_handler)(omuser_ctx*,sl_message*);
@@ -100,6 +101,7 @@ struct omuser_sim_ctx {
   int sock;
   GIOChannel* gio_sock;
   struct omuser_ctx *ctxts;
+  struct user_hooks *hooks;
 
   msg_handler_map msg_handlers;
   uint64_t xfer_id_ctr; 

@@ -228,6 +228,8 @@ struct simgroup_ctx {
   char *ip_addr;
   std::map<std::string,cap_descrip*> caps;
   std::map<uint64_t, simulator_ctx*> sims;
+
+  caj_callback<sim_generic_cb> sim_added_hook;
 };
 
 struct collision_pair {

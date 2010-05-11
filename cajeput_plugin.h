@@ -23,8 +23,23 @@
 #ifndef CAJEPUT_PLUGIN_H
 #define CAJEPUT_PLUGIN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #define CAJEPUT_API_VERSION_MAJOR 1
 #define CAJEPUT_API_VERSION_MINOR 1
 
+struct simgroup_ctx;
+
+int cajeput_plugin_init(int api_major, int api_minor,
+			struct simgroup_ctx *sgrp);
+typedef int (*plugin_init_func)(int api_major, int api_minor,
+				struct simgroup_ctx *sgrp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

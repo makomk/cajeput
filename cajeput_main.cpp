@@ -195,6 +195,12 @@ void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
   sgrp->gridh.map_region_by_name(sgrp, name, cb, cb_priv);
 }
 
+struct user_hooks *cajeput_alloc_user_hooks(void) {
+  struct user_hooks *hooks = new user_hooks();
+  memset(hooks, 0, sizeof(user_hooks));
+  return hooks;
+}
+
 
 // FIXME - remove these!
 #define PCODE_PRIM 9
@@ -663,7 +669,7 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
   sim->world_tree = world_octree_create();
   sim->ctxts = NULL;
   //uuid_generate_random(sim->region_secret);
-  sim_int_init_udp(sim);
+  //sim_int_init_udp(sim);
   
   g_timeout_add(100, av_update_timer, sim);
 
@@ -678,6 +684,12 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
   if(!caj_scripting_init(CAJEPUT_API_VERSION, sim, &sim->script_priv,
 			 &sim->scripth)) {
     printf("Couldn't init script engine!\n"); return;
+  }
+
+  for(caj_callback<sim_generic_cb>::cb_set::iterator iter = 
+	sgrp->sim_added_hook.callbacks.begin(); 
+      iter != sgrp->sim_added_hook.callbacks.end(); iter++) {
+    iter->cb(sim, iter->priv);
   }
 
   world_int_load_prims(sim);
@@ -745,6 +757,37 @@ int main(void) {
     g_free(mod_name);
     grid_glue_init = (grid_glue_init_func)sym;
   }
+
+  char **plugins = g_key_file_get_string_list(sgrp->config, "simgroup",
+					      "plugins", &len, NULL);
+  if(plugins == NULL || len == 0) {
+    printf("ERROR: no plugins enabled. Check config file.\n");
+    g_key_file_free(sgrp->config); delete sgrp;
+    return 1;
+  }
+
+  for(unsigned i = 0; i < len; i++) {
+    printf("DEBUG: loading plugin %s\n", plugins[i]);
+ 
+    GModule* module = g_module_open(plugins[i], G_MODULE_BIND_LOCAL);
+    if(module == NULL) {
+      printf("ERROR: couldn't load plugin %s: %s\n", 
+	     plugins[i], g_module_error());
+      return 1;
+    }
+    void *sym;
+    if(!g_module_symbol(module, "cajeput_plugin_init", &sym) ||
+       sym == NULL) {
+      printf("ERROR: couldn't find cajeput_plugin_init in module %s\n", plugins[i]);
+      g_module_close(module); return 1;
+    }
+    plugin_init_func init_func = (plugin_init_func)sym;
+    if(!init_func(CAJEPUT_API_VERSION_MAJOR, 
+		  CAJEPUT_API_VERSION_MINOR, sgrp)) {
+      printf("ERROR: failed to init plugin %s\n", plugins[i]);
+    }
+  }
+  g_strfreev(plugins);
 
   char **sims = g_key_file_get_string_list(sgrp->config, "simgroup",
 					   "sims", &len, NULL);

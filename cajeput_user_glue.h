@@ -59,6 +59,8 @@ struct user_hooks {
 		       int32_t channel);
 };
 
+struct user_hooks *cajeput_alloc_user_hooks(void);
+
 #define CAJ_ANIM_TYPE_NORMAL 0 // normal
 #define CAJ_ANIM_TYPE_DEFAULT 1 // default anim
 

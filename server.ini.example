@@ -11,6 +11,8 @@ grid_sendkey=null
 sims=example
 http_port=9000
 ip_address=127.0.0.1
+grid_module=./libgrid_opensim
+plugins=./libcaj_omv_udp
 
 [sim example]
 udp_port=9000

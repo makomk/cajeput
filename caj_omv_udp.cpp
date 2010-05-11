@@ -24,6 +24,7 @@
 #include "sl_udp_proto.h"
 //#include "caj_llsd.h"
 #include "cajeput_core.h"
+#include "cajeput_plugin.h"
 #include "cajeput_user.h"
 #include "cajeput_world.h"
 #include "cajeput_user_glue.h"
@@ -3074,23 +3075,6 @@ static void remove_user(void *user_priv) {
   delete lctx;
 }
 
-// FIXME - use GCC-specific extensions for robustness?
-static user_hooks our_hooks = {
-  teleport_begin,
-  teleport_failed,
-  teleport_progress,
-  teleport_complete,
-  teleport_local,
-  remove_user,
-  disable_sim,
-  chat_callback,
-  send_alert_message,
-  send_av_full_update,
-  send_av_terse_update,
-  send_av_appearance,
-  send_av_animations,
-  send_script_dialog,
-};
 
 static gboolean got_packet(GIOChannel *source,
 			   GIOCondition condition,
@@ -3122,7 +3106,7 @@ static gboolean got_packet(GIOChannel *source,
       if(cc == NULL) goto out;
       // FIXME: handle same port/addr, different agent case
       ctx = sim_bind_user(lsim->sim, cc->ID, cc->SessionID,
-			  cc->Code, &our_hooks);
+			  cc->Code, lsim->hooks);
       if(ctx == NULL) {
 	printf("DEBUG: got unexpected UseCircuitCode\n");
 	sl_dump_packet(&msg);
@@ -3216,12 +3200,14 @@ static void shutdown_handler(simulator_ctx *sim, void *priv) {
   delete lsim;
 }
 
+
 #define ADD_HANDLER(name) register_msg_handler(lsim, &sl_msgt_##name, handle_##name##_msg)
 
-// FIXME - need to detect ABI mismatches before we can modularise!
-void sim_int_init_udp(struct simulator_ctx *sim)  {
+static void sim_int_init_udp(struct simulator_ctx *sim, void *priv)  {
+  struct user_hooks *hooks = (user_hooks*)priv;
   omuser_sim_ctx *lsim = new omuser_sim_ctx();
-  lsim->sim = sim;
+  lsim->sim = sim; 
+  lsim->hooks = hooks;
   lsim->ctxts = NULL;
   lsim->xfer_id_ctr = 1;
   int sock; struct sockaddr_in addr;
@@ -3301,4 +3287,32 @@ void sim_int_init_udp(struct simulator_ctx *sim)  {
   g_timeout_add(100, texture_send_timer, lsim); // FIXME - check the timing on this
   g_timeout_add(100, obj_update_timer, lsim);  
   g_timeout_add(200, resend_timer, lsim);
+}
+
+int cajeput_plugin_init(int api_major, int api_minor,
+			struct simgroup_ctx *sgrp) {
+  if(api_major != CAJEPUT_API_VERSION_MAJOR || 
+     api_minor < CAJEPUT_API_VERSION_MINOR) 
+    return false;
+
+  struct user_hooks *hooks = cajeput_alloc_user_hooks();
+  
+  hooks->teleport_begin = teleport_begin;
+  hooks->teleport_failed = teleport_failed;
+  hooks->teleport_progress = teleport_progress;
+  hooks->teleport_complete = teleport_complete;
+  hooks->teleport_local = teleport_local;
+  hooks->remove = remove_user;
+  hooks->disable_sim = disable_sim;
+  hooks->chat_callback = chat_callback;
+  hooks->alert_message = send_alert_message;
+  hooks->send_av_full_update = send_av_full_update; 
+  hooks->send_av_terse_update = send_av_terse_update;
+  hooks->send_av_appearance = send_av_appearance; 
+  hooks->send_av_animations = send_av_animations;
+  hooks->script_dialog = send_script_dialog;
+
+  cajeput_add_sim_added_hook(sgrp, sim_int_init_udp, hooks);
+
+  return true;
 }

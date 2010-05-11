@@ -1,6 +1,10 @@
 #include "cajeput_int.h"
 #include <set>
 
+void cajeput_add_sim_added_hook(struct simgroup_ctx *sgrp,
+				sim_generic_cb cb, void *priv) {
+  sgrp->sim_added_hook.add_callback(cb, priv);
+}
 
 void sim_add_shutdown_hook(struct simulator_ctx *sim,
 			   sim_generic_cb cb, void *priv) {
