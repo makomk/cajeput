@@ -23,6 +23,7 @@
 // FIXME FIXME TODO - finish support for new user server.
 
 #include "cajeput_core.h"
+#include "cajeput_plugin.h"
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
 #include <libsoup/soup.h>
@@ -2098,9 +2099,11 @@ static void cleanup(struct simgroup_ctx* sgrp) {
   delete grid;
 }
 
-int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp, 
-			   void **priv, struct cajeput_grid_hooks *hooks) {
-  if(api_version != CAJEPUT_API_VERSION) 
+int cajeput_grid_glue_init(int api_major, int api_minor,
+			   struct simgroup_ctx *sgrp, void **priv,
+			   struct cajeput_grid_hooks *hooks) {
+  if(api_major != CAJEPUT_API_VERSION_MAJOR || 
+     api_minor < CAJEPUT_API_VERSION_MINOR) 
     return false;
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;

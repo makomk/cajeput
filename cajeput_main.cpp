@@ -21,6 +21,7 @@
  */
 
 #include "cajeput_core.h"
+#include "cajeput_plugin.h"
 #include "cajeput_int.h"
 #include "terrain_compress.h"
 #include "caj_parse_nini.h"
@@ -704,6 +705,28 @@ int main(void) {
 
   gsize len;
 
+  GModule* grid_module; grid_glue_init_func grid_glue_init;
+  {
+    char *mod_name = g_key_file_get_value(sgrp->config, "simgroup", "grid_module", NULL);
+    if(mod_name == NULL) {
+      printf("ERROR: no grid module selected\n"); return 1;
+    }
+    grid_module = g_module_open(mod_name, G_MODULE_BIND_LOCAL);
+    if(grid_module == NULL) {
+      printf("ERROR: couldn't load grid module %s: %s\n", 
+	     mod_name, g_module_error());
+      g_free(mod_name); return 1;
+    }
+    void *sym;
+    if(!g_module_symbol(grid_module, "cajeput_grid_glue_init", &sym) ||
+       sym == NULL) {
+      printf("ERROR: couldn't find cajeput_grid_glue_init in module %s\n", mod_name);
+      g_free(mod_name); g_module_close(grid_module); return 1;
+    }
+    g_free(mod_name);
+    grid_glue_init = (grid_glue_init_func)sym;
+  }
+
   char **sims = g_key_file_get_string_list(sgrp->config, "simgroup",
 					   "sims", &len, NULL);
   if(sims == NULL || len == 0) {
@@ -730,8 +753,8 @@ int main(void) {
   }
 
   memset(&sgrp->gridh, 0, sizeof(sgrp->gridh));
-  if(!cajeput_grid_glue_init(CAJEPUT_API_VERSION, sgrp, 
-			     &sgrp->grid_priv, &sgrp->gridh)) {
+  if(!grid_glue_init(CAJEPUT_API_VERSION_MAJOR, CAJEPUT_API_VERSION_MINOR,
+		     sgrp, &sgrp->grid_priv, &sgrp->gridh)) {
     printf("Couldn't init grid glue!\n"); return 1;
   }
 

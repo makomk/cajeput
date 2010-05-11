@@ -124,10 +124,13 @@ struct cajeput_grid_hooks {
 			     caj_user_profile_cb cb, void *cb_priv);
 };
 
-// void do_grid_login(struct simulator_ctx* sim);
+int cajeput_grid_glue_init(int api_major, int api_minor,
+			   struct simgroup_ctx *sgrp, void **priv,
+			   struct cajeput_grid_hooks *hooks);
 
-int cajeput_grid_glue_init(int api_version, struct simgroup_ctx *sgrp, 
-			   void **priv, struct cajeput_grid_hooks *hooks);
+typedef int(*grid_glue_init_func)(int api_major, int api_minor,
+				  struct simgroup_ctx *sgrp, void **priv,
+				  struct cajeput_grid_hooks *hooks);
 
 struct sim_new_user {
   char *first_name;
