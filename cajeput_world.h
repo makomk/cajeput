@@ -217,6 +217,14 @@ struct primitive_obj {
 #define CHAT_TYPE_OWNER_SAY 8
 #define CHAT_TYPE_REGION_SAY 0xff // ???
 
+#define CHAT_AUDIBLE_FULLY 1
+#define CHAT_AUDIBLE_BARELY 0
+#define CHAT_AUDIBLE_NO -1
+
+#define CHAT_SOURCE_SYSTEM 0
+#define CHAT_SOURCE_AVATAR 1
+#define CHAT_SOURCE_OBJECT 2
+
 // -------- SCRIPTING GLUE --------------------
 
   typedef void(*compile_done_cb)(void *priv, int success, const char* output, 
@@ -323,6 +331,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 
 void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
 			 const caj_vector4 *footfall);
+void avatar_get_footfall(struct world_obj *av, caj_vector4 *footfall);
 
 void world_update_collisions(struct simulator_ctx *sim, 
 			     struct caj_phys_collision *collisions, int count);
@@ -333,6 +342,9 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
 
 
 // ---------- MISC WORLD STUFF ---------------------------------------
+
+  // generally, I'd prefer it if you didn't use this directly
+void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
 
 void world_insert_obj(struct simulator_ctx *sim, struct world_obj *ob);
 
@@ -360,6 +372,8 @@ struct inventory_item* world_prim_alloc_inv_item(void);
 void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat);
 
 void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
+			  int32_t chan, const char *msg, int chat_type);
+void world_chat_from_user(struct user_ctx* ctx,
 			  int32_t chan, const char *msg, int chat_type);
 void world_prim_set_text(struct simulator_ctx *sim, struct primitive_obj* prim,
 			 const char *text, uint8_t color[4]);

@@ -29,6 +29,7 @@
 #include <map>
 #include <vector>
 #include <set>
+#include <deque>
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -37,6 +38,7 @@
 #include "cajeput_world.h"
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
+#include "cajeput_user_glue.h"
 
 #define USER_CONNECTION_TIMEOUT 15
 #define USER_CONNECTION_TIMEOUT_PAUSED 90
@@ -45,39 +47,6 @@ struct cap_descrip;
 
 typedef std::map<std::string,cap_descrip*> named_caps_map;
 typedef std::map<std::string,cap_descrip*>::iterator named_caps_iter;
-
-struct obj_uuid_t {
-  uuid_t u;
-  obj_uuid_t() {
-    uuid_clear(u);
-  }
-  obj_uuid_t(const obj_uuid_t &u2) {
-    *this = u2;
-  }
-  obj_uuid_t(const uuid_t u2) {
-    uuid_copy(u, u2);
-  }
-};
-
-static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) < 0;
-};
-
-static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) <= 0;
-};
-
-static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) == 0;
-};
-
-static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) > 0;
-};
-
-static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
-  return uuid_compare(u1.u,u2.u) >= 0;
-};
 
 // ---------------- CALLBACKS CODE ---------------
 
@@ -123,57 +92,12 @@ struct sl_throttle {
   float level, rate; // current reservoir level and flow rate
 };
 
-struct asset_xfer;
-
-struct image_request {
-  texture_desc *texture;
-  float priority;
-  int discard;
-  unsigned packet_no;
-};
-
-#define CAJ_ANIM_TYPE_NORMAL 0 // normal
-#define CAJ_ANIM_TYPE_DEFAULT 1 // default anim
-
 // note - allocated with calloc, can't use C++ stuff
 struct avatar_obj {
   struct world_obj ob;
   caj_vector4 footfall;
   primitive_obj *attachments[NUM_ATTACH_POINTS];
 };
-
-
-/* !!!     WARNING   WARNING   WARNING    !!!
-   Changing the user_hooks structure breaks ABI compatibility. Also,
-   doing anything except inserting a new hook at the end breaks API 
-   compatibility, potentially INVISIBLY! 
-   Be sure to bump the ABI version after any change.
-   !!!     WARNING   WARNING   WARNING    !!!
-*/
-struct user_hooks {
-  void(*teleport_begin)(struct user_ctx* ctx, struct teleport_desc *tp);
-  void(*teleport_failed)(struct user_ctx* ctx, const char* reason);
-  void(*teleport_progress)(struct user_ctx* ctx, const char* msg, 
-			   uint32_t flags);
-  void(*teleport_complete)(struct user_ctx* ctx, struct teleport_desc *tp);
-  void(*teleport_local)(struct user_ctx* ctx, struct teleport_desc *tp);
-  void(*remove)(void* user_priv);
- 
-  void(*disable_sim)(void* user_priv); // HACK
-  void(*chat_callback)(void *user_priv, const struct chat_message *msg);
-  void(*alert_message)(void *user_priv, const char* msg, int is_modal);
-
-  // these are temporary hacks.
-  void(*send_av_full_update)(user_ctx* ctx, user_ctx* av_user);
-  void(*send_av_terse_update)(user_ctx* ctx, avatar_obj* av);
-  void(*send_av_appearance)(user_ctx* ctx, user_ctx* av_user);
-  void(*send_av_animations)(user_ctx* ctx, user_ctx* av_user);
-
-  void(*script_dialog)(void *user_priv, primitive_obj* prim,
-		       char *msg, int num_buttons, char** buttons,
-		       int32_t channel);
-};
-
 
 
 struct user_ctx {
@@ -217,7 +141,7 @@ struct user_ctx {
 
   caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
 
-  uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
+  uint32_t wearable_serial;
   struct caj_string texture_entry, visual_params;
   struct animation_desc default_anim;
   std::vector<animation_desc> anims;
@@ -235,7 +159,7 @@ struct user_ctx {
   void *grid_priv; 
 
   std::map<uint32_t, int> obj_upd; // FIXME - HACK
-  std::vector<uint32_t> deleted_objs;
+  std::deque<uint32_t> deleted_objs;
 
   int shutdown_ctr; // for slow user removal (AGENT_FLAG_IN_SLOW_REMOVAL)
 
@@ -378,32 +302,17 @@ void user_int_caps_cleanup(user_ctx *ctx);
 
 void user_remove_int(user_ctx **user); // for internal use only.
 
-// called on CompleteAgentMovement - returns success (true/false)
-int user_complete_movement(user_ctx *ctx);
-
-user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
-			uint32_t circ_code, struct user_hooks* hooks);
 
 // FIXME - this really shouldn't be exposed
 void user_av_chat_callback(struct simulator_ctx *sim, struct world_obj *obj,
 			   const struct chat_message *msg, void *user_data);
-
-void user_update_throttles(struct user_ctx *ctx);
 
 // for strictly internal use ONLY! Really! Use equivalents in cajeput_core.h
 void user_send_teleport_failed(struct user_ctx* ctx, const char* reason);
 void user_send_teleport_progress(struct user_ctx* ctx, const char* msg, uint32_t flags);
 void user_send_teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp);
 
-// takes ownership of the passed LLSD
-void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body);
 
-int user_can_modify_object(struct user_ctx* ctx, struct world_obj *obj);
-int user_can_delete_object(struct user_ctx* ctx, struct world_obj *obj);
-int user_can_copy_prim(struct user_ctx* ctx, struct primitive_obj *prim);
-
-void user_duplicate_prim(struct user_ctx* ctx, struct primitive_obj *prim,
-			 caj_vector3 position);
 
 void user_call_delete_hook(struct user_ctx *ctx);
 
@@ -427,7 +336,6 @@ void world_load_script_state(inventory_item *inv, caj_string *state);
 
 // --------- HACKY OBJECT UPDATE STUFF ---------------
 
-void world_mark_object_updated(simulator_ctx* sim, world_obj *obj, int update_level);
 
 // --------- CAPS STUFF -----------------------------
 
@@ -442,13 +350,5 @@ struct cap_descrip* user_add_named_cap(struct simulator_ctx *ctx,
 
 void caj_int_caps_init(simgroup_ctx *sgrp);
 
-// ------------ SL constants --------------
-#define CHAT_AUDIBLE_FULLY 1
-#define CHAT_AUDIBLE_BARELY 0
-#define CHAT_AUDIBLE_NO -1
-
-#define CHAT_SOURCE_SYSTEM 0
-#define CHAT_SOURCE_AVATAR 1
-#define CHAT_SOURCE_OBJECT 2
 
 #endif

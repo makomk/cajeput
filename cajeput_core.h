@@ -63,6 +63,8 @@ void sim_set_script_priv(struct simulator_ctx *sim, void* p);
 float* sim_get_heightfield(struct simulator_ctx *sim);
 float sim_get_terrain_height(struct simulator_ctx *sim, int x, int y);
 
+double caj_get_timer(struct simgroup_ctx *sgrp);
+
 // These, on the other hand, require you to g_free the returned string
 char *sgrp_config_get_value(struct simgroup_ctx *sim, const char* section,
 			    const char* key);
@@ -95,6 +97,36 @@ void sim_add_shutdown_hook(struct simulator_ctx *sim,
 			   sim_generic_cb cb, void *priv);
 void sim_remove_shutdown_hook(struct simulator_ctx *sim,
 			      sim_generic_cb cb, void *priv);
+
+// ------ MAP STUFF -----------------
+
+struct map_block_info {
+  uint32_t x, y; // larger size for future-proofing
+  char *name;
+  uint8_t access, water_height, num_agents;
+  uint32_t flags;
+  uuid_t map_image;
+  // TODO
+
+  // not used by MapBlockRequest, but kinda handy for other stuff
+  char *sim_ip;
+  int sim_port, http_port;
+  uuid_t region_id;  
+};
+
+typedef void(*caj_find_regions_cb)(void* cb_priv, 
+				   struct map_block_info* blocks, 
+				   int count);
+typedef void(*caj_find_region_cb)(void* cb_priv, 
+				   struct map_block_info* block);
+void caj_map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x, 
+			   int min_y, int max_y, caj_find_regions_cb cb,
+			   void *cb_priv);
+void caj_map_name_request(struct simgroup_ctx* sgrp, const char* name,
+			  caj_find_regions_cb cb, void *cb_priv);
+void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
+			    caj_find_region_cb cb, void *cb_priv);
+
 
 // ----- MISC STUFF ---------
 
@@ -238,9 +270,14 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc);
 				 INV_OBJECT_SET_EVERYONE_PERMS	\
 				 INV_OBJECT_SET_NEXT_PERMS)
 
+
+typedef void (*caj_put_asset_cb)(uuid_t asset_id, void *priv);
+
 void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
 		   void(*cb)(struct simgroup_ctx *sgrp, void *priv,
 			     struct simple_asset *asset), void *cb_priv);
+void caj_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
+		   caj_put_asset_cb cb, void *cb_priv);
 
   // forces all other permissions to be a subset of the base ones
 void caj_sanitise_perms(struct permission_flags *perms);

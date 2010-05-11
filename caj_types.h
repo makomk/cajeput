@@ -25,6 +25,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <uuid/uuid.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,7 +112,8 @@ void caj_cross_vect3(struct caj_vector3 *out, const struct caj_vector3* v1,
 // should be small enough not to be affected by sane quantisation
 #define CAJ_QUAT_EPS 0.0001
 
-static inline int caj_quat_equal(struct caj_quat *q1, struct caj_quat *q2) {
+static inline int caj_quat_equal(const struct caj_quat *q1, 
+				 const struct caj_quat *q2) {
   return fabs(q1->x - q2->x) < CAJ_QUAT_EPS && 
     fabs(q1->y - q2->y) < CAJ_QUAT_EPS &&
     fabs(q1->z - q2->z) < CAJ_QUAT_EPS &&
@@ -135,6 +137,40 @@ static inline caj_vector3 operator-(const caj_vector3 &v1, const caj_vector3 &v2
   out.x = v1.x - v2.x; out.y = v1.y - v2.y; out.z = v1.z - v2.z;
   return out;
 }
+
+struct obj_uuid_t {
+  uuid_t u;
+  obj_uuid_t() {
+    uuid_clear(u);
+  }
+  obj_uuid_t(const obj_uuid_t &u2) {
+    *this = u2;
+  }
+  obj_uuid_t(const uuid_t u2) {
+    uuid_copy(u, u2);
+  }
+};
+
+static inline bool operator < (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) < 0;
+};
+
+static inline bool operator <= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) <= 0;
+};
+
+static inline bool operator == (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) == 0;
+};
+
+static inline bool operator > (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) > 0;
+};
+
+static inline bool operator >= (const obj_uuid_t &u1, const obj_uuid_t &u2) {
+  return uuid_compare(u1.u,u2.u) >= 0;
+};
+
 
 #endif // __cplusplus
 

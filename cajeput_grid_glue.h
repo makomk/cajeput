@@ -33,28 +33,6 @@
 extern "C" {
 #endif
 
-// This ought to be moved somewhere more sensible
-struct map_block_info {
-  uint32_t x, y; // larger size for future-proofing
-  char *name;
-  uint8_t access, water_height, num_agents;
-  uint32_t flags;
-  uuid_t map_image;
-  // TODO
-
-  // not used by MapBlockRequest, but kinda handy for other stuff
-  char *sim_ip;
-  int sim_port, http_port;
-  uuid_t region_id;  
-};
-
-typedef void (*caj_put_asset_cb)(uuid_t asset_id, void *priv);
-typedef void(*caj_find_regions_cb)(void* cb_priv, 
-				   struct map_block_info* blocks, 
-				   int count);
-typedef void(*caj_find_region_cb)(void* cb_priv, 
-				   struct map_block_info* block);
-
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simgroup_ctx *sgrp, 
 		       struct simulator_ctx* sim);

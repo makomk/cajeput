@@ -26,6 +26,7 @@
 #include "cajeput_prim.h"
 #include "caj_script.h"
 #include "caj_helpers.h"
+#include "cajeput_user_glue.h"
 #include <cassert>
 #include <stdio.h>
 
@@ -342,6 +343,24 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
   } else {
     world_send_chat(sim, &chat);
   }
+}
+
+void world_chat_from_user(struct user_ctx* ctx,
+			  int32_t chan, const char *msg, int chat_type) {
+  struct chat_message chat;
+  if(ctx->av == NULL) return; // I have no mouth and I must scream...
+  if(chat_type == CHAT_TYPE_WHISPER || chat_type == CHAT_TYPE_NORMAL ||
+     chat_type == CHAT_TYPE_SHOUT) { 
+    chat.channel = chan;
+    chat.pos = ctx->av->ob.world_pos;
+    chat.name = ctx->name;
+    uuid_copy(chat.source,ctx->user_id);
+    uuid_clear(chat.owner); // FIXME - ???
+    chat.source_type = CHAT_SOURCE_AVATAR;
+    chat.chat_type = chat_type;
+    chat.msg = (char*)msg;
+    world_send_chat(ctx->sim, &chat);
+  }  
 }
 
 
@@ -782,9 +801,9 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
   }
 }
 
-void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type,
-		     const struct caj_touch_info *info) {
+void user_prim_touch(struct user_ctx *ctx, struct primitive_obj* prim, 
+		     int touch_type, const struct caj_touch_info *info) {
+  struct simulator_ctx *sim = ctx->sim;
   printf("DEBUG: in user_prim_touch, type %i\n", touch_type);
   int handled = 0;
 
@@ -812,7 +831,7 @@ void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
     printf("DEBUG: passing touch event to parent prim\n");
-    user_prim_touch(sim, ctx, (primitive_obj*)prim->ob.parent, 
+    user_prim_touch(ctx, (primitive_obj*)prim->ob.parent, 
 		    touch_type, info);
   }
 }
@@ -1415,6 +1434,12 @@ void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *obj,
   av->footfall = *footfall;
 }
 
+void avatar_get_footfall(struct world_obj *obj, caj_vector4 *footfall) {
+  assert(obj->type == OBJ_TYPE_AVATAR);
+  avatar_obj *av = (avatar_obj*)obj;
+  *footfall = av->footfall;
+}
+
 // --- START of part of hacky object update code. FIXME - remove this ---
 // The API provided by world_mark_object_updated/world_move_obj_from_phys will 
 // probably now remain the same after the object update code is rewritten,
@@ -1428,6 +1453,31 @@ void world_int_init_obj_updates(user_ctx *ctx) {
     if(obj->type == OBJ_TYPE_PRIM) {
       ctx->obj_upd[obj->local_id] = CAJ_OBJUPD_CREATED;
     }
+  }
+}
+
+uint32_t user_get_next_deleted_obj(user_ctx *ctx) {
+  std::deque<uint32_t>::iterator diter = ctx->deleted_objs.begin();
+  if(diter != ctx->deleted_objs.end()) {
+    uint32_t localid = *diter; 
+    ctx->deleted_objs.erase(diter); 
+    return localid;
+  } else {
+    return 0;
+  }
+}
+
+int user_has_pending_deleted_objs(user_ctx *ctx) {
+  return ctx->deleted_objs.size() != 0;
+}
+
+int user_get_next_updated_obj(user_ctx *ctx, uint32_t *localid, int *flags) {
+  std::map<uint32_t, int>::iterator iter = ctx->obj_upd.begin();
+  if(iter != ctx->obj_upd.end()) {
+    *localid = iter->first; *flags = iter->second; 
+    ctx->obj_upd.erase(iter); return TRUE;
+  } else {
+    return FALSE;
   }
 }
 
@@ -1467,6 +1517,8 @@ void world_move_obj_from_phys(struct simulator_ctx *sim, struct world_obj *ob,
   world_move_root_obj_int(sim, ob, *new_pos);
   mark_object_updated_nophys(sim, ob, CAJ_OBJUPD_POSROT);
 }
+
+// ------- END of object update code -----------------
 
 void world_prim_apply_impulse(struct simulator_ctx *sim, struct primitive_obj* prim,
 			      caj_vector3 impulse, int is_local) {

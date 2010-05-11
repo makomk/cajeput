@@ -91,9 +91,12 @@ typedef void(*user_generic_cb)(user_ctx* user, void* priv);
 
 void *user_get_grid_priv(struct user_ctx *user);
 struct simulator_ctx* user_get_sim(struct user_ctx *user);
+struct simgroup_ctx* user_get_sgrp(struct user_ctx *user);
 void user_get_uuid(struct user_ctx *user, uuid_t u);
 void user_get_session_id(struct user_ctx *user, uuid_t u);
 void user_get_secure_session_id(struct user_ctx *user, uuid_t u);
+int user_check_session(struct user_ctx *user, 
+		       uuid_t agent, uuid_t session);
 uint32_t user_get_circuit_code(struct user_ctx *user);
 float user_get_draw_dist(struct user_ctx *user);
 
@@ -101,10 +104,16 @@ float user_get_draw_dist(struct user_ctx *user);
 const char* user_get_first_name(struct user_ctx *user);
 const char* user_get_last_name(struct user_ctx *user);
 const char* user_get_name(struct user_ctx *user);
+const char* user_get_group_title(struct user_ctx *user);
+const char* user_get_group_name(struct user_ctx *user);
+void user_get_active_group(struct user_ctx *user, uuid_t u);
 const caj_string* user_get_texture_entry(struct user_ctx *user);
 const caj_string* user_get_visual_params(struct user_ctx *user);
+const struct animation_desc* user_get_default_anim(struct user_ctx *user);
 
 void user_get_position(struct user_ctx* user, caj_vector3 *pos);
+void user_get_initial_look_at(struct user_ctx* user, caj_vector3 *pos);
+struct world_obj* user_get_avatar(struct user_ctx* user);
 
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
@@ -114,6 +123,8 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
 void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
+
+int user_owns_prim(struct user_ctx *ctx, struct primitive_obj *prim);
 
 struct wearable_desc {
   uuid_t asset_id, item_id;
@@ -126,6 +137,7 @@ const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       uuid_t item_id, uuid_t asset_id);
 void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
+uint32_t user_get_wearable_serial(struct user_ctx *ctx);
 
 // Semantics of these two are funny. They take ownership of the buffer pointed 
 // to by data->data and then set data->data to NULL. 
@@ -167,8 +179,8 @@ void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
 				const char* last, void *priv),
 		      void *cb_priv);
 
-void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
-				 uuid_t folder_id,  uuid_t owner_id,
+void user_fetch_inventory_folder(user_ctx *user,
+				 uuid_t folder_id, uuid_t owner_id,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
@@ -205,9 +217,8 @@ struct caj_touch_info {
   caj_vector3 pos, normal, binormal;
 };
 
-void user_prim_touch(struct simulator_ctx *sim, struct user_ctx *ctx,
-		     struct primitive_obj* prim, int touch_type,
-		     const struct caj_touch_info *info);
+void user_prim_touch(struct user_ctx *ctx,struct primitive_obj* prim, 
+		     int touch_type, const struct caj_touch_info *info);
 
 // check whether the asset can be retrieved without giving an inventory item
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);
@@ -223,8 +234,6 @@ void user_rez_object(user_ctx *ctx, uuid_t from_prim, uuid_t item_id,
 		     uuid_t owner_id, caj_vector3 pos);
 void user_rez_attachment(user_ctx *ctx, uuid_t item_id, uint8_t attach_point);
 void user_remove_attachment(struct user_ctx *ctx, struct primitive_obj *prim);
-
-void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
   
 // teleport flags (for SL/OMV viewer, but also used internally)
 #define TELEPORT_FLAG_SET_HOME 0x1 // not used much

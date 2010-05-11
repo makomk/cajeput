@@ -114,6 +114,9 @@ float* sim_get_heightfield(struct simulator_ctx *sim) {
 float sim_get_terrain_height(struct simulator_ctx *sim, int x, int y) {
   return sim->terrain[x + y*256];
 }
+double caj_get_timer(struct simgroup_ctx *sgrp) {
+  return g_timer_elapsed(sgrp->timer, NULL);
+}
 // --- END sim query code ---
 
 
@@ -176,6 +179,22 @@ void sim_shutdown_release(struct simulator_ctx *sim) {
 
 static GMainLoop *main_loop;
 
+void caj_map_block_request(struct simgroup_ctx *sgrp, int min_x, int max_x, 
+			   int min_y, int max_y, caj_find_regions_cb cb, 
+			   void *cb_priv) {
+  sgrp->gridh.map_block_request(sgrp, min_x, max_x, min_y, max_y, cb, cb_priv);
+}
+
+void caj_map_name_request(struct simgroup_ctx* sgrp, const char* name,
+			  caj_find_regions_cb cb, void *cb_priv) {
+  sgrp->gridh.map_name_request(sgrp, name, cb, cb_priv);
+}
+
+void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
+			    caj_find_region_cb cb, void *cb_priv) {
+  sgrp->gridh.map_region_by_name(sgrp, name, cb, cb_priv);
+}
+
 
 // FIXME - remove these!
 #define PCODE_PRIM 9
@@ -201,7 +220,7 @@ static gboolean av_update_timer(gpointer data) {
 	  user->userh->send_av_full_update(user, user2);
       } else {
 	if(user->userh != NULL && user->userh->send_av_terse_update != NULL)
-	  user->userh->send_av_terse_update(user, user2->av); // FIXME - only send if needed
+	  user->userh->send_av_terse_update(user, &user2->av->ob); // FIXME - only send if needed
       }
       if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) && user != user2) {

@@ -23,10 +23,17 @@
 #ifndef CAJ_OMV_H
 #define CAJ_OMV_H
 
+#include <map>
+#include <vector>
+#include <set>
+#include <string>
+#include "caj_types.h"
+
 // for clients speaking the Linden Labs/Open Metaverse UDP protocol
 
 struct omuser_sim_ctx;
 struct omuser_ctx;
+struct asset_xfer;
 
 // FIXME - rename these to something saner
 typedef void(*sl_msg_handler)(omuser_ctx*,sl_message*);
@@ -54,6 +61,13 @@ struct om_xfer_file {
 
 struct xfer_send;
 
+struct image_request {
+  texture_desc *texture;
+  float priority;
+  int discard;
+  unsigned packet_no;
+};
+
 struct omuser_ctx {
   struct user_ctx *u;
   struct omuser_sim_ctx *lsim;
@@ -64,6 +78,7 @@ struct omuser_ctx {
   uint32_t counter;
 
   uint32_t pause_serial;
+  uint32_t appearance_serial;
 
   std::vector<uint32_t> pending_acks;
   std::set<uint32_t> seen_packets; // FIXME - clean this up

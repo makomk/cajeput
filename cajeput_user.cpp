@@ -79,8 +79,20 @@ void *user_get_grid_priv(struct user_ctx *user) {
   return user->grid_priv;
 }
 
+void *user_get_priv(struct user_ctx *user) {
+  return user->user_priv;
+}
+
+void user_set_priv(struct user_ctx *user, void *priv) {
+  user->user_priv = priv;
+}
+
 struct simulator_ctx* user_get_sim(struct user_ctx *user) {
   return user->sim;
+}
+
+struct simgroup_ctx* user_get_sgrp(struct user_ctx *user) {
+  return user->sgrp;
 }
 
 void user_get_uuid(struct user_ctx *user, uuid_t u) {
@@ -93,6 +105,11 @@ void user_get_session_id(struct user_ctx *user, uuid_t u) {
 
 void user_get_secure_session_id(struct user_ctx *user, uuid_t u) {
   uuid_copy(u, user->secure_session_id);
+}
+
+int user_check_session(struct user_ctx *user, 
+		       uuid_t agent, uuid_t session) {
+  return uuid_compare(user->user_id, agent) != 0 || uuid_compare(user->session_id, session) != 0;
 }
 
 uint32_t user_get_circuit_code(struct user_ctx *user) {
@@ -111,6 +128,19 @@ const char* user_get_name(struct user_ctx *user) {
   return user->name;
 }
 
+const char* user_get_group_title(struct user_ctx *user) {
+  return user->group_title;
+}
+
+const char* user_get_group_name(struct user_ctx *user) {
+  return ""; // TODO
+}
+
+void user_get_active_group(struct user_ctx *user, uuid_t u) {
+  uuid_clear(u); // TODO
+}
+
+
 const caj_string* user_get_texture_entry(struct user_ctx *user) {
   return &user->texture_entry;
 }
@@ -119,8 +149,22 @@ const caj_string* user_get_visual_params(struct user_ctx *user) {
   return &user->visual_params;
 }
 
+const struct animation_desc* user_get_default_anim(struct user_ctx *user) {
+  return &user->default_anim;
+}
+
 const wearable_desc* user_get_wearables(struct user_ctx* user) {
   return user->wearables;
+}
+
+uint16_t* user_get_dirty_terrain_array(struct user_ctx *user) {
+  return user->dirty_terrain;
+}
+
+world_obj* user_get_avatar(struct user_ctx* user) {
+  if(user->av == NULL)
+    return NULL;
+  else return &user->av->ob;
 }
 
 void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
@@ -131,8 +175,16 @@ void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
   }
 }
 
+void user_get_initial_look_at(struct user_ctx* user, caj_vector3 *pos) {
+  *pos = user->start_look_at;
+}
+
 float user_get_draw_dist(struct user_ctx *user) {
   return user->draw_dist;
+}
+
+void user_set_draw_dist(struct user_ctx *user, float far) {
+  user->draw_dist = far;
 }
 
 uint32_t user_get_flags(struct user_ctx *user) {
@@ -181,6 +233,10 @@ void user_set_wearable(struct user_ctx *ctx, int id,
   }
   uuid_copy(ctx->wearables[id].item_id, item_id);
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
+}
+
+uint32_t user_get_wearable_serial(struct user_ctx *ctx) {
+  return ctx->wearable_serial;
 }
 
 void user_set_throttles(struct user_ctx *ctx, float rates[]) {
@@ -247,6 +303,18 @@ void user_update_throttles(struct user_ctx *ctx) {
   }  
 }
 
+void user_throttle_expend(struct user_ctx *ctx, int id, float amount) {
+  ctx->throttles[id].level -= amount;
+}
+
+float user_throttle_level(struct user_ctx *ctx, int id) {
+  return ctx->throttles[id].level;
+}
+
+int user_owns_prim(struct user_ctx *ctx, struct primitive_obj *prim) {
+  return uuid_compare(prim->owner, ctx->user_id) == 0;
+}
+
 // FIXME - move this somewhere saner!
 static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
   if(uuid_compare(ctx->default_anim.anim, anim) != 0) {
@@ -267,8 +335,13 @@ static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
 #define AGENT_CONTROL_UP_NEG (1<<5)
 #define AGENT_CONTROL_FLY (1<<13)
 
-void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
+void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
+			    const caj_quat *rot) {
   if(ctx->av != NULL) {
+    if(!caj_quat_equal(&ctx->av->ob.rot, rot)) {
+      ctx->av->ob.rot = *rot;
+    }
+
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
     int is_running = (ctx->flags & AGENT_FLAG_ALWAYS_RUN) != 0;
     caj_vector3 velocity; 
@@ -316,6 +389,10 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
       }
     }
   }  
+}
+
+int32_t user_get_an_anim_seq(struct user_ctx *ctx) {
+  return ctx->anim_seq++;
 }
 
 // FIXME - optimise this
@@ -417,11 +494,12 @@ void user_relinquish_god_powers(user_ctx *ctx) {
 }
 
 
-void user_fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user, 
+void user_fetch_inventory_folder(user_ctx *user, 
 				 uuid_t folder_id, uuid_t owner_id,
 				  void(*cb)(struct inventory_contents* inv, 
 					    void* priv),
 				  void *cb_priv) {
+  simgroup_ctx *sgrp = user->sgrp;
   if(uuid_compare(owner_id, user->user_id) == 0) {
     sgrp->gridh.fetch_inventory_folder(sgrp,user,user->grid_priv,
 				       folder_id,cb,cb_priv);
@@ -669,8 +747,8 @@ void user_teleport_by_region_name(struct user_ctx* ctx, char *region_name,
   if(!is_from_viewer && ctx->userh->teleport_begin != NULL) {
     ctx->userh->teleport_begin(ctx, desc);
   }
-  ctx->sgrp->gridh.map_region_by_name(ctx->sgrp, region_name, 
-				      tp_region_name_cb, desc);
+  caj_map_region_by_name(ctx->sgrp, region_name, 
+			 tp_region_name_cb, desc);
 }
 
 void user_teleport_landmark(struct user_ctx* ctx, uuid_t landmark) {
@@ -736,7 +814,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->texture_entry.data = NULL;
   ctx->visual_params.len = 0;
   ctx->visual_params.data = NULL;
-  ctx->appearance_serial = ctx->wearable_serial = 0;
+  ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
 
   uuid_copy(ctx->default_anim.anim, stand_anim);
@@ -840,6 +918,10 @@ int user_complete_movement(user_ctx *ctx) {
     ctx->sgrp->gridh.user_entered(ctx->sgrp, ctx->sim, ctx, ctx->grid_priv);
     user_fetch_system_folders(ctx, NULL, NULL);
   }
+
+  // FIXME - move this somewhere saner?
+  if(ctx->sim->welcome_message != NULL)
+    user_send_message(ctx, ctx->sim->welcome_message);
 
   return true;
 }
