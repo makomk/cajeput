@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright (c) 2009 Aidan Thornton, all rights reserved.
+# Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -101,7 +101,7 @@ hfile = open("caj_vm_insns.h","w")
 
 hfile.write("""/* This file is auto-generated from opcode_data.txt - DO NOT MODIFY! */
 
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -162,7 +162,7 @@ hfile2 = open("caj_vm_ops.h","w")
 
 hfile2.write("""/* This file is auto-generated from opcode_data.txt - DO NOT MODIFY! */
 
-/* Copyright (c) 2009 Aidan Thornton, all rights reserved.
+/* Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:

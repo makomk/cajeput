@@ -1,7 +1,7 @@
 # msgtmpl_core.py: gutted version of the Twisl message template parser, with
 # all the message packing and unpacking parts removed, for Cajeput
 
-# Copyright (c) 2009 Aidan Thornton, all rights reserved.
+# Copyright (c) 2009-2010 Aidan Thornton, all rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
