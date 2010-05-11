@@ -104,10 +104,14 @@ float user_get_draw_dist(struct user_ctx *user);
 const char* user_get_first_name(struct user_ctx *user);
 const char* user_get_last_name(struct user_ctx *user);
 const char* user_get_name(struct user_ctx *user);
+const char* user_get_group_title(struct user_ctx *user);
+const char* user_get_group_name(struct user_ctx *user);
+void user_get_active_group(struct user_ctx *user, uuid_t u);
 const caj_string* user_get_texture_entry(struct user_ctx *user);
 const caj_string* user_get_visual_params(struct user_ctx *user);
 
 void user_get_position(struct user_ctx* user, caj_vector3 *pos);
+struct world_obj* user_get_avatar(struct user_ctx* user);
 
 uint32_t user_get_flags(struct user_ctx *user);
 void user_set_flag(struct user_ctx *user, uint32_t flag);
@@ -117,6 +121,8 @@ void user_set_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
 void user_get_throttles_block(struct user_ctx* ctx, unsigned char* data,
 			      int len);
+
+int user_owns_prim(struct user_ctx *ctx, struct primitive_obj *prim);
 
 struct wearable_desc {
   uuid_t asset_id, item_id;

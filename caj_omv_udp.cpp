@@ -205,12 +205,7 @@ static void handle_AgentUpdate_msg(struct omuser_ctx* lctx, struct sl_message* m
   if(ad == NULL || VALIDATE_SESSION(ad)) return;
   user_ctx *ctx = lctx->u;
   user_set_draw_dist(ctx, ad->Far);
-  if(ctx->av != NULL) {
-    if(!caj_quat_equal(&ctx->av->ob.rot, &ad->BodyRotation)) {
-      ctx->av->ob.rot = ad->BodyRotation;
-    }
-    user_set_control_flags(ctx, ad->ControlFlags);
-  }
+  user_set_control_flags(ctx, ad->ControlFlags, &ad->BodyRotation);
 }
 
 static void handle_SetAlwaysRun_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -540,13 +535,14 @@ static void send_agent_wearables(struct omuser_ctx* lctx) {
   user_get_uuid(ctx, ad->AgentID);
   user_get_session_id(ctx, ad->SessionID);
   ad->SerialNum = ctx->wearable_serial; // FIXME: don't think we increment here
-  
+
+  const wearable_desc *wearables = user_get_wearables(ctx);
   for(int i = 0; i < SL_NUM_WEARABLES; i++) {
     // FIXME - avoid sending empty wearables?
 
      SL_DECLBLK(AgentWearablesUpdate, WearableData, wd, &upd);
-     uuid_copy(wd->ItemID, ctx->wearables[i].item_id);
-     uuid_copy(wd->AssetID, ctx->wearables[i].asset_id);
+     uuid_copy(wd->ItemID, wearables[i].item_id);
+     uuid_copy(wd->AssetID, wearables[i].asset_id);
      wd->WearableType = i;
   }
 
@@ -642,10 +638,10 @@ static void send_agent_data_update(struct omuser_ctx* lctx) {
   user_get_uuid(ctx, ad->AgentID);
   caj_string_set(&ad->FirstName, user_get_first_name(ctx));
   caj_string_set(&ad->LastName, user_get_last_name(ctx));
-  caj_string_set(&ad->GroupTitle, ctx->group_title);
-  uuid_clear(ad->ActiveGroupID); // TODO
-  ad->GroupPowers = 0;
-  caj_string_set(&ad->GroupName, ""); // TODO
+  caj_string_set(&ad->GroupTitle, user_get_group_title(ctx));
+  user_get_active_group(ctx, ad->ActiveGroupID);
+  ad->GroupPowers = 0; // FIXME - TODO
+  caj_string_set(&ad->GroupName, user_get_group_name(ctx));
   upd.flags |= MSG_RELIABLE;
   sl_send_udp(lctx, &upd);
 }
@@ -759,7 +755,7 @@ static void handle_FetchInventoryDescendents_msg(struct omuser_ctx* lctx, struct
 static void inventory_item_cb(struct inventory_item* inv, void* priv) {
   user_ctx **pctx = (user_ctx**)priv;
   if(*pctx != NULL) {
-    omuser_ctx* lctx = (omuser_ctx*)(*pctx)->user_priv;
+    omuser_ctx* lctx = (omuser_ctx*)user_get_priv(*pctx);
     user_del_self_pointer(pctx);
 
     if(inv != NULL) {
@@ -1033,7 +1029,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     SL_DECLBLK(AgentMovementComplete, SimData, simdat, &amc);
     user_get_uuid(ctx, ad2->AgentID);
     user_get_session_id(ctx, ad2->SessionID);
-    dat->Position = ctx->av->ob.local_pos; // FIXME - local pos or global?
+    user_get_position(ctx, &dat->Position);
     dat->LookAt = ctx->start_look_at;
     dat->RegionHandle = sim_get_region_handle(lctx->lsim->sim);
     dat->Timestamp = time(NULL);
@@ -1098,8 +1094,10 @@ static void teleport_complete(struct user_ctx* ctx, struct teleport_desc *tp) {
   //omuser_ctx* lctx = (omuser_ctx*)user_get_priv(ctx);
   caj_llsd *msg = llsd_new_map();
   caj_llsd *info = llsd_new_map();
-
-  llsd_map_append(info, "AgentID", llsd_new_uuid(ctx->user_id));
+  uuid_t u;
+  
+  user_get_uuid(ctx, u);
+  llsd_map_append(info, "AgentID", llsd_new_uuid(u));
   llsd_map_append(info, "LocationID", llsd_new_int(4)); // ???!! FIXME ???
   llsd_map_append(info, "SimIP", llsd_new_binary(&tp->sim_ip,4)); // big-endian?
   llsd_map_append(info, "SimPort", llsd_new_int(tp->sim_port));
@@ -2219,12 +2217,14 @@ static void helper_combine_uuids(uuid_t out, const uuid_t u1, const uuid_t u2) {
 
 static asset_xfer* init_asset_upload(struct omuser_ctx* lctx, int is_local,
 				     int asset_type, uuid_t transaction) {
+  uuid_t secure_session_id;
   asset_xfer *xfer = new asset_xfer();
   xfer->local = is_local;
   xfer->asset_type = asset_type;
   uuid_copy(xfer->transaction, transaction);
+  user_get_secure_session_id(lctx->u, secure_session_id);
   helper_combine_uuids(xfer->asset_id, transaction,
-		       lctx->u->secure_session_id);
+		       secure_session_id);
   xfer->id = ++(lctx->lsim->xfer_id_ctr);
   xfer->ctr = 0;
   xfer->len = xfer->total_len = 0;
@@ -2655,7 +2655,7 @@ static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* 
 // FIXME - incomplete
 static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   omuser_ctx *lctx = (omuser_ctx*)user_get_priv(ctx);
-  avatar_obj* av = av_user->av;
+  world_obj *av = user_get_avatar(av_user);
   char name[0x100]; unsigned char obj_data[76];
   SL_DECLMSG(ObjectUpdate,upd);
   SL_DECLBLK(ObjectUpdate,RegionData,rd,&upd);
@@ -2663,18 +2663,19 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   rd->TimeDilation = 0xffff; // FIXME - report real time dilation
 
   SL_DECLBLK(ObjectUpdate,ObjectData,objd,&upd);
-  objd->ID = av->ob.local_id;
+  objd->ID = av->local_id;
   objd->State = 0;
-  uuid_copy(objd->FullID, av->ob.id);
+  uuid_copy(objd->FullID, av->id);
   objd->PCode = PCODE_AV;
   objd->Material = MATERIAL_FLESH; // discrimination against robots?
   objd->Scale.x = 1.0f; objd->Scale.y = 1.0f; objd->Scale.z = 1.0f;
 
-  caj_vect4_to_bin_le(obj_data, &av->footfall);
-  caj_vect3_to_bin_le(obj_data+16, &av->ob.local_pos);
-  caj_vect3_to_bin_le(obj_data+16+12, &av->ob.velocity);
+  caj_vector4 footfall; avatar_get_footfall(av, &footfall);
+  caj_vect4_to_bin_le(obj_data, &footfall);
+  caj_vect3_to_bin_le(obj_data+16, &av->local_pos);
+  caj_vect3_to_bin_le(obj_data+16+12, &av->velocity);
   memset(obj_data+16+24, 0, 12); // accel
-  caj_quat_to_bin3_le(obj_data+16+36, &av->ob.rot);
+  caj_quat_to_bin3_le(obj_data+16+36, &av->rot);
   memset(obj_data+16+48, 0, 12); // not sure? rotational velocity?
   caj_string_set_bin(&objd->ObjectData, obj_data, 76);
 
@@ -2682,7 +2683,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   objd->UpdateFlags = PRIM_FLAG_PHYSICAL|PRIM_FLAG_ANY_OWNER|
     PRIM_FLAG_INVENTORY_EMPTY|PRIM_FLAG_CAST_SHADOWS;
 
-  caj_string_copy(&objd->TextureEntry, &ctx->texture_entry);
+  caj_string_copy(&objd->TextureEntry, user_get_texture_entry(ctx));
   objd->TextureAnim.len = 0;
   objd->Data.len = 0;
   objd->Text.len = 0;
@@ -2701,7 +2702,8 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
 
   name[0] = 0;
   snprintf(name,0xff,"FirstName STRING RW SV %s\nLastName STRING RW SV %s\nTitle STRING RW SV %s",
-	   av_user->first_name,av_user->last_name,av_user->group_title); // FIXME
+	   user_get_first_name(av_user), user_get_last_name(av_user),
+	   user_get_group_title(av_user));
   caj_string_set(&objd->NameValue,name);
 
   upd.flags |= MSG_RELIABLE;
@@ -2714,7 +2716,7 @@ static void sl_float_to_int16(unsigned char* out, float val, float range) {
   out[1] = (ival >> 8) & 0xff;
 }
 
-static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
+static void send_av_terse_update(user_ctx* ctx, world_obj* av) {
   omuser_ctx *lctx = (omuser_ctx*)user_get_priv(ctx);
   unsigned char dat[0x3C];
   SL_DECLMSG(ImprovedTerseObjectUpdate,terse);
@@ -2725,20 +2727,21 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   objd->TextureEntry.data = NULL;
   objd->TextureEntry.len = 0;
 
-  dat[0] = av->ob.local_id & 0xff;
-  dat[1] = (av->ob.local_id >> 8) & 0xff;
-  dat[2] = (av->ob.local_id >> 16) & 0xff;
-  dat[3] = (av->ob.local_id >> 24) & 0xff;
+  dat[0] = av->local_id & 0xff;
+  dat[1] = (av->local_id >> 8) & 0xff;
+  dat[2] = (av->local_id >> 16) & 0xff;
+  dat[3] = (av->local_id >> 24) & 0xff;
   dat[4] = 0; // state - ???
   dat[5] = 1; // object is an avatar
   
-  caj_vect4_to_bin_le(dat+6,&av->footfall);
-  caj_vect3_to_bin_le(dat+0x16, &av->ob.local_pos);
+  caj_vector4 footfall; avatar_get_footfall(av, &footfall);
+  caj_vect4_to_bin_le(dat+6,&footfall);
+  caj_vect3_to_bin_le(dat+0x16, &av->local_pos);
 
   // Velocity
-  sl_float_to_int16(dat+0x22, av->ob.velocity.x, 128.0f);
-  sl_float_to_int16(dat+0x24, av->ob.velocity.y, 128.0f);
-  sl_float_to_int16(dat+0x26, av->ob.velocity.z, 128.0f);
+  sl_float_to_int16(dat+0x22, av->velocity.x, 128.0f);
+  sl_float_to_int16(dat+0x24, av->velocity.y, 128.0f);
+  sl_float_to_int16(dat+0x26, av->velocity.z, 128.0f);
 
   // Acceleration
   sl_float_to_int16(dat+0x28, 0.0f, 64.0f);
@@ -2746,10 +2749,10 @@ static void send_av_terse_update(user_ctx* ctx, avatar_obj* av) {
   sl_float_to_int16(dat+0x2C, 0.0f, 64.0f);
  
   // Rotation
-  sl_float_to_int16(dat+0x2E, av->ob.rot.x, 1.0f);
-  sl_float_to_int16(dat+0x30, av->ob.rot.y, 1.0f);
-  sl_float_to_int16(dat+0x32, av->ob.rot.z, 1.0f);
-  sl_float_to_int16(dat+0x34, av->ob.rot.w, 1.0f);
+  sl_float_to_int16(dat+0x2E, av->rot.x, 1.0f);
+  sl_float_to_int16(dat+0x30, av->rot.y, 1.0f);
+  sl_float_to_int16(dat+0x32, av->rot.z, 1.0f);
+  sl_float_to_int16(dat+0x34, av->rot.w, 1.0f);
 
   // Rotational velocity
   sl_float_to_int16(dat+0x36, 0.0f, 64.0f);
@@ -2811,7 +2814,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   primitive_obj *prim = (primitive_obj*)obj;
 
   if(prim->attach_point >= FIRST_HUD_ATTACH_POINT &&
-     uuid_compare(prim->owner, lctx->u->user_id) != 0) {
+     !user_owns_prim(lctx->u, prim)) {
     printf("DEBUG: skipping %i, someone else's HUD attachment\n",
 	   obj->local_id);
     return;
@@ -2880,8 +2883,7 @@ static void obj_send_full_upd(omuser_ctx* lctx, world_obj* obj) {
   memset(objd->Sound,0,16);
   objd->Gain = 0.0f; objd->Flags = 0; objd->Radius = 0.0f; // sound-related
 
-  if(prim->attach_point != 0 &&
-     uuid_compare(prim->owner, lctx->u->user_id) == 0) {
+  if(prim->attach_point != 0 && user_owns_prim(lctx->u, prim)) { 
     char s[26+36+1];
     strcpy(s, "AttachItemID STRING RW SV ");
     uuid_unparse(prim->inv_item_id, s+26);
@@ -2896,7 +2898,7 @@ static void obj_send_terse_upd(omuser_ctx* lctx, world_obj* obj) {
   if(obj->type == OBJ_TYPE_PRIM) {
     primitive_obj* prim = (primitive_obj*)obj;
     if(prim->attach_point >= FIRST_HUD_ATTACH_POINT &&
-       uuid_compare(prim->owner, lctx->u->user_id) == 0) {
+       !user_owns_prim(lctx->u, prim)) {
       printf("DEBUG: skipping %i, someone else's HUD attachment\n",
 	     obj->local_id);
       return;
@@ -2984,9 +2986,9 @@ static gboolean obj_update_timer(gpointer data) {
 			 CAJ_OBJUPD_TEXT|CAJ_OBJUPD_PARENT|
 			 CAJ_OBJUPD_EXTRA_PARAMS)) {
 	printf("DEBUG: sending full update for %u\n", iter->first);
-	obj_send_full_upd(lctx, lsim->sim->localid_map[iter->first]);
+	obj_send_full_upd(lctx, world_object_by_localid(lsim->sim, iter->first));
       } else if(iter->second & CAJ_OBJUPD_POSROT) {
-	obj_send_terse_upd(lctx, lsim->sim->localid_map[iter->first]);
+	obj_send_terse_upd(lctx, world_object_by_localid(lsim->sim, iter->first));
       }
       iter->second = 0; iter++; continue;
     }
@@ -3012,7 +3014,7 @@ static gboolean obj_update_timer(gpointer data) {
       SL_DECLBLK(LayerData, LayerID, lid, &layer);
       lid->Type = LAYER_TYPE_LAND;
       SL_DECLBLK(LayerData, LayerData, ldat, &layer);
-      terrain_create_patches(lsim->sim->terrain, patches, 
+      terrain_create_patches(sim_get_heightfield(lsim->sim), patches, 
 			     patch_cnt, &ldat->Data);
       layer.flags |= MSG_RELIABLE;
       sl_send_udp_throt(lctx, &layer, SL_THROTTLE_LAND);
@@ -3116,7 +3118,7 @@ static gboolean got_packet(GIOChannel *source,
     if(msg.tmpl == &sl_msgt_UseCircuitCode) {
       // FIXME - needs a full rewrite
 
-      printf("DEBUG: handling UseCircuitCode on %s\n", lsim->sim->shortname);
+      printf("DEBUG: handling UseCircuitCode on %s\n", sim_get_name(lsim->sim));
       // FIXME - need to handle dupes
       SL_DECLBLK_GET1(UseCircuitCode, CircuitCode, cc, &msg);
       struct user_ctx* ctx; struct sl_message ack;
@@ -3140,7 +3142,7 @@ static gboolean got_packet(GIOChannel *source,
 
       omuser_ctx *lctx = new omuser_ctx();
       lctx->u = ctx; lctx->lsim = lsim; 
-      ctx->user_priv = lctx;
+      user_set_priv(ctx, lctx);
       lctx->addr = addr;
       lctx->sock = lsim->sock; lctx->counter = 0;
       lctx->pause_serial = 0;

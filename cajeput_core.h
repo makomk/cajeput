@@ -100,6 +100,20 @@ void sim_remove_shutdown_hook(struct simulator_ctx *sim,
 
 // ------ MAP STUFF -----------------
 
+struct map_block_info {
+  uint32_t x, y; // larger size for future-proofing
+  char *name;
+  uint8_t access, water_height, num_agents;
+  uint32_t flags;
+  uuid_t map_image;
+  // TODO
+
+  // not used by MapBlockRequest, but kinda handy for other stuff
+  char *sim_ip;
+  int sim_port, http_port;
+  uuid_t region_id;  
+};
+
 typedef void(*caj_find_regions_cb)(void* cb_priv, 
 				   struct map_block_info* blocks, 
 				   int count);

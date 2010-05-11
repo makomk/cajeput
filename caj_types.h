@@ -112,7 +112,8 @@ void caj_cross_vect3(struct caj_vector3 *out, const struct caj_vector3* v1,
 // should be small enough not to be affected by sane quantisation
 #define CAJ_QUAT_EPS 0.0001
 
-static inline int caj_quat_equal(struct caj_quat *q1, struct caj_quat *q2) {
+static inline int caj_quat_equal(const struct caj_quat *q1, 
+				 const struct caj_quat *q2) {
   return fabs(q1->x - q2->x) < CAJ_QUAT_EPS && 
     fabs(q1->y - q2->y) < CAJ_QUAT_EPS &&
     fabs(q1->z - q2->z) < CAJ_QUAT_EPS &&

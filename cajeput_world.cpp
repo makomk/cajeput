@@ -1433,6 +1433,12 @@ void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *obj,
   av->footfall = *footfall;
 }
 
+void avatar_get_footfall(struct world_obj *obj, caj_vector4 *footfall) {
+  assert(obj->type == OBJ_TYPE_AVATAR);
+  avatar_obj *av = (avatar_obj*)obj;
+  *footfall = av->footfall;
+}
+
 // --- START of part of hacky object update code. FIXME - remove this ---
 // The API provided by world_mark_object_updated/world_move_obj_from_phys will 
 // probably now remain the same after the object update code is rewritten,

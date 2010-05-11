@@ -50,7 +50,7 @@ struct user_hooks {
 
   // these are temporary hacks.
   void(*send_av_full_update)(user_ctx* ctx, user_ctx* av_user);
-  void(*send_av_terse_update)(user_ctx* ctx, avatar_obj* av);
+  void(*send_av_terse_update)(user_ctx* ctx, world_obj* av);
   void(*send_av_appearance)(user_ctx* ctx, user_ctx* av_user);
   void(*send_av_animations)(user_ctx* ctx, user_ctx* av_user);
 
@@ -69,12 +69,14 @@ int user_complete_movement(user_ctx *ctx);
 user_ctx* sim_bind_user(simulator_ctx *sim, uuid_t user_id, uuid_t session_id,
 			uint32_t circ_code, struct user_hooks* hooks);
 void *user_get_priv(struct user_ctx *user);
+void user_set_priv(struct user_ctx *user, void *priv);
 
 // takes ownership of the passed LLSD
 void user_event_queue_send(user_ctx* ctx, const char* name, caj_llsd *body);
 
 void user_set_draw_dist(struct user_ctx *ctx, float far);
-void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags);
+void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
+			    const caj_quat *rot);
 
 void user_update_throttles(struct user_ctx *ctx);
 void user_throttle_expend(struct user_ctx *ctx, int id, float amount);

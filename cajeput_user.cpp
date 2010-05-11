@@ -83,6 +83,10 @@ void *user_get_priv(struct user_ctx *user) {
   return user->user_priv;
 }
 
+void user_set_priv(struct user_ctx *user, void *priv) {
+  user->user_priv = priv;
+}
+
 struct simulator_ctx* user_get_sim(struct user_ctx *user) {
   return user->sim;
 }
@@ -124,6 +128,19 @@ const char* user_get_name(struct user_ctx *user) {
   return user->name;
 }
 
+const char* user_get_group_title(struct user_ctx *user) {
+  return user->group_title;
+}
+
+const char* user_get_group_name(struct user_ctx *user) {
+  return ""; // TODO
+}
+
+void user_get_active_group(struct user_ctx *user, uuid_t u) {
+  uuid_clear(u); // TODO
+}
+
+
 const caj_string* user_get_texture_entry(struct user_ctx *user) {
   return &user->texture_entry;
 }
@@ -134,6 +151,12 @@ const caj_string* user_get_visual_params(struct user_ctx *user) {
 
 const wearable_desc* user_get_wearables(struct user_ctx* user) {
   return user->wearables;
+}
+
+world_obj* user_get_avatar(struct user_ctx* user) {
+  if(user->av == NULL)
+    return NULL;
+  else return &user->av->ob;
 }
 
 void user_get_position(struct user_ctx* user, caj_vector3 *pos) {
@@ -272,6 +295,10 @@ float user_throttle_level(struct user_ctx *ctx, int id) {
   return ctx->throttles[id].level;
 }
 
+int user_owns_prim(struct user_ctx *ctx, struct primitive_obj *prim) {
+  return uuid_compare(prim->owner, ctx->user_id) == 0;
+}
+
 // FIXME - move this somewhere saner!
 static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
   if(uuid_compare(ctx->default_anim.anim, anim) != 0) {
@@ -292,8 +319,13 @@ static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
 #define AGENT_CONTROL_UP_NEG (1<<5)
 #define AGENT_CONTROL_FLY (1<<13)
 
-void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags) {
+void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
+			    const caj_quat *rot) {
   if(ctx->av != NULL) {
+    if(!caj_quat_equal(&ctx->av->ob.rot, rot)) {
+      ctx->av->ob.rot = *rot;
+    }
+
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
     int is_running = (ctx->flags & AGENT_FLAG_ALWAYS_RUN) != 0;
     caj_vector3 velocity; 

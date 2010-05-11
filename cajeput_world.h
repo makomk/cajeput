@@ -331,6 +331,7 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 
 void avatar_set_footfall(struct simulator_ctx *sim, struct world_obj *av,
 			 const caj_vector4 *footfall);
+void avatar_get_footfall(struct world_obj *av, caj_vector4 *footfall);
 
 void world_update_collisions(struct simulator_ctx *sim, 
 			     struct caj_phys_collision *collisions, int count);

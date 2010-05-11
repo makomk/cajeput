@@ -219,7 +219,7 @@ static gboolean av_update_timer(gpointer data) {
 	  user->userh->send_av_full_update(user, user2);
       } else {
 	if(user->userh != NULL && user->userh->send_av_terse_update != NULL)
-	  user->userh->send_av_terse_update(user, user2->av); // FIXME - only send if needed
+	  user->userh->send_av_terse_update(user, &user2->av->ob); // FIXME - only send if needed
       }
       if((user2->flags & AGENT_FLAG_APPEARANCE_UPD ||
 	 user->flags & AGENT_FLAG_NEED_OTHER_AVS) && user != user2) {
