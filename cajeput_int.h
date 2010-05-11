@@ -140,7 +140,7 @@ struct user_ctx {
 
   caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
 
-  uint32_t wearable_serial, appearance_serial; // FIXME - which stuff uses the same serial and which doesn't?
+  uint32_t wearable_serial;
   struct caj_string texture_entry, visual_params;
   struct animation_desc default_anim;
   std::vector<animation_desc> anims;

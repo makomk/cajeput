@@ -135,6 +135,7 @@ const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       uuid_t item_id, uuid_t asset_id);
 void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
+uint32_t user_get_wearable_serial(struct user_ctx *ctx);
 
 // Semantics of these two are funny. They take ownership of the buffer pointed 
 // to by data->data and then set data->data to NULL. 

@@ -534,7 +534,7 @@ static void send_agent_wearables(struct omuser_ctx* lctx) {
   SL_DECLBLK(AgentWearablesUpdate, AgentData, ad, &upd);
   user_get_uuid(ctx, ad->AgentID);
   user_get_session_id(ctx, ad->SessionID);
-  ad->SerialNum = ctx->wearable_serial; // FIXME: don't think we increment here
+  ad->SerialNum = user_get_wearable_serial(ctx); // FIXME: don't think we increment here
 
   const wearable_desc *wearables = user_get_wearables(ctx);
   for(int i = 0; i < SL_NUM_WEARABLES; i++) {
@@ -563,12 +563,12 @@ static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_mes
   SL_DECLBLK_GET1(AgentSetAppearance, ObjectData, objd, msg);
   if(ad == NULL || objd == NULL ||  VALIDATE_SESSION(ad)) 
     return;
-  if(ad->SerialNum < ctx->appearance_serial) {
+  if(ad->SerialNum < lctx->appearance_serial) {
     printf("WARNING: Got outdated AgentSetAppearance\n");
     return;
   }
 
-  ctx->appearance_serial = ad->SerialNum;
+  lctx->appearance_serial = ad->SerialNum;
   // FIXME - do something with size
   printf("DEBUG: agent size (%f,%f,%f)\n",(double)ad->Size.x,(double)ad->Size.y,
 	 (double)ad->Size.z);
@@ -1036,10 +1036,6 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
     sl_send_udp(lctx, &amc);
   }
-
-  // FIXME - move this somewhere saner?
-  if(ctx->sim->welcome_message != NULL)
-    user_send_message(ctx, ctx->sim->welcome_message);
 }
 
 static void handle_LogoutRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -3145,7 +3141,7 @@ static gboolean got_packet(GIOChannel *source,
       user_set_priv(ctx, lctx);
       lctx->addr = addr;
       lctx->sock = lsim->sock; lctx->counter = 0;
-      lctx->pause_serial = 0;
+      lctx->appearance_serial = lctx->pause_serial = 0;
 
       lctx->next = lsim->ctxts; lsim->ctxts = lctx;
 

@@ -223,6 +223,10 @@ void user_set_wearable(struct user_ctx *ctx, int id,
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
 }
 
+uint32_t user_get_wearable_serial(struct user_ctx *ctx) {
+  return ctx->wearable_serial;
+}
+
 void user_set_throttles(struct user_ctx *ctx, float rates[]) {
   double time_now = g_timer_elapsed(ctx->sgrp->timer, NULL);
   for(int i = 0; i < SL_NUM_THROTTLES; i++) {
@@ -794,7 +798,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->texture_entry.data = NULL;
   ctx->visual_params.len = 0;
   ctx->visual_params.data = NULL;
-  ctx->appearance_serial = ctx->wearable_serial = 0;
+  ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
 
   uuid_copy(ctx->default_anim.anim, stand_anim);
@@ -898,6 +902,10 @@ int user_complete_movement(user_ctx *ctx) {
     ctx->sgrp->gridh.user_entered(ctx->sgrp, ctx->sim, ctx, ctx->grid_priv);
     user_fetch_system_folders(ctx, NULL, NULL);
   }
+
+  // FIXME - move this somewhere saner?
+  if(ctx->sim->welcome_message != NULL)
+    user_send_message(ctx, ctx->sim->welcome_message);
 
   return true;
 }
