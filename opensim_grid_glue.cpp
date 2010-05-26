@@ -490,7 +490,9 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
     is_ok = FALSE;
   } else {
     os_robust_xml *rxml, *resnode, *node;
-  
+
+    printf("DEBUG: response ~%s~\n", msg->response_body->data);
+
     rxml = os_robust_xml_deserialise(msg->response_body->data,
 				     msg->response_body->length);
     if(rxml == NULL) {
@@ -523,8 +525,8 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
 
     node = os_robust_xml_lookup(resnode, "online");
     if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
-      printf("ERROR: bad response from presence server (no <online>)\n");
-      goto out2;
+      // this is normal now. Sigh.
+      printf("DEBUG: response from presence server has no <online>\n");
     } else if(strcasecmp(node->u.s, "True") != 0) {
       printf("DEBUG: session invalid, user offline\n");
       is_ok = FALSE; goto out2;
@@ -2146,7 +2148,6 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
 
   hooks->add_inventory_item = add_inventory_item;
 
-  hooks->get_texture = osglue_get_texture;
   hooks->get_asset = osglue_get_asset;
   hooks->put_asset = osglue_put_asset;
   hooks->cleanup = cleanup;

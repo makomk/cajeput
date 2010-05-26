@@ -135,7 +135,7 @@ const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
-		       uuid_t item_id, uuid_t asset_id);
+		       const uuid_t item_id, const uuid_t asset_id);
 void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial);
 uint32_t user_get_wearable_serial(struct user_ctx *ctx);
 

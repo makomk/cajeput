@@ -28,8 +28,8 @@ extern "C" {
 #endif
 
 
-#define CAJEPUT_API_VERSION_MAJOR 1
-#define CAJEPUT_API_VERSION_MINOR 1
+#define CAJEPUT_API_VERSION_MAJOR 2
+#define CAJEPUT_API_VERSION_MINOR 0
 
 struct simgroup_ctx;
 

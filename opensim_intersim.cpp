@@ -484,7 +484,7 @@ static void agent_PUT_handler(SoupServer *server,
 	goto out_fail;
       }
       // semantics of this are funny
-      user_set_texture_entry(user, &buf);
+      user_set_visual_params(user, &buf);
     }
 
     // FIXME - need to handle serial

@@ -226,7 +226,7 @@ void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial) {
 }
 
 void user_set_wearable(struct user_ctx *ctx, int id,
-		       uuid_t item_id, uuid_t asset_id) {
+		       const uuid_t item_id, const uuid_t asset_id) {
   if(id >= SL_NUM_WEARABLES) {
     printf("ERROR: user_set_wearable bad id %i\n",id);
     return;

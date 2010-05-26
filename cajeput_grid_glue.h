@@ -63,7 +63,6 @@ struct cajeput_grid_hooks {
 		     struct simulator_ctx* sim, 
 		     struct teleport_desc* tp);
 
-  void(*get_texture)(struct simgroup_ctx *sgrp, struct texture_desc *texture);
   void(*get_asset)(struct simgroup_ctx *sgrp, struct simple_asset *asset);
   void(*put_asset)(struct simgroup_ctx *sgrp, struct simple_asset *asset,
 		   caj_put_asset_cb cb, void *cb_priv);
@@ -130,7 +129,6 @@ void user_set_start_pos(user_ctx *ctx, const caj_vector3 *pos,
 void user_logoff_user_osglue(struct simulator_ctx *sim, uuid_t agent_id, 
 			    uuid_t secure_session_id);
 
-void caj_texture_finished_load(texture_desc *desc);
 void caj_asset_finished_load(struct simgroup_ctx *sgrp, 
 			     struct simple_asset *asset, int success);
 

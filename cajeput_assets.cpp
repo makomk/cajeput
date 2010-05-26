@@ -72,12 +72,6 @@ static void save_texture(texture_desc *desc, const char* dirname) {
     }
 }
 
-void caj_texture_finished_load(texture_desc *desc) {
-  assert(desc->data != NULL);
-  sim_texture_read_metadata(desc);
-  save_texture(desc,"tex_cache");
-}
-
 // FIXME - actually clean up the textures we allocate
 void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id, 
 			   unsigned char *data, int len, int is_local) {
@@ -113,6 +107,24 @@ struct texture_desc *caj_get_texture(struct simgroup_ctx *sgrp, uuid_t asset_id)
     sgrp->textures[asset_id] = desc;
   }
   desc->refcnt++; return desc;
+}
+
+void texture_finished_load(struct simgroup_ctx *sgrp, void *priv,
+			   struct simple_asset *asset) {
+  texture_desc *desc = (texture_desc*)priv;
+
+  desc->flags &= ~CJP_TEXTURE_PENDING;
+  if(asset == NULL) {
+    desc->flags |= CJP_TEXTURE_MISSING;
+  } else {
+    // FIXME: this leads to data being cached twice, once as a texture and
+    // once as a generic asset!
+    desc->len = asset->data.len;
+    desc->data = (unsigned char*)malloc(desc->len);
+    memcpy(desc->data, asset->data.data, desc->len);
+    sim_texture_read_metadata(desc);
+    save_texture(desc,"tex_cache");
+  }
 }
 
 static const char* texture_dirs[] = {"temp_assets","tex_cache",NULL};
@@ -159,7 +171,7 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc) {
 
     // No cached copy, have to do a real fetch
     desc->flags |= CJP_TEXTURE_PENDING;
-    sgrp->gridh.get_texture(sgrp, desc);
+    caj_get_asset(sgrp, desc->asset_id, texture_finished_load, desc);
   }
 }
 
