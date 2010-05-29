@@ -850,10 +850,11 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
 			   struct simulator_ctx* sim,
 			   const uuid_t user_id, const uuid_t session_id,
 			   const caj_vector3 *pos, const caj_vector3 *look_at) {
-  char presence_uri[256]; char *req_body;
-  char session_id_str[40], pos_str[60], look_at_str[60];
+  char uri[256]; char *req_body;
+  char session_id_str[40], user_id_str[40], region_id_str[40];
+  char pos_str[60], look_at_str[60];
   char zero_uuid_str[40];
-  uuid_t zero_uuid;
+  uuid_t zero_uuid, u;
   // GError *error = NULL;
   SoupMessage *msg;
   GRID_PRIV_DEF(sim);
@@ -861,6 +862,7 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
   uuid_clear(zero_uuid);
   uuid_unparse(zero_uuid, zero_uuid_str);
 
+  uuid_unparse(user_id, user_id_str);
   uuid_unparse(session_id, session_id_str);
 
   snprintf(pos_str, 60, "<%f, %f, %f>", pos->x, pos->y, pos->z);
@@ -868,7 +870,7 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
 	   look_at->x, look_at->y, look_at->z);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  snprintf(uri,256, "%spresence", grid->userserver);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -877,13 +879,37 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
 			      "Position", pos_str,
 			      "LookAt", look_at_str,
 			      NULL);
-  msg = soup_message_new(SOUP_METHOD_POST, presence_uri);
+  msg = soup_message_new(SOUP_METHOD_POST, uri);
   soup_message_set_request(msg, "application/x-www-form-urlencoded",
 			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
 
   caj_queue_soup_message(sgrp, msg,
 			 got_user_logoff_resp_v2, sim);
   sim_shutdown_hold(sim); // FIXME
+
+  // This second bit is needed by newer Robust versions
+  sim_get_region_uuid(sim, u);
+  uuid_unparse(u, region_id_str);
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(uri,256, "%sgriduser", grid->userserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "METHOD", "loggedout",
+			      "UserID", user_id_str,
+			      "RegionID", region_id_str,
+			      "Position", pos_str,
+			      "LookAt", look_at_str,
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_queue_soup_message(sgrp, msg,
+			 got_user_logoff_resp_v2, sim);
+  sim_shutdown_hold(sim); // FIXME
+
 }
 
 static void user_created(struct simgroup_ctx *sgrp,
@@ -2114,6 +2140,8 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     sgrp_config_get_bool(grid->sgrp,"grid","grid_server_is_xmlrpc",NULL);
   grid->new_userserver = 
     sgrp_config_get_bool(grid->sgrp,"grid","new_userserver",NULL);
+  grid->use_xinventory = 
+    sgrp_config_get_bool(grid->sgrp,"grid","use_xinventory",NULL);
   *priv = grid;
   uuid_generate_random(grid->region_secret);
 
@@ -2132,9 +2160,17 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
   hooks->user_deleted = user_deleted;
   hooks->user_entered = user_entered;
   hooks->do_teleport = do_teleport;
-  hooks->fetch_inventory_folder = fetch_inventory_folder;
-  hooks->fetch_inventory_item = fetch_inventory_item;
-  hooks->fetch_system_folders = fetch_system_folders;
+  if(grid->use_xinventory) {
+    hooks->fetch_inventory_folder = fetch_inventory_folder_x;
+    hooks->fetch_inventory_item = fetch_inventory_item_x;
+    hooks->fetch_system_folders = fetch_system_folders_x;
+    hooks->add_inventory_item = add_inventory_item_x;
+  } else {
+    hooks->fetch_inventory_folder = fetch_inventory_folder;
+    hooks->fetch_inventory_item = fetch_inventory_item;
+    hooks->fetch_system_folders = fetch_system_folders;
+    hooks->add_inventory_item = add_inventory_item;
+  }
 
   if(grid->new_userserver) {
     hooks->uuid_to_name = uuid_to_name_v2;
@@ -2146,7 +2182,6 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     hooks->user_logoff = user_logoff_v1;
   }
 
-  hooks->add_inventory_item = add_inventory_item;
 
   hooks->get_asset = osglue_get_asset;
   hooks->put_asset = osglue_put_asset;

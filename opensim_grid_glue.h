@@ -31,7 +31,7 @@ struct user_name {
 };
 
 struct grid_glue_ctx {
-  int old_xmlrpc_grid_proto, new_userserver;
+  int old_xmlrpc_grid_proto, new_userserver, use_xinventory;
   simgroup_ctx *sgrp;
   gchar *userserver, *gridserver, *assetserver;
   gchar *inventoryserver;
@@ -82,6 +82,23 @@ void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			void *user_priv, inventory_item *inv,
 			void(*cb)(void* priv, int success, uuid_t item_id),
 			void *cb_priv);
+
+void fetch_inventory_folder_x(simgroup_ctx *sgrp, user_ctx *user,
+			      void *user_priv, uuid_t folder_id,
+			      void(*cb)(struct inventory_contents* inv, 
+					void* priv),
+			      void *cb_priv);
+void fetch_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
+			    void *user_priv, uuid_t item_id,
+			    void(*cb)(struct inventory_item* item, 
+				      void* priv),
+			    void *cb_priv);
+void fetch_system_folders_x(simgroup_ctx *sgrp, user_ctx *user,
+			    void *user_priv);
+void add_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
+			  void *user_priv, inventory_item *inv,
+			  void(*cb)(void* priv, int success, uuid_t item_id),
+			  void *cb_priv);
 
 void osglue_agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,

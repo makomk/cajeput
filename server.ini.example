@@ -6,6 +6,8 @@ inventory_server=http://127.0.0.1:8003/
 asset_server=http://127.0.0.1:8003/
 grid_recvkey=null
 grid_sendkey=null
+new_userserver=true
+use_xinventory=false
 
 [simgroup]
 sims=example

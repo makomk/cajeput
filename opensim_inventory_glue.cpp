@@ -31,6 +31,7 @@
 #include <libsoup/soup.h>
 #include "opensim_grid_glue.h"
 #include "opensim_xml_glue.h"
+#include "opensim_robust_xml.h"
 #include <cassert>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -779,4 +780,323 @@ void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
  fail:
   printf("DEBUG: ran into issues sending inventory request\n");
   // FIXME - handle this
+}
+
+static void parse_inv_folders_x(os_robust_xml *folders_node,
+				struct inventory_contents* inv) {
+  GHashTableIter iter; os_robust_xml *node;
+  os_robust_xml_iter_begin(&iter, folders_node);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
+    // TODO - what goes here?
+  }
+}
+
+static void parse_inv_items_x(os_robust_xml *items_node,
+			      struct inventory_contents* inv) {
+  GHashTableIter iter; os_robust_xml *node;
+  os_robust_xml_iter_begin(&iter, items_node);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
+    if(node->node_type != OS_ROBUST_XML_LIST) {
+      printf("ERROR: bad XInventory response, items should be list nodes");
+      continue;
+    }
+    
+    const char *asset_id = os_robust_xml_lookup_str(node, "AssetID");
+    const char *asset_type = os_robust_xml_lookup_str(node, "AssetType");
+    const char *base_perms = os_robust_xml_lookup_str(node, "BasePermissions");
+    const char *creation_date = os_robust_xml_lookup_str(node, "CreationDate");
+    const char *creator_id = os_robust_xml_lookup_str(node, "CreatorId");
+    const char *cur_perms = os_robust_xml_lookup_str(node, "CurrentPermissions");
+    const char *descr = os_robust_xml_lookup_str(node, "Description");
+    const char *everyone_perms = os_robust_xml_lookup_str(node, "EveryOnePermissions");
+    const char *flags = os_robust_xml_lookup_str(node, "Flags");
+    const char *folder = os_robust_xml_lookup_str(node, "Folder");
+    const char *group_id = os_robust_xml_lookup_str(node, "GroupID");
+    const char *group_owned = os_robust_xml_lookup_str(node, "GroupOwned");
+    const char *group_perms = os_robust_xml_lookup_str(node, "GroupPermissions");
+    const char *id_s = os_robust_xml_lookup_str(node, "ID");
+    const char *inv_type = os_robust_xml_lookup_str(node, "InvType");
+    const char *name = os_robust_xml_lookup_str(node, "Name");
+    const char *next_perms = os_robust_xml_lookup_str(node, "NextPermissions");
+    const char *owner_s = os_robust_xml_lookup_str(node, "Owner");
+    const char *sale_price = os_robust_xml_lookup_str(node, "SalePrice");
+    const char *sale_type = os_robust_xml_lookup_str(node, "SaleType");
+
+    if(asset_id == NULL || asset_type == NULL || base_perms == NULL || 
+       creation_date == NULL || creator_id == NULL || cur_perms == NULL ||
+       descr == NULL || everyone_perms == NULL || flags == NULL || 
+       folder == NULL || group_id == NULL || group_owned == NULL || 
+       group_perms == NULL || id_s == NULL || inv_type == NULL ||
+       name == NULL || next_perms == NULL || owner_s == NULL || 
+       sale_price == NULL || sale_type == NULL) {
+      printf("ERROR: bad item in XInventory response\n");
+      continue;
+    }
+
+    inventory_item *item = caj_add_inventory_item(inv, name, 
+						  descr, creator_id);
+    // FIXME - better error checking?
+    uuid_parse(id_s, item->item_id);
+    uuid_parse(asset_id, item->asset_id);
+    uuid_parse(creator_id, item->creator_as_uuid); // FIXME - ???
+    uuid_parse(owner_s, item->owner_id); // FIXME - do we want this?
+    uuid_parse(group_id, item->group_id);
+    item->perms.base = atoi(base_perms);
+    item->perms.current = atoi(cur_perms);
+    item->perms.group = atoi(group_perms);
+    item->perms.next = atoi(next_perms);
+    item->perms.everyone = atoi(everyone_perms);
+    item->inv_type = atoi(inv_type);
+    item->asset_type = atoi(asset_type);
+    item->sale_type = atoi(sale_type); 
+    item->group_owned = (strcasecmp(group_owned, "True") == 0);
+    item->flags = atoi(flags);
+    item->sale_price = atoi(sale_price);
+    item->creation_date = atoi(creation_date);
+  }
+}
+
+
+static void got_inventory_items_resp_x(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  //USER_PRIV_DEF(user_data);
+  //GRID_PRIV_DEF(sim);
+  inv_items_req *req = (inv_items_req*)user_data;
+  user_grid_glue* user_glue = req->user_glue;
+  os_robust_xml *rxml, *folders_node, *items_node,  *node;
+  struct inventory_contents* inv;
+  user_grid_glue_deref(user_glue);
+  if(msg->status_code != 200) {
+    printf("XInventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto fail;
+  }
+
+  printf("DEBUG: XInventory folder content resp {{%s}}\n",
+	 msg->response_body->data);
+
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
+    printf("ERROR: couldn't parse XInventory folder contents\n");
+    goto fail;
+  }
+
+  
+  folders_node = os_robust_xml_lookup(rxml, "FOLDERS");
+  items_node = os_robust_xml_lookup(rxml, "ITEMS");
+  if(folders_node == NULL || folders_node->node_type != OS_ROBUST_XML_LIST ||
+     items_node == NULL || items_node->node_type != OS_ROBUST_XML_LIST) {
+    printf("ERROR: bad XInventory response, missing FOLDERS or ITEMS\n");
+    goto free_fail;
+  }
+
+  inv = caj_inv_new_contents_desc(req->folder_id);
+  parse_inv_folders_x(folders_node, inv);
+  parse_inv_items_x(items_node, inv);
+
+  req->cb(inv, req->cb_priv);
+  caj_inv_free_contents_desc(inv);
+  os_robust_xml_free(rxml);
+  delete req;
+
+  return;
+
+ free_inv_fail:
+  caj_inv_free_contents_desc(inv);
+ free_fail:
+  os_robust_xml_free(rxml);
+ fail:
+  req->cb(NULL, req->cb_priv);
+  delete req;
+  printf("ERROR: inventory response parse failure\n");
+  return;
+}
+
+
+// fetch contents of inventory folder (XInventory)
+void fetch_inventory_folder_x(simgroup_ctx *sgrp, user_ctx *user,
+			    void *user_priv, uuid_t folder_id,
+			    void(*cb)(struct inventory_contents* inv, 
+				      void* priv),
+			    void *cb_priv) {
+  uuid_t u; char user_id_str[40], folder_id_str[40]; char uri[256];
+  inv_items_req *req; char *req_body; SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+  USER_PRIV_DEF(user_priv);
+
+  user_get_uuid(user, u);
+  uuid_unparse(u, user_id_str);
+  uuid_unparse(folder_id, folder_id_str);
+  
+  // FIXME - don't use fixed-size buffer 
+  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("PRINCIPAL", user_id_str,
+			      "FOLDER", folder_id_str,
+			      "METHOD", "GETFOLDERCONTENT",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  req = new inv_items_req();
+  req->user_glue = user_glue; req->cb = cb;
+  req->cb_priv = cb_priv;
+  uuid_copy(req->folder_id, folder_id);
+  user_grid_glue_ref(user_glue);
+  caj_queue_soup_message(sgrp, msg,
+			 got_inventory_items_resp_x, req);
+
+}
+
+static void got_inventory_item_resp_x(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  //USER_PRIV_DEF(user_data);
+  //GRID_PRIV_DEF(sim);
+  inv_item_req *req = (inv_item_req*)user_data;
+  user_grid_glue* user_glue = req->user_glue;
+  os_robust_xml *rxml, *item_node,  *node;
+  struct inventory_item invit;
+  user_grid_glue_deref(user_glue);
+  if(msg->status_code != 200) {
+    printf("XInventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto fail;
+  }
+
+  printf("DEBUG: XInventory item content resp {{%s}}\n",
+	 msg->response_body->data);
+
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
+    printf("ERROR: couldn't parse XInventory item contents\n");
+    goto fail;
+  }
+
+  node = os_robust_xml_lookup(rxml, "item");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_LIST) {
+    // this is normal if the item doesn't exist.
+    printf("ERROR: bad XInventory response, missing/bad item node\n");
+    goto free_fail;
+  }
+
+  {
+    // FIXME - do something about this code duplication!
+
+    const char *asset_id = os_robust_xml_lookup_str(node, "AssetID");
+    const char *asset_type = os_robust_xml_lookup_str(node, "AssetType");
+    const char *base_perms = os_robust_xml_lookup_str(node, "BasePermissions");
+    const char *creation_date = os_robust_xml_lookup_str(node, "CreationDate");
+    const char *creator_id = os_robust_xml_lookup_str(node, "CreatorId");
+    const char *cur_perms = os_robust_xml_lookup_str(node, "CurrentPermissions");
+    const char *descr = os_robust_xml_lookup_str(node, "Description");
+    const char *everyone_perms = os_robust_xml_lookup_str(node, "EveryOnePermissions");
+    const char *flags = os_robust_xml_lookup_str(node, "Flags");
+    const char *folder = os_robust_xml_lookup_str(node, "Folder");
+    const char *group_id = os_robust_xml_lookup_str(node, "GroupID");
+    const char *group_owned = os_robust_xml_lookup_str(node, "GroupOwned");
+    const char *group_perms = os_robust_xml_lookup_str(node, "GroupPermissions");
+    const char *id_s = os_robust_xml_lookup_str(node, "ID");
+    const char *inv_type = os_robust_xml_lookup_str(node, "InvType");
+    const char *name = os_robust_xml_lookup_str(node, "Name");
+    const char *next_perms = os_robust_xml_lookup_str(node, "NextPermissions");
+    const char *owner_s = os_robust_xml_lookup_str(node, "Owner");
+    const char *sale_price = os_robust_xml_lookup_str(node, "SalePrice");
+    const char *sale_type = os_robust_xml_lookup_str(node, "SaleType");
+
+    if(asset_id == NULL || asset_type == NULL || base_perms == NULL || 
+       creation_date == NULL || creator_id == NULL || cur_perms == NULL ||
+       descr == NULL || everyone_perms == NULL || flags == NULL || 
+       folder == NULL || group_id == NULL || group_owned == NULL || 
+       group_perms == NULL || id_s == NULL || inv_type == NULL ||
+       name == NULL || next_perms == NULL || owner_s == NULL || 
+       sale_price == NULL || sale_type == NULL) {
+      printf("ERROR: bad item in XInventory response\n");
+      goto free_fail;
+    }
+
+    invit.name = const_cast<char*>(name);
+    invit.description = const_cast<char*>(descr);
+    invit.creator_id = const_cast<char*>(creator_id);
+    // FIXME - better error checking?
+    uuid_parse(id_s, invit.item_id);
+    uuid_parse(asset_id, invit.asset_id);
+    uuid_parse(creator_id, invit.creator_as_uuid); // FIXME - ???
+    uuid_parse(owner_s, invit.owner_id); // FIXME - do we want this?
+    uuid_parse(group_id, invit.group_id);
+    uuid_parse(folder, invit.folder_id); // !!! different from other case.
+    invit.perms.base = atoi(base_perms);
+    invit.perms.current = atoi(cur_perms);
+    invit.perms.group = atoi(group_perms);
+    invit.perms.next = atoi(next_perms);
+    invit.perms.everyone = atoi(everyone_perms);
+    invit.inv_type = atoi(inv_type);
+    invit.asset_type = atoi(asset_type);
+    invit.sale_type = atoi(sale_type); 
+    invit.group_owned = (strcasecmp(group_owned, "True") == 0);
+    invit.flags = atoi(flags);
+    invit.sale_price = atoi(sale_price);
+    invit.creation_date = atoi(creation_date);
+  }
+    
+  req->cb(&invit, req->cb_priv);
+  os_robust_xml_free(rxml);
+  delete req;
+  return;
+
+ free_fail:
+  os_robust_xml_free(rxml);
+ fail:
+  req->cb(NULL, req->cb_priv);
+  delete req;
+  printf("ERROR: inventory item response parse failure\n");
+  return;
+}
+
+void fetch_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
+			    void *user_priv, uuid_t item_id,
+			    void(*cb)(struct inventory_item* item, 
+				      void* priv),
+			    void *cb_priv) {
+  uuid_t u; char item_id_str[40]; char uri[256];
+  inv_item_req *req; char *req_body; SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+  USER_PRIV_DEF(user_priv);
+
+  // for some reason, this doesn't need the user ID.
+
+  uuid_unparse(item_id, item_id_str);
+  
+  // FIXME - don't use fixed-size buffer 
+  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("ID", item_id_str,
+			      "METHOD", "GETITEM",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  req = new inv_item_req();
+  req->user_glue = user_glue; req->cb = cb;
+  req->cb_priv = cb_priv;
+  uuid_copy(req->item_id, item_id);
+  user_grid_glue_ref(user_glue);
+  caj_queue_soup_message(sgrp, msg,
+			 got_inventory_item_resp_x, req);
+}
+
+// fetch a list of the user's system folders
+void fetch_system_folders_x(simgroup_ctx *sgrp, user_ctx *user,
+			  void *user_priv) {
+  // FIXME - how the hell can we do this with XInventory?
+}
+
+
+void add_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
+			void *user_priv, inventory_item *inv,
+			void(*cb)(void* priv, int success, uuid_t item_id),
+			void *cb_priv) {
+  uuid_t u;
+  uuid_clear(u); cb(cb_priv, FALSE, u); 
+
+  // FIXME - TODO!
 }

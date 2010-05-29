@@ -29,7 +29,7 @@ extern "C" {
 
 
 #define CAJEPUT_API_VERSION_MAJOR 2
-#define CAJEPUT_API_VERSION_MINOR 1
+#define CAJEPUT_API_VERSION_MINOR 2
 
 struct simgroup_ctx;
 
