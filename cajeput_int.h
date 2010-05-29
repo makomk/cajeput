@@ -204,6 +204,7 @@ struct asset_desc {
 
 struct simgroup_ctx {
   std::map<obj_uuid_t,inventory_contents*> inv_lib;
+  struct inventory_folder inv_lib_root;
   std::map<obj_uuid_t,texture_desc*> textures;
   std::map<obj_uuid_t,asset_desc*> assets;
   GTimer *timer;

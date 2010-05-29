@@ -310,6 +310,10 @@ void user_add_delete_hook(struct user_ctx *ctx,
 void user_remove_delete_hook(struct user_ctx *ctx,
 			      user_generic_cb cb, void *priv);
 
+void cajeput_get_library_skeleton(struct simgroup_ctx *sgrp, 
+				  inventory_folder*** folders,
+				  size_t *num_folders);
+
 // -------------------- INVENTORY STUFF ----------------------------------
 
 // Stuff for creating temporary descriptions of part of the inventory.

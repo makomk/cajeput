@@ -501,14 +501,18 @@ void user_fetch_inventory_folder(user_ctx *user,
 				  void *cb_priv) {
   simgroup_ctx *sgrp = user->sgrp;
   if(uuid_compare(owner_id, user->user_id) == 0) {
+    printf("DEBUG: fetching from inventory\n");
     sgrp->gridh.fetch_inventory_folder(sgrp,user,user->grid_priv,
 				       folder_id,cb,cb_priv);
   } else {
+    printf("DEBUG: fetching from library\n");
     std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
       sgrp->inv_lib.find(folder_id);
     if(iter == sgrp->inv_lib.end()) {
+      printf("ERROR: folder not in library\n");
       cb(NULL, cb_priv);
     } else {
+      printf("DEBUG: got library folder, %i items\n", iter->second->num_items);
       cb(iter->second, cb_priv);
     }
   }

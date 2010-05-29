@@ -285,6 +285,9 @@ void caj_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
   // forces all other permissions to be a subset of the base ones
 void caj_sanitise_perms(struct permission_flags *perms);
 
+void cajeput_get_library_owner(struct simgroup_ctx *sgrp, uuid_t out);
+void cajeput_get_library_root(struct simgroup_ctx *sgrp, uuid_t out);
+
 #ifdef __cplusplus
 }
 #endif

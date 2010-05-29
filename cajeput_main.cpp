@@ -474,6 +474,13 @@ static void load_terrain(struct simulator_ctx *sim, const char* file) {
 
 #define LIBRARY_ROOT "00000112-000f-0000-0000-000100bba000"
 
+void cajeput_get_library_owner(struct simgroup_ctx *sgrp, uuid_t out) {
+  uuid_parse(LIBRARY_OWNER, out);
+}
+
+void cajeput_get_library_root(struct simgroup_ctx *sgrp, uuid_t out) {
+  uuid_parse(LIBRARY_ROOT, out);
+}
 
 static void load_inv_folders(struct simgroup_ctx *sgrp, const char* filename) {
   char path[256];
@@ -505,6 +512,52 @@ static void load_inv_folders(struct simgroup_ctx *sgrp, const char* filename) {
      sgrp->inv_lib[folder_uuid] = caj_inv_new_contents_desc(folder_uuid);
 
      // FIXME - add folders to their parent folders
+   }
+   
+   g_free(folder_id); g_free(parent_id); g_free(name); g_free(type_str);
+ }
+
+ g_strfreev(sect_list);
+ g_key_file_free(config);
+}
+
+
+static void load_inv_folders2(struct simgroup_ctx *sgrp, const char* filename) {
+  char path[256]; uuid_t inv_owner_uuid;
+  snprintf(path,256,"inventory/%s",filename);
+  uuid_parse(LIBRARY_OWNER, inv_owner_uuid);
+
+ GKeyFile *config = caj_parse_nini_xml(path);
+ if(config == NULL) {
+   printf("WARNING: couldn't load inventory file %s\n", filename);
+   return;
+ }
+
+ gchar** sect_list = g_key_file_get_groups(config, NULL);
+
+ for(int i = 0; sect_list[i] != NULL; i++) {
+   gchar *folder_id, *parent_id, *name, *type_str;
+   uuid_t folder_uuid, parent_uuid;
+   
+   folder_id = g_key_file_get_value(config, sect_list[i], "folderID", NULL);
+   parent_id = g_key_file_get_value(config, sect_list[i], "parentFolderID", NULL);
+   name = g_key_file_get_value(config, sect_list[i], "name", NULL);
+   type_str = g_key_file_get_value(config, sect_list[i], "type", NULL);
+
+   if(folder_id == NULL || parent_id == NULL || name == NULL ||
+      type_str == NULL || uuid_parse(folder_id,folder_uuid) || 
+      uuid_parse(parent_id, parent_uuid)) {
+     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+   } else {
+     std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+       sgrp->inv_lib.find(parent_uuid);
+     if(iter == sgrp->inv_lib.end()) {
+       printf("ERROR: library item %s without parent folder %s\n",
+	      name, folder_id);
+     } else {
+       inventory_contents* parent = iter->second;       
+       inventory_folder* folder = caj_inv_add_folder(parent, folder_uuid, inv_owner_uuid, name, 0);
+     }
    }
    
    g_free(folder_id); g_free(parent_id); g_free(name); g_free(type_str);
@@ -582,6 +635,12 @@ static void load_inv_items(struct simgroup_ctx *sgrp, const char* filename) {
 
 
 static void load_inv_library(struct simgroup_ctx *sgrp) {
+  uuid_clear(sgrp->inv_lib_root.parent_id);
+  uuid_parse(LIBRARY_ROOT, sgrp->inv_lib_root.folder_id);
+  uuid_parse(LIBRARY_OWNER, sgrp->inv_lib_root.owner_id);
+  sgrp->inv_lib_root.name = strdup("Library");
+  sgrp->inv_lib_root.asset_type = 0; // FIXME
+
   GKeyFile *lib = caj_parse_nini_xml("inventory/Libraries.xml");
   if(lib == NULL) {
     printf("WARNING: couldn't load inventory library\n");
@@ -604,12 +663,32 @@ static void load_inv_library(struct simgroup_ctx *sgrp) {
     } else {
       load_inv_folders(sgrp, folders_file);
       load_inv_items(sgrp, items_file);
+      load_inv_folders2(sgrp, folders_file);
     }
     g_free(folders_file); g_free(items_file);
   }
 
   g_strfreev(sect_list);
   g_key_file_free(lib);
+}
+
+void cajeput_get_library_skeleton(struct simgroup_ctx *sgrp, 
+				  inventory_folder*** folders,
+				  size_t *num_folders) {
+  std::vector<inventory_folder*> skel;
+  skel.push_back(&sgrp->inv_lib_root);
+  for(std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
+	sgrp->inv_lib.begin(); iter != sgrp->inv_lib.end(); iter++) {
+    inventory_contents *contents = iter->second;
+    for(unsigned i = 0; i < contents->num_subfolder; i++) {
+      skel.push_back(contents->subfolders+i);
+    }
+  }
+  *folders = (inventory_folder**)calloc(skel.size(), sizeof(inventory_folder*));
+  for(size_t i = 0; i < skel.size(); i++) {
+    (*folders)[i] = skel[i];
+  }
+  *num_folders = skel.size();
 }
 
 // -------------- END INVENTORY LIBRARY STUFF ------------------------------
