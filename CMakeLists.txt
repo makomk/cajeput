@@ -6,12 +6,13 @@ pkg_check_modules (GLIB2 REQUIRED  glib-2.0)
 pkg_check_modules (LIBXML2 REQUIRED libxml-2.0)
 pkg_check_modules (LIBSOUP REQUIRED libsoup-2.4)
 pkg_check_modules (JSONGLIB REQUIRED json-glib-1.0)
+pkg_check_modules (SQLITE3 REQUIRED sqlite3)
 #pkg_check_modules (BULLET REQUIRED bullet)
 
 set(BULLET_INCLUDE_DIRS bullet/src)
 set(BULLET_LIBRARIES BulletDynamics BulletCollision LinearMath)
 
-include_directories(${GLIB2_INCLUDE_DIRS} ${LIBXML2_INCLUDE_DIRS} ${LIBSOUP_INCLUDE_DIRS} ${JSONGLIB_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS})
+include_directories(${GLIB2_INCLUDE_DIRS} ${LIBXML2_INCLUDE_DIRS} ${LIBSOUP_INCLUDE_DIRS} ${JSONGLIB_INCLUDE_DIRS} ${BULLET_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
 
 add_library(openjpeg STATIC libopenjpeg/bio.c libopenjpeg/cio.c libopenjpeg/dwt.c libopenjpeg/event.c libopenjpeg/image.c libopenjpeg/j2k.c libopenjpeg/j2k_lib.c libopenjpeg/jp2.c libopenjpeg/jpt.c libopenjpeg/mct.c libopenjpeg/mqc.c libopenjpeg/openjpeg.c libopenjpeg/pi.c libopenjpeg/raw.c libopenjpeg/t1.c libopenjpeg/t1_generate_luts.c libopenjpeg/t2.c libopenjpeg/tcd.c libopenjpeg/tgt.c)
 
@@ -25,6 +26,9 @@ target_link_libraries(cajeput_sim ${GLIB2_LIBRARIES} ${LIBXML2_LIBRARIES} ${LIBS
 
 add_library(grid_opensim MODULE opensim_grid_glue.cpp opensim_robust_xml.cpp opensim_inventory_glue.cpp opensim_asset_glue.cpp opensim_intersim.cpp)
 target_link_libraries(grid_opensim ${JSONGLIB_LIBRARIES})
+add_library(grid_standalone MODULE standalone_grid_plugin.cpp)
+target_link_libraries(grid_standalone ${SQLITE3_LIBRARIES})
+
 
 add_library(caj_omv_udp MODULE caj_omv_udp.cpp sl_messages.c sl_udp_proto.c sl_messages.h)
 
