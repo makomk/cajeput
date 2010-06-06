@@ -472,6 +472,137 @@ static void uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
   cb(id, NULL, NULL, cb_priv);
 }
 
+struct initial_folder_info {
+  const char* name;
+  int asset_type;
+};
+
+static struct initial_folder_info initial_folders[] = {
+  { "Animations", ASSET_ANIMATION },
+  { "Body Parts", ASSET_BODY_PART },
+  { "Calling Cards", ASSET_CALLING_CARD },
+  { "Clothing", ASSET_CLOTHING },
+  { "Gestures", ASSET_GESTURE },
+  { "Landmarks", ASSET_LANDMARK },
+  { "Lost And Found", ASSET_LOST_FOUND },
+  { "Notecards", ASSET_NOTECARD },
+  { "Objects", ASSET_OBJECT },
+  { "Photo Album", ASSET_SNAPSHOT },
+  { "Scripts", ASSET_LSL_TEXT },
+  { "Sounds", ASSET_SOUND },
+  { "Textures", ASSET_TEXTURE },
+  { "Trash", ASSET_TRASH },
+  { }
+};
+
+static bool create_user_inv(standalone_grid_ctx *grid, const uuid_t user_id,
+			    uuid_t inv_root_out) {
+  sqlite3_stmt *stmt; int rc; char buf[64];
+  char user_id_str[40], folder_id_str[40], parent_id_str[40];
+  
+
+  uuid_generate(inv_root_out);
+  rc = sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, 
+		    NULL);
+  if(rc) {
+    fprintf(stderr, "ERROR: Can't begin transaction: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    return false;
+  }
+
+  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO inventory_folders (user_id, folder_id, parent_id, name, version, asset_type) VALUES (?, ?, ?, ?, ?, ?)", -1, &stmt, NULL);
+  if( rc ) {
+    fprintf(stderr, "ERROR: Can't prepare folder create: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_nofree;
+  }
+
+  uuid_unparse(user_id, user_id_str);
+  uuid_unparse(inv_root_out, folder_id_str);
+  if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 2, folder_id_str, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_null(stmt, 3) /* parent_id */ || 
+     sqlite3_bind_text(stmt, 4, "My Inventory", -1, SQLITE_STATIC) ||
+     sqlite3_bind_int(stmt, 5, 1) /* version */ ||
+     sqlite3_bind_int(stmt, 6, ASSET_ROOT) /* asset_type */ ||
+     sqlite3_step(stmt) != SQLITE_DONE) {
+    fprintf(stderr, "ERROR: Can't create inventory root folder: %s\n",
+	    sqlite3_errmsg(grid->db));
+    goto out_fail;
+  }
+
+  uuid_unparse(inv_root_out, parent_id_str);
+  for(int i = 0; initial_folders[i].name != NULL; i++) {
+    uuid_t u; uuid_generate(u);
+    uuid_unparse(u, folder_id_str);
+    sqlite3_reset(stmt);
+   
+    if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 2, folder_id_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 3, parent_id_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 4, initial_folders[i].name, -1, SQLITE_STATIC) ||
+       sqlite3_bind_int(stmt, 5, 1) /* version */ ||
+       sqlite3_bind_int(stmt, 6, initial_folders[i].asset_type) ||
+       sqlite3_step(stmt) != SQLITE_DONE) {
+      fprintf(stderr, "ERROR: Can't create initial inventory folder %s: %s\n",
+	      initial_folders[i].name, sqlite3_errmsg(grid->db));
+      goto out_fail;
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  if(sqlite3_exec(grid->db, "COMMIT TRANSACTION;", NULL, NULL, NULL)) {
+    fprintf(stderr, "ERROR: Can't commit initial inventory creation: %s\n",
+	    sqlite3_errmsg(grid->db));
+    return false;
+  } else {
+    return true;
+  }
+
+ out_fail:
+  sqlite3_finalize(stmt);
+ out_fail_nofree:
+  sqlite3_exec(grid->db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+  return false;
+}
+
+static bool find_inv_root(standalone_grid_ctx *grid, const uuid_t user_id,
+			 uuid_t inv_root_out) {
+  sqlite3_stmt *stmt; int rc; char buf[64];
+  rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id FROM inventory_folders WHERE user_id = ? AND parent_id IS NULL AND asset_type = ?", -1, &stmt, NULL);
+  if( rc ) {
+    fprintf(stderr, "ERROR: Can't prepare inv_root lookup: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    return false;
+  }
+
+  uuid_unparse(user_id, buf);
+
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_int(stmt, 2, ASSET_ROOT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    sqlite3_finalize(stmt);
+    return false;
+  }
+
+  rc = sqlite3_step(stmt);
+  if(rc == SQLITE_DONE) {
+    fprintf(stderr, "DEBUG: no inventory root found, need to create one\n");
+    sqlite3_finalize(stmt);
+    return create_user_inv(grid, user_id, inv_root_out);
+  } else if(rc != SQLITE_ROW) {
+    fprintf(stderr, "ERROR executing statement: %s\n", sqlite3_errmsg(grid->db));
+    sqlite3_finalize(stmt);
+    return false;
+  }
+
+  const char *s = (const char*) sqlite3_column_text(stmt, 0);
+  rc = uuid_parse(s, inv_root_out);
+  sqlite3_finalize(stmt);
+  return !rc;
+}
+
 static void login_to_simulator(SoupServer *server,
 			       SoupMessage *msg,
 			       GValueArray *params,
@@ -608,8 +739,11 @@ static void login_to_simulator(SoupServer *server,
   soup_value_hash_insert(hash, "agent_access_max", G_TYPE_STRING, "A");
 
   { 
-    // FIXME!!!
     uuid_parse("e219aca4-ed7a-4118-946a-35c270b3b09f", u); // HACK to get startup
+    if(!find_inv_root(grid, agent_id, u)) {
+      printf("ERROR: couldn't find inventory root folder\n");
+      // FIXME - error out here.
+    }
     uuid_unparse(u, buf);
     GHashTable *hash2 = soup_value_hash_new_with_vals("folder_id", G_TYPE_STRING,
 						      buf, NULL);
