@@ -126,6 +126,20 @@ struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv,
   return item;
 }
 
+struct inventory_item* caj_add_inventory_item_copy(struct inventory_contents* inv,
+						   const struct inventory_item *src) {
+  if(inv->num_items >= MAX_INVENTORY_DESC) {
+    printf("!!! ERROR: too many items in one inventory folder\n");
+    return NULL;
+  }
+  grow_array<inventory_item>(&inv->num_items, &inv->alloc_items, 
+			     &inv->items);
+  struct inventory_item* item = &inv->items[inv->num_items++];
+  caj_inv_copy_item(item, src);
+  uuid_copy(item->folder_id, inv->folder_id);
+  return item;
+}
+
 void caj_inv_copy_item(struct inventory_item *dest,
 		       const struct inventory_item *src) {
   *dest = *src;
