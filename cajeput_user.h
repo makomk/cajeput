@@ -347,6 +347,8 @@ struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
 struct inventory_item* caj_add_inventory_item(struct inventory_contents* inv, 
 					      const char* name, const char* desc,
 					      const char* creator);
+struct inventory_item* caj_add_inventory_item_copy(struct inventory_contents* inv,
+						   const struct inventory_item *src);
 void caj_inv_free_contents_desc(struct inventory_contents* inv);
 uint32_t caj_calc_inventory_crc(struct inventory_item* item);
 

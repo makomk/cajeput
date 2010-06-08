@@ -475,7 +475,8 @@ void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   if(xmlTextWriterStartElement(writer,BAD_CAST "Body") < 0) 
     goto free_fail;
   memset(&invitem, 0, sizeof(invitem));
-  invitem.name = ""; invitem.description = ""; invitem.creator_id = "";
+  invitem.name = invitem.description = const_cast<char*>("");
+  invitem.creator_id = const_cast<char*>("");
   uuid_copy(invitem.owner_id, user_id);
   uuid_copy(invitem.item_id, item_id);
 
@@ -782,25 +783,8 @@ void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
   // FIXME - handle this
 }
 
-static void parse_inv_folders_x(os_robust_xml *folders_node,
-				struct inventory_contents* inv) {
-  GHashTableIter iter; os_robust_xml *node;
-  os_robust_xml_iter_begin(&iter, folders_node);
-  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
-    // TODO - what goes here?
-  }
-}
-
-static void parse_inv_items_x(os_robust_xml *items_node,
-			      struct inventory_contents* inv) {
-  GHashTableIter iter; os_robust_xml *node;
-  os_robust_xml_iter_begin(&iter, items_node);
-  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
-    if(node->node_type != OS_ROBUST_XML_LIST) {
-      printf("ERROR: bad XInventory response, items should be list nodes");
-      continue;
-    }
-    
+static bool parse_inventory_item_x(os_robust_xml *node, 
+				   struct inventory_item &invit) {
     const char *asset_id = os_robust_xml_lookup_str(node, "AssetID");
     const char *asset_type = os_robust_xml_lookup_str(node, "AssetType");
     const char *base_perms = os_robust_xml_lookup_str(node, "BasePermissions");
@@ -830,32 +814,64 @@ static void parse_inv_items_x(os_robust_xml *items_node,
        name == NULL || next_perms == NULL || owner_s == NULL || 
        sale_price == NULL || sale_type == NULL) {
       printf("ERROR: bad item in XInventory response\n");
-      continue;
+      return false;
     }
 
-    inventory_item *item = caj_add_inventory_item(inv, name, 
-						  descr, creator_id);
+    invit.name = const_cast<char*>(name);
+    invit.description = const_cast<char*>(descr);
+    invit.creator_id = const_cast<char*>(creator_id);
+    if(uuid_parse(id_s, invit.item_id) ||
+       uuid_parse(asset_id, invit.asset_id) ||
+       uuid_parse(owner_s, invit.owner_id) || // FIXME - do we want this?
+       uuid_parse(group_id, invit.group_id) ||
+       uuid_parse(folder, invit.folder_id)) {
+      printf("ERROR: bad UUID in XInventory response\n");
+      return false;
+    }
+    if(uuid_parse(creator_id, invit.creator_as_uuid))
+      uuid_clear(invit.creator_as_uuid); // FIXME - ???
     // FIXME - better error checking?
-    uuid_parse(id_s, item->item_id);
-    uuid_parse(asset_id, item->asset_id);
-    uuid_parse(creator_id, item->creator_as_uuid); // FIXME - ???
-    uuid_parse(owner_s, item->owner_id); // FIXME - do we want this?
-    uuid_parse(group_id, item->group_id);
-    item->perms.base = atoi(base_perms);
-    item->perms.current = atoi(cur_perms);
-    item->perms.group = atoi(group_perms);
-    item->perms.next = atoi(next_perms);
-    item->perms.everyone = atoi(everyone_perms);
-    item->inv_type = atoi(inv_type);
-    item->asset_type = atoi(asset_type);
-    item->sale_type = atoi(sale_type); 
-    item->group_owned = (strcasecmp(group_owned, "True") == 0);
-    item->flags = atoi(flags);
-    item->sale_price = atoi(sale_price);
-    item->creation_date = atoi(creation_date);
+    invit.perms.base = atoi(base_perms);
+    invit.perms.current = atoi(cur_perms);
+    invit.perms.group = atoi(group_perms);
+    invit.perms.next = atoi(next_perms);
+    invit.perms.everyone = atoi(everyone_perms);
+    invit.inv_type = atoi(inv_type);
+    invit.asset_type = atoi(asset_type);
+    invit.sale_type = atoi(sale_type); 
+    invit.group_owned = (strcasecmp(group_owned, "True") == 0);
+    invit.flags = atoi(flags);
+    invit.sale_price = atoi(sale_price);
+    invit.creation_date = atoi(creation_date);  
+    return true;
+}
+
+static void parse_inv_folders_x(os_robust_xml *folders_node,
+				struct inventory_contents* inv) {
+  GHashTableIter iter; os_robust_xml *node;
+  os_robust_xml_iter_begin(&iter, folders_node);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
+    // TODO - what goes here?
   }
 }
 
+static void parse_inv_items_x(os_robust_xml *items_node,
+			      struct inventory_contents* inv) {
+  GHashTableIter iter; os_robust_xml *node;
+  os_robust_xml_iter_begin(&iter, items_node);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
+    if(node->node_type != OS_ROBUST_XML_LIST) {
+      printf("ERROR: bad XInventory response, items should be list nodes");
+      continue;
+    }
+    
+    struct inventory_item invit;
+    if(!parse_inventory_item_x(node, invit))
+      continue;
+
+    caj_add_inventory_item_copy(inv, &invit);
+  }
+}
 
 static void got_inventory_items_resp_x(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   //USER_PRIV_DEF(user_data);
@@ -978,64 +994,8 @@ static void got_inventory_item_resp_x(SoupSession *session, SoupMessage *msg, gp
     goto free_fail;
   }
 
-  {
-    // FIXME - do something about this code duplication!
-
-    const char *asset_id = os_robust_xml_lookup_str(node, "AssetID");
-    const char *asset_type = os_robust_xml_lookup_str(node, "AssetType");
-    const char *base_perms = os_robust_xml_lookup_str(node, "BasePermissions");
-    const char *creation_date = os_robust_xml_lookup_str(node, "CreationDate");
-    const char *creator_id = os_robust_xml_lookup_str(node, "CreatorId");
-    const char *cur_perms = os_robust_xml_lookup_str(node, "CurrentPermissions");
-    const char *descr = os_robust_xml_lookup_str(node, "Description");
-    const char *everyone_perms = os_robust_xml_lookup_str(node, "EveryOnePermissions");
-    const char *flags = os_robust_xml_lookup_str(node, "Flags");
-    const char *folder = os_robust_xml_lookup_str(node, "Folder");
-    const char *group_id = os_robust_xml_lookup_str(node, "GroupID");
-    const char *group_owned = os_robust_xml_lookup_str(node, "GroupOwned");
-    const char *group_perms = os_robust_xml_lookup_str(node, "GroupPermissions");
-    const char *id_s = os_robust_xml_lookup_str(node, "ID");
-    const char *inv_type = os_robust_xml_lookup_str(node, "InvType");
-    const char *name = os_robust_xml_lookup_str(node, "Name");
-    const char *next_perms = os_robust_xml_lookup_str(node, "NextPermissions");
-    const char *owner_s = os_robust_xml_lookup_str(node, "Owner");
-    const char *sale_price = os_robust_xml_lookup_str(node, "SalePrice");
-    const char *sale_type = os_robust_xml_lookup_str(node, "SaleType");
-
-    if(asset_id == NULL || asset_type == NULL || base_perms == NULL || 
-       creation_date == NULL || creator_id == NULL || cur_perms == NULL ||
-       descr == NULL || everyone_perms == NULL || flags == NULL || 
-       folder == NULL || group_id == NULL || group_owned == NULL || 
-       group_perms == NULL || id_s == NULL || inv_type == NULL ||
-       name == NULL || next_perms == NULL || owner_s == NULL || 
-       sale_price == NULL || sale_type == NULL) {
-      printf("ERROR: bad item in XInventory response\n");
-      goto free_fail;
-    }
-
-    invit.name = const_cast<char*>(name);
-    invit.description = const_cast<char*>(descr);
-    invit.creator_id = const_cast<char*>(creator_id);
-    // FIXME - better error checking?
-    uuid_parse(id_s, invit.item_id);
-    uuid_parse(asset_id, invit.asset_id);
-    uuid_parse(creator_id, invit.creator_as_uuid); // FIXME - ???
-    uuid_parse(owner_s, invit.owner_id); // FIXME - do we want this?
-    uuid_parse(group_id, invit.group_id);
-    uuid_parse(folder, invit.folder_id); // !!! different from other case.
-    invit.perms.base = atoi(base_perms);
-    invit.perms.current = atoi(cur_perms);
-    invit.perms.group = atoi(group_perms);
-    invit.perms.next = atoi(next_perms);
-    invit.perms.everyone = atoi(everyone_perms);
-    invit.inv_type = atoi(inv_type);
-    invit.asset_type = atoi(asset_type);
-    invit.sale_type = atoi(sale_type); 
-    invit.group_owned = (strcasecmp(group_owned, "True") == 0);
-    invit.flags = atoi(flags);
-    invit.sale_price = atoi(sale_price);
-    invit.creation_date = atoi(creation_date);
-  }
+  if(!parse_inventory_item_x(node, invit))
+    goto free_fail;
     
   req->cb(&invit, req->cb_priv);
   os_robust_xml_free(rxml);
