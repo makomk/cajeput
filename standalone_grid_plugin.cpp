@@ -412,12 +412,136 @@ static void cleanup(struct simgroup_ctx* sgrp) {
   delete grid;
 }
 
+// FIXME - NULL handling is spectacularly dodgy!
+
 static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 				   void *user_priv, uuid_t folder_id,
 				   void(*cb)(struct inventory_contents* inv, 
 					     void* priv),
 				   void *cb_priv) {
-  // TODO
+  GRID_PRIV_DEF_SGRP(sgrp);
+  struct inventory_contents* inv = caj_inv_new_contents_desc(folder_id);
+  sqlite3_stmt *stmt; int rc; char buf[40], buf2[40]; uuid_t user_id, u;
+
+  rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id, name, version, asset_type FROM inventory_folders WHERE user_id = ? AND parent_id = ?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare inventory folder query: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail;
+  }
+
+  user_get_uuid(user, user_id);
+  uuid_unparse(user_id, buf);
+  uuid_unparse(folder_id, buf2);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 1, buf2, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  for(;;) {
+    rc = sqlite3_step(stmt);
+    if(rc == SQLITE_DONE) 
+      break;
+    
+    if(rc != SQLITE_ROW) {
+      fprintf(stderr, "ERROR executing statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail_finalize;
+    }
+
+    // SELECT folder_id, name, version, asset_type 
+
+    if(uuid_parse((const char*)sqlite3_column_text(stmt, 0) /*folder_id*/, u)) {
+       fprintf(stderr, "ERROR: invalid folder ID in inventory: %s\n", 
+	       sqlite3_column_text(stmt, 0));
+      goto out_fail_finalize;
+    }
+    caj_inv_add_folder(inv, u, user_id,
+		       (const char*)sqlite3_column_text(stmt, 1) /* name */,
+		       sqlite3_column_int(stmt, 3) /* asset_type */);
+  }
+
+  sqlite3_finalize(stmt);
+
+  rc = sqlite3_prepare_v2(grid->db, "SELECT user_id, item_id, folder_id, name, description, creator, "
+			  "inv_type, asset_type, asset_id, base_perms, "
+			  "current_perms, next_perms, group_perms, everyone_perms, "
+			  "group_id, group_owned, sale_price, sale_type, flags, "
+			  " creation_date FROM inventory_items WHERE "
+			  " user_id = ? AND folder_id = ?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare inventory items query: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail;
+  }
+
+  user_get_uuid(user, user_id);
+  uuid_unparse(user_id, buf);
+  uuid_unparse(folder_id, buf2);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 1, buf2, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  
+  for(;;) {
+    rc = sqlite3_step(stmt);
+    if(rc == SQLITE_DONE) 
+      break;
+    
+    if(rc != SQLITE_ROW) {
+      fprintf(stderr, "ERROR executing statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail_finalize;
+    }
+
+    // SELECT user_id, item_id, folder_id, name, description, creator, inv_type, 
+    // asset_type, asset_id, base_perms, current_perms, next_perms, group_perms,
+    // everyone_perms, group_id, group_owned, sale_price, sale_type, flags, 
+    // creation_date
+
+    const char *name = (const char*)sqlite3_column_text(stmt, 3);
+    const char *description = (const char*)sqlite3_column_text(stmt, 4);
+    const char *creator = (const char*)sqlite3_column_text(stmt, 5);
+    struct inventory_item *item = caj_add_inventory_item(inv, name, description,
+							 creator);
+    if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item->item_id)) {
+      fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
+	     sqlite3_column_text(stmt, 1));
+      goto out_fail_finalize;
+    }
+    item->inv_type = sqlite3_column_int(stmt, 6);
+    item->asset_type = sqlite3_column_int(stmt, 7);
+    if(uuid_parse((const char*)sqlite3_column_text(stmt, 8), item->asset_id)) {
+      fprintf(stderr, "ERROR: invalid asset ID in inventory: %s\n", 
+	     sqlite3_column_text(stmt, 8));
+      goto out_fail_finalize;
+    }
+    item->perms.base = sqlite3_column_int(stmt, 9);
+    item->perms.current = sqlite3_column_int(stmt, 10);
+    item->perms.next = sqlite3_column_int(stmt, 11);
+    item->perms.group = sqlite3_column_int(stmt, 12);
+    item->perms.everyone = sqlite3_column_int(stmt, 13);
+    uuid_clear(item->group_id); item->group_owned = FALSE; // FIXME!
+    item->sale_price = sqlite3_column_int(stmt, 16);
+    item->sale_type = sqlite3_column_int(stmt, 17);
+    item->flags = sqlite3_column_int(stmt, 18);
+    item->creation_date = sqlite3_column_int(stmt, 19);
+  }
+
+  sqlite3_finalize(stmt);
+  cb(inv, cb_priv);
+  caj_inv_free_contents_desc(inv);
+  return;
+
+ out_fail_finalize:
+  sqlite3_finalize(stmt);
+ out_fail:
+  caj_inv_free_contents_desc(inv);
   cb(NULL, cb_priv);
 }
 
@@ -603,6 +727,61 @@ static bool find_inv_root(standalone_grid_ctx *grid, const uuid_t user_id,
   return !rc;
 }
 
+// FIXME - this needs to actually report errors to its caller.
+static GValueArray* build_inventory_skeleton(standalone_grid_ctx *grid, 
+					     const uuid_t user_id) {
+  GValueArray *skel = soup_value_array_new();
+  sqlite3_stmt *stmt; int rc; char buf[40];
+
+  // FIXME - can this use an index?
+  rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id, parent_id, name, version, asset_type FROM inventory_folders WHERE user_id = ?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare inventory skeleton query: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out;
+  }
+
+  uuid_unparse(user_id, buf);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_finalize;
+  }
+
+  for(;;) {
+    rc = sqlite3_step(stmt);
+    if(rc == SQLITE_DONE) 
+      break;
+    
+    if(rc != SQLITE_ROW) {
+      fprintf(stderr, "ERROR executing statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_finalize;
+    }
+
+    // SELECT folder_id, parent_id, name, version, asset_type 
+    GHashTable *hash2 = 
+      soup_value_hash_new_with_vals("folder_id", G_TYPE_STRING,
+				    sqlite3_column_text(stmt, 0),
+				    "parent_id", G_TYPE_STRING,
+				    sqlite3_column_text(stmt, 1),
+				    "name", G_TYPE_STRING,
+				    sqlite3_column_text(stmt, 2),
+				    "version", G_TYPE_INT, 
+				    (int)sqlite3_column_int(stmt, 3),
+				    "type_default", G_TYPE_INT, 
+				    (int)sqlite3_column_int(stmt, 4),
+				    NULL);
+    soup_value_array_append(skel, G_TYPE_HASH_TABLE, hash2);
+    g_hash_table_unref(hash2);
+  }
+
+ out_finalize:
+  sqlite3_finalize(stmt);
+ out:
+  return skel;
+}
+
 static void login_to_simulator(SoupServer *server,
 			       SoupMessage *msg,
 			       GValueArray *params,
@@ -754,7 +933,7 @@ static void login_to_simulator(SoupServer *server,
     g_value_array_free(arr);
   }
   { 
-    GValueArray *arr = soup_value_array_new();
+    GValueArray *arr = build_inventory_skeleton(grid, agent_id);
     soup_value_hash_insert(hash, "inventory-skeleton", G_TYPE_VALUE_ARRAY, arr);
     g_value_array_free(arr);
   }
