@@ -25,12 +25,16 @@
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
 #include "caj_types.h"
+#include "caj_parse_nini.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <glib.h>
 #include <cassert>
 #include <sqlite3.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <set>
 #include <vector>
@@ -570,7 +574,46 @@ void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
 
 void get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
   GRID_PRIV_DEF_SGRP(sgrp);
-  // FIXME - TODO
+  sqlite3_stmt *stmt; int rc; char buf[40]; const unsigned char* dat;
+
+  rc = sqlite3_prepare_v2(grid->db, "SELECT name, description, asset_type, data FROM assets WHERE id = ?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare get_asset query: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail;
+  }
+
+  uuid_unparse(asset->id, buf);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+   rc = sqlite3_step(stmt);
+
+  if(rc == SQLITE_DONE) {
+    uuid_unparse(asset->id, buf);
+    fprintf(stderr, "ERROR: Asset %s not in database\n", buf);
+    goto out_fail_finalize; // asset not found.
+  } else if(rc != SQLITE_ROW) {
+     fprintf(stderr, "ERROR: Can't execute get_asset query: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  asset->name = strdup((const char*)sqlite3_column_text(stmt, 0));
+  asset->description = strdup((const char*)sqlite3_column_text(stmt, 1));
+  asset->type = sqlite3_column_int(stmt, 2);
+  dat = (const unsigned char*)sqlite3_column_blob(stmt, 3);
+  caj_string_set_bin(&asset->data, dat, sqlite3_column_bytes(stmt, 3));
+  sqlite3_finalize(stmt);
+  caj_asset_finished_load(sgrp, asset, TRUE);
+  return;
+
+ out_fail_finalize:
+  sqlite3_finalize(stmt);
+ out_fail:
   caj_asset_finished_load(sgrp, asset, FALSE);
 }
 
@@ -1135,6 +1178,121 @@ static void xmlrpc_handler (SoupServer *server,
   g_free(method_name);
 }
 
+static char *read_whole_file(const char *name, int *lenout) {
+  int len = 0, maxlen = 512, ret;
+  char *data = (char*)malloc(maxlen);
+  //FILE *f = fopen(name,"r");
+  int fd = open(name,O_RDONLY);
+  if(fd < 0) return NULL;
+  for(;;) {
+    //ret = fread(data+len, maxlen-len, 1, f);
+    ret = read(fd, data+len, maxlen-len);
+    if(ret <= 0) break;
+    len += ret;
+    if(maxlen-len < 256) {
+      maxlen += 512;
+      data = (char*)realloc(data, maxlen);
+    }
+  }
+  close(fd); *lenout = len; return data;
+}
+
+static void load_assets_2(standalone_grid_ctx *grid, gchar* filename) {
+  char path[256]; char *path_off; int path_space; 
+  gchar** sect_list;
+  sqlite3_stmt *stmt; int rc; char buf[40]; 
+  snprintf(path,256,"assets/%s",filename);
+
+  GKeyFile *cfg = caj_parse_nini_xml(path);
+  if(cfg == NULL) {
+    printf("WARNING: couldn't load asset set file %s\n", filename);
+    return;
+  }
+
+  path_off = strrchr(path, '/');
+  if(path_off == NULL) path_off = path;
+  else path_off++;
+  path_space = 256 - (path_off - path);
+
+  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
+  if( rc ) {
+    fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
+    goto out;
+  }
+
+  sect_list = g_key_file_get_groups(cfg, NULL);
+
+  for(int i = 0; sect_list[i] != NULL; i++) {
+    int datalen; char *data;
+    gchar* assetid_str = g_key_file_get_value(cfg, sect_list[i], "assetID", NULL);
+    gchar* name = g_key_file_get_value(cfg, sect_list[i], "name", NULL);
+    gchar* assettype_str = g_key_file_get_value(cfg, sect_list[i], "assetType", NULL);
+    gchar* assetfile = g_key_file_get_value(cfg, sect_list[i], "fileName", NULL);
+    if(assetid_str == NULL || name == NULL || assettype_str == NULL || 
+       assetfile == NULL) {
+      printf("ERROR: bad entry %s in asset set %s\n", sect_list[i], filename);
+      goto out_cont;
+    }
+
+    strncpy(path_off, assetfile, path_space);
+    path_off[path_space-1] = 0;
+    data = read_whole_file(path, &datalen);
+
+    if(data == NULL) {
+      printf("ERROR: can't read asset file %s\n", path);
+      goto out_cont;
+    }
+
+    if(sqlite3_bind_blob(stmt, 5, data, datalen, free) || 
+       sqlite3_bind_text(stmt, 1, assetid_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 3, "Default asset", -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_int(stmt, 4, atoi(assettype_str))) {
+      fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
+      goto out_cont;
+    }
+
+    rc = sqlite3_step(stmt);
+    
+    if(rc != SQLITE_DONE && rc != SQLITE_CONSTRAINT) {
+      fprintf(stderr, "ERROR executing asset add statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_cont;
+    }
+
+  out_cont:
+    g_free(assetid_str); g_free(name); g_free(assettype_str); g_free(assetfile);
+    sqlite3_reset(stmt);
+  }
+  g_strfreev(sect_list);
+  sqlite3_finalize(stmt);
+ out:
+  g_key_file_free(cfg);
+}
+
+static bool load_initial_assets(standalone_grid_ctx *grid) {
+  GKeyFile *asset_sets = caj_parse_nini_xml("assets/AssetSets.xml");
+  if(asset_sets == NULL) {
+    printf("ERROR: couldn't load assets/AssetSets.xml\n");
+    return false;
+  }
+
+  gchar** sect_list = g_key_file_get_groups(asset_sets, NULL);
+
+  for(int i = 0; sect_list[i] != NULL; i++) {
+    gchar* filename = g_key_file_get_value(asset_sets, sect_list[i], "file", NULL);
+
+    if(filename == NULL) {
+      printf("WARNING: bad section %s in assets/AssetSets.xml\n", sect_list[i]);
+    } else {
+      load_assets_2(grid, filename);
+    }
+    g_free(filename);
+  }
+  g_strfreev(sect_list);
+  g_key_file_free(asset_sets);
+  return true;
+}
 
 int cajeput_grid_glue_init(int api_major, int api_minor,
 			   struct simgroup_ctx *sgrp, void **priv,
@@ -1154,6 +1312,14 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     sqlite3_close(grid->db);
     delete grid; return false;
   }
+
+  fprintf(stderr, "Loading initial assets to database...\n");
+  if(!load_initial_assets(grid)) {
+    fprintf(stderr, "ERROR: can't load initial assets\n");
+    sqlite3_close(grid->db);
+    delete grid; return false;
+  }
+  fprintf(stderr, "Initial assets loaded.\n");
 
   hooks->do_grid_login = do_grid_login;
   hooks->map_block_request = map_block_request;
