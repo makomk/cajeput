@@ -55,6 +55,7 @@ struct standalone_grid_ctx {
 struct user_grid_glue {
   int refcnt;
   user_ctx *ctx;
+  user_grid_glue *prev_user;
   std::map<uint64_t,std::string> child_seeds;
 };
 
@@ -188,6 +189,7 @@ static void user_created(struct simgroup_ctx *sgrp,
   // GRID_PRIV_DEF(sim);
   user_grid_glue *user_glue = new user_grid_glue();
   user_glue->ctx = user;
+  user_glue->prev_user = NULL;
   user_glue->refcnt = 1;
   *user_priv = user_glue;
 }
@@ -201,6 +203,10 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
   user_glue->refcnt--;
   if(user_glue->refcnt == 0) {
     assert(user_glue->ctx == NULL);
+    // We shouldn't ever get circular references here.
+    // In fact, we shouldn't ever have more than one layer of recursion.
+    if(user_glue->prev_user != NULL) 
+      user_grid_glue_deref(user_glue->prev_user);
     delete user_glue;
   }
 }
@@ -220,26 +226,17 @@ static void user_entered(struct simgroup_ctx *sgrp,
   USER_PRIV_DEF(user_priv);
   GRID_PRIV_DEF(sim);
 
-#if 0 // TODO - FIXME - implement our own equivalent!
-  if(user_glue->enter_callback_uri != NULL) {
-    printf("DEBUG: calling back to %s on avatar entry\n",
-	   user_glue->enter_callback_uri);
-
-    // FIXME - shouldn't we have to, y'know, identify ourselves somehow?
-
-    SoupMessage *msg = 
-      soup_message_new ("DELETE", user_glue->enter_callback_uri);
-    // FIXME - should we send a body at all?
-    soup_message_set_request (msg, "text/plain",
-			      SOUP_MEMORY_STATIC, "", 0);
-    sim_shutdown_hold(sim);
-    caj_queue_soup_message(sgrp, msg,
-			   user_entered_callback_resp, sim);
-    free(user_glue->enter_callback_uri);
-    user_glue->enter_callback_uri = NULL;  
+  if(user_glue->prev_user != NULL) {
+    printf("DEBUG: calling back to previous region on avatar entry\n");
+    user_ctx *old_ctx = user_glue->prev_user->ctx;
+    if(old_ctx != NULL && 
+       (user_get_flags(old_ctx) & AGENT_FLAG_TELEPORT_COMPLETE)) {
+      printf("DEBUG: releasing teleported user\n");
+      user_session_close(old_ctx, true); // needs the delay...
+    }
+    user_grid_glue_deref(user_glue->prev_user);
+    user_glue->prev_user = NULL;
   }
-#endif
-
 
   // user_update_presence_v2(sgrp, sim, user); - TODO - FIXME
 }
@@ -269,6 +266,13 @@ static void fill_in_child_caps(user_ctx *user, user_grid_glue *src) {
   USER_PRIV_DEF2(user);
   assert(user_glue != NULL);
   user_glue->child_seeds = src->child_seeds;
+}
+
+static void set_prev_region(user_ctx *user, user_grid_glue *prev) {
+  USER_PRIV_DEF2(user);
+  assert(user_glue != NULL);
+  user_grid_glue_ref(prev);
+  user_glue->prev_user = prev;
 }
 
 void do_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
@@ -335,6 +339,8 @@ void do_teleport_send_agent(simulator_ctx* sim, teleport_desc *tp,
   if(user_get_flags(tp->ctx) & AGENT_FLAG_ALWAYS_RUN)
     user_set_flag(new_user, AGENT_FLAG_ALWAYS_RUN);
   else user_clear_flag(new_user, AGENT_FLAG_ALWAYS_RUN);
+
+  set_prev_region(new_user, user_glue);
 
   sim_shutdown_release(tp_priv->dest_sim);
 
