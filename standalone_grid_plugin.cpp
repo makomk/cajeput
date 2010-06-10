@@ -438,7 +438,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(user_id, buf);
   uuid_unparse(folder_id, buf2);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
-     sqlite3_bind_text(stmt, 1, buf2, -1, SQLITE_TRANSIENT)) {
+     sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
     fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
@@ -485,7 +485,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(user_id, buf);
   uuid_unparse(folder_id, buf2);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
-     sqlite3_bind_text(stmt, 1, buf2, -1, SQLITE_TRANSIENT)) {
+     sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
     fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
@@ -558,12 +558,78 @@ static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   cb(NULL, cb_priv);  
 }
 
- static void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
-				void *user_priv, inventory_item *inv,
-				void(*cb)(void* priv, int success, uuid_t item_id),
-				void *cb_priv) {
-   // TODO
-   uuid_t u;
+static void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
+			       void *user_priv, inventory_item *inv,
+			       void(*cb)(void* priv, int success, uuid_t item_id),
+			       void *cb_priv) {
+   GRID_PRIV_DEF_SGRP(sgrp);
+   sqlite3_stmt *stmt; int rc; 
+   uuid_t user_id, u;
+   char user_id_str[40], folder_id_str[40], item_id_str[40];
+   char asset_id_str[40], group_id_str[40];
+
+
+   rc = sqlite3_prepare_v2(grid->db, "INSERT INTO inventory_items "
+			  "(user_id, item_id, folder_id, name, description, creator, "
+			  "inv_type, asset_type, asset_id, base_perms, "
+			  "current_perms, next_perms, group_perms, everyone_perms, "
+			  "group_id, group_owned, sale_price, sale_type, flags, "
+			  " creation_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+			  "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", -1, &stmt, NULL);
+
+   if( rc ) {
+     fprintf(stderr, "ERROR: Can't prepare add inventory item query: %s\n", 
+	     sqlite3_errmsg(grid->db));
+     goto out_fail;
+   }
+   
+   user_get_uuid(user, user_id);
+   uuid_unparse(user_id, user_id_str);
+   uuid_unparse(inv->folder_id, folder_id_str);
+   uuid_unparse(inv->item_id, item_id_str);
+   uuid_unparse(inv->asset_id, asset_id_str);
+   uuid_unparse(inv->group_id, group_id_str);
+
+   if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_text(stmt, 2, item_id_str, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_text(stmt, 3, folder_id_str, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_text(stmt, 4, inv->name, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_text(stmt, 5, inv->description, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_text(stmt, 6, inv->creator_id, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_int(stmt, 7, inv->inv_type) ||
+      sqlite3_bind_int(stmt, 8, inv->asset_type) ||
+      sqlite3_bind_text(stmt, 9, asset_id_str, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_int(stmt, 10, inv->perms.base) ||
+      sqlite3_bind_int(stmt, 11, inv->perms.current) ||
+      sqlite3_bind_int(stmt, 12, inv->perms.next) ||
+      sqlite3_bind_int(stmt, 13, inv->perms.group) ||
+      sqlite3_bind_int(stmt, 14, inv->perms.everyone) ||
+      sqlite3_bind_text(stmt, 15, group_id_str, -1, SQLITE_TRANSIENT) ||
+      sqlite3_bind_int(stmt, 16, inv->group_owned) ||
+      sqlite3_bind_int(stmt, 17, inv->sale_price) ||
+      sqlite3_bind_int(stmt, 18, inv->sale_type) ||
+      sqlite3_bind_int(stmt, 19, inv->flags) ||
+      sqlite3_bind_int(stmt, 20, inv->creation_date)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+   }
+
+   rc = sqlite3_step(stmt);
+    
+   if(rc != SQLITE_DONE) {
+     fprintf(stderr, "ERROR executing inventory item add statement: %s\n", 
+	     sqlite3_errmsg(grid->db));
+     goto out_fail_finalize;
+   }
+
+   sqlite3_finalize(stmt);
+   cb(cb_priv, TRUE, inv->item_id);
+   return;
+
+ out_fail_finalize:
+  sqlite3_finalize(stmt);
+ out_fail:
    uuid_clear(u); cb(cb_priv, FALSE, u);
  }
 
@@ -620,7 +686,44 @@ void get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
 void put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
 	       caj_put_asset_cb cb, void *cb_priv) {
   GRID_PRIV_DEF_SGRP(sgrp);
-  // FIXME - TODO
+  sqlite3_stmt *stmt; int rc; char buf[40];
+
+  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
+  if( rc ) {
+    fprintf(stderr, "ERROR: Can't prepare asset load query: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail;
+  }
+
+  uuid_unparse(asset->id, buf);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 2, asset->name, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 3, asset->description, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_int(stmt, 4, asset->type) ||
+     sqlite3_bind_blob(stmt, 5, asset->data.data, asset->data.len, 
+		       SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  
+  // FIXME - generate new UUID if we have a collision?
+  rc = sqlite3_step(stmt);
+
+  if(rc != SQLITE_DONE) {
+    fprintf(stderr, "ERROR: Can't add asset: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+  
+  sqlite3_finalize(stmt);
+  cb(asset->id, cb_priv);
+  return;
+
+ out_fail_finalize:
+  sqlite3_finalize(stmt);
+ out_fail:
   uuid_t zero_uuid; uuid_clear(zero_uuid);
   cb(zero_uuid, cb_priv);
 }
@@ -1197,10 +1300,11 @@ static char *read_whole_file(const char *name, int *lenout) {
   close(fd); *lenout = len; return data;
 }
 
-static void load_assets_2(standalone_grid_ctx *grid, gchar* filename) {
+static void load_assets_2(sqlite3_stmt *stmt, standalone_grid_ctx *grid, 
+			  gchar* filename) {
   char path[256]; char *path_off; int path_space; 
   gchar** sect_list;
-  sqlite3_stmt *stmt; int rc; char buf[40]; 
+  int rc; char buf[40]; 
   snprintf(path,256,"assets/%s",filename);
 
   GKeyFile *cfg = caj_parse_nini_xml(path);
@@ -1213,12 +1317,6 @@ static void load_assets_2(standalone_grid_ctx *grid, gchar* filename) {
   if(path_off == NULL) path_off = path;
   else path_off++;
   path_space = 256 - (path_off - path);
-
-  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
-  if( rc ) {
-    fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
-    goto out;
-  }
 
   sect_list = g_key_file_get_groups(cfg, NULL);
 
@@ -1265,15 +1363,22 @@ static void load_assets_2(standalone_grid_ctx *grid, gchar* filename) {
     sqlite3_reset(stmt);
   }
   g_strfreev(sect_list);
-  sqlite3_finalize(stmt);
  out:
   g_key_file_free(cfg);
 }
 
 static bool load_initial_assets(standalone_grid_ctx *grid) {
+  sqlite3_stmt *stmt; int rc;
   GKeyFile *asset_sets = caj_parse_nini_xml("assets/AssetSets.xml");
   if(asset_sets == NULL) {
     printf("ERROR: couldn't load assets/AssetSets.xml\n");
+    return false;
+  }
+  
+  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
+  if( rc ) {
+    fprintf(stderr, "ERROR: Can't prepare asset load query: %s\n", 
+	    sqlite3_errmsg(grid->db));
     return false;
   }
 
@@ -1285,10 +1390,11 @@ static bool load_initial_assets(standalone_grid_ctx *grid) {
     if(filename == NULL) {
       printf("WARNING: bad section %s in assets/AssetSets.xml\n", sect_list[i]);
     } else {
-      load_assets_2(grid, filename);
+      load_assets_2(stmt, grid, filename);
     }
     g_free(filename);
   }
+  sqlite3_finalize(stmt);
   g_strfreev(sect_list);
   g_key_file_free(asset_sets);
   return true;
