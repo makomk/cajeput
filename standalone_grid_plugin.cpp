@@ -44,6 +44,7 @@
 struct standalone_grid_ctx {
   simgroup_ctx *sgrp;
   std::set<simulator_ctx *> sims;
+  std::map<obj_uuid_t, simulator_ctx*> sim_by_uuid;
   sqlite3 *db;
 };
 
@@ -62,8 +63,11 @@ struct user_grid_glue {
 
 static void do_grid_login(struct simgroup_ctx *sgrp,
 			  struct simulator_ctx* sim) {
+  uuid_t u;
   GRID_PRIV_DEF_SGRP(sgrp);
   grid->sims.insert(sim);
+  sim_get_region_uuid(sim, u);
+  grid->sim_by_uuid[u] = sim;
 }
 
 static void fill_map_info(struct simulator_ctx *sim, map_block_info *info) {
@@ -244,7 +248,43 @@ static void user_entered(struct simgroup_ctx *sgrp,
 static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 			const uuid_t user_id, const uuid_t session_id,
 			const caj_vector3 *pos, const caj_vector3 *look_at) { 
+  GRID_PRIV_DEF(sim);
+  sqlite3_stmt *stmt; int rc; uuid_t u;
+  char user_id_str[40], region_id_str[40];
+  char pos_str[80], look_at_str[80];
+
+  rc = sqlite3_prepare_v2(grid->db, "UPDATE users SET last_region=?, last_pos=?, last_look_at=? WHERE id=?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare last_pos update statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out;
+  }
+
   // FIXME - TODO
+
+  uuid_unparse(user_id, user_id_str);
+  sim_get_region_uuid(sim, u);
+  uuid_unparse(u, region_id_str);
+  snprintf(pos_str, 80, "<%f,%f,%f>", pos->x, pos->y, pos->z);
+  snprintf(look_at_str, 80, "<%f,%f,%f>", look_at->x, look_at->y, look_at->z);
+  if(sqlite3_bind_text(stmt, 1, region_id_str, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 2, pos_str, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 3, look_at_str, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 4, user_id_str, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_finalize;
+  }
+
+  if(sqlite3_step(stmt) != SQLITE_DONE) {
+    fprintf(stderr, "ERROR: Can't update last position on logout: %s\n", 
+	    sqlite3_errmsg(grid->db));
+  }
+
+ out_finalize:
+  sqlite3_finalize(stmt);
+ out:
+  return;
 }
 
 struct os_teleport_desc {
@@ -941,9 +981,9 @@ static void login_to_simulator(SoupServer *server,
   GRID_PRIV_DEF_SGRP(sgrp);
   GHashTable *args = NULL;
   uuid_t u; char buf[64]; char seed_cap[64];
-  uuid_t agent_id;
+  uuid_t agent_id; caj_vector3 pos, look_at;
   GHashTable *hash;
-  struct simulator_ctx *sim; user_ctx *user;
+  struct simulator_ctx *sim = NULL; user_ctx *user;
   char *first, *last, *passwd, *s;
   const char *error_msg = "Error logging in";
   struct sim_new_user uinfo;
@@ -960,9 +1000,11 @@ static void login_to_simulator(SoupServer *server,
   if(!soup_value_hash_lookup(args,"passwd",G_TYPE_STRING,
 			     &passwd)) goto bad_args;
 
+  pos.x = pos.y = 128.0f; pos.z = 25.0f; look_at = pos;
+
   {
     sqlite3_stmt *stmt; int rc;
-    rc = sqlite3_prepare_v2(grid->db, "SELECT first_name, last_name, id, passwd_salt, passwd_sha256 FROM users WHERE first_name = ? AND last_name = ?;", -1, &stmt, NULL);
+    rc = sqlite3_prepare_v2(grid->db, "SELECT first_name, last_name, id, passwd_salt, passwd_sha256, last_region, last_pos, last_look_at FROM users WHERE first_name = ? AND last_name = ?;", -1, &stmt, NULL);
     if( rc ) {
       fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
       goto out_fail;
@@ -1004,11 +1046,38 @@ static void login_to_simulator(SoupServer *server,
     }
 
     g_checksum_free(ck);
+
+    if(sim == NULL) {
+      if(sqlite3_column_type(stmt, 5) != SQLITE_NULL && 
+	 uuid_parse((const char*)sqlite3_column_text(stmt, 5), u) == 0) {
+	std::map<obj_uuid_t, simulator_ctx*>::iterator iter =
+	  grid->sim_by_uuid.find(u);
+	if(iter != grid->sim_by_uuid.end()) 
+	  sim = iter->second;
+	// FIXME - should we report that the chosen sim is unavailable?
+      }
+
+      float tx, ty, tz;
+      if(sim != NULL && sqlite3_column_type(stmt, 6) != SQLITE_NULL &&
+	 sscanf((const char*)sqlite3_column_text(stmt, 6), "<%f, %f, %f>",
+		&tx, &ty, &tz) == 3) {
+	printf("DEBUG: got initial position <%f, %f, %f>\n", tx, ty, tz);
+	pos.x = tx; pos.y = ty; pos.z = tz;
+	
+	if(sqlite3_column_type(stmt, 7) != SQLITE_NULL && 
+	   sscanf((const char*)sqlite3_column_text(stmt, 7), "<%f, %f, %f>",
+		  &tx, &ty, &tz) == 3) {
+	  look_at.x = tx; look_at.y = ty; look_at.z = tz;
+	} else {
+	  look_at = pos;
+	}	
+      }
+    }
     uuid_parse((const char*)id_str, agent_id);
     sqlite3_finalize(stmt);
   }
 
-  {
+  if(sim == NULL) {
     // Pick a sim, any sim. FIXME - do this right.
     std::set<simulator_ctx *>::iterator iter = grid->sims.begin();
     if(iter == grid->sims.end()) goto out_fail;
@@ -1029,6 +1098,7 @@ static void login_to_simulator(SoupServer *server,
   if(user == NULL) {
     goto out_fail;
   }
+  user_set_start_pos(user, &pos, &look_at);
 
   // FIXME - need to save caps string.
 
@@ -1063,7 +1133,8 @@ static void login_to_simulator(SoupServer *server,
   soup_value_hash_insert(hash, "home", G_TYPE_STRING, 
 			 "{'region_handle':[r256000,r256000], 'position':[r128.1942,r127.823,r23.24884], 'look_at':[r0.7071068,r0.7071068,r0]}"); // FIXME
   soup_value_hash_insert(hash, "start_location", G_TYPE_STRING, "last"); // FIXME
-  soup_value_hash_insert(hash, "look_at", G_TYPE_STRING, "[r128,r128,r70]'"); // FIXME!
+  snprintf(buf, 64, "[r%i,r%i,r%i]", (int)look_at.x, (int)look_at.y, (int)look_at.z);
+  soup_value_hash_insert(hash, "look_at", G_TYPE_STRING, buf);
   soup_value_hash_insert(hash, "seconds_since_epoch", G_TYPE_INT,
 			 time(NULL)); // FIXME
   soup_value_hash_insert(hash, "message", G_TYPE_STRING, "Welcome to Cajeput");
