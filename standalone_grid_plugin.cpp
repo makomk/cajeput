@@ -1057,10 +1057,10 @@ static void login_to_simulator(SoupServer *server,
   soup_value_hash_insert(hash, "home", G_TYPE_STRING, 
 			 "{'region_handle':[r256000,r256000], 'position':[r128.1942,r127.823,r23.24884], 'look_at':[r0.7071068,r0.7071068,r0]}"); // FIXME
   soup_value_hash_insert(hash, "start_location", G_TYPE_STRING, "last"); // FIXME
-  soup_value_hash_insert(hash, "look_at", G_TYPE_STRING, "r128,r128,r70]'"); // FIXME!
+  soup_value_hash_insert(hash, "look_at", G_TYPE_STRING, "[r128,r128,r70]'"); // FIXME!
   soup_value_hash_insert(hash, "seconds_since_epoch", G_TYPE_INT,
 			 time(NULL)); // FIXME
-  soup_value_hash_insert(hash, "message", G_TYPE_STRING, "Wecome to Cajeput");
+  soup_value_hash_insert(hash, "message", G_TYPE_STRING, "Welcome to Cajeput");
   soup_value_hash_insert(hash, "agent_access", G_TYPE_STRING, "M");
   soup_value_hash_insert(hash, "agent_access_max", G_TYPE_STRING, "A");
 
