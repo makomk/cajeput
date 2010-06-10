@@ -991,14 +991,15 @@ static void login_to_simulator(SoupServer *server,
     // FIXME - in theory this leads to a potential timing attack.
     if(strcasecmp(our_sha256, (const char*)pw_sha256) != 0) {
       fprintf(stderr, "ERROR: incorrect password entered\n");
+      g_checksum_free(ck);
       sqlite3_finalize(stmt);
       error_msg = "Incorrect username or password";
       goto out_fail;
     }
 
+    g_checksum_free(ck);
     uuid_parse((const char*)id_str, agent_id);
     sqlite3_finalize(stmt);
-
   }
 
   {
@@ -1105,7 +1106,7 @@ static void login_to_simulator(SoupServer *server,
   }
   { 
     GValueArray *arr = soup_value_array_new();
-    inventory_folder **lib_folders; size_t count;
+    inventory_folder **lib_folders = NULL; size_t count;
     cajeput_get_library_skeleton(sgrp, &lib_folders, &count);
     for(size_t i = 0; i < count; i++) {
       inventory_folder *fold = lib_folders[i];
@@ -1121,8 +1122,9 @@ static void login_to_simulator(SoupServer *server,
       soup_value_array_append(arr, G_TYPE_HASH_TABLE, hash2);
       g_hash_table_unref(hash2);
     }
+    cajeput_free_library_skeleton(lib_folders);
     soup_value_hash_insert(hash, "inventory-skel-lib", G_TYPE_VALUE_ARRAY, arr);
-    g_value_array_free(arr);
+    g_value_array_free(arr); 
   }  
   { 
     GValueArray *arr = soup_value_array_new();

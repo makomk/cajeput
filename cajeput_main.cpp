@@ -691,6 +691,10 @@ void cajeput_get_library_skeleton(struct simgroup_ctx *sgrp,
   *num_folders = skel.size();
 }
 
+void cajeput_free_library_skeleton(inventory_folder** folders) {
+  free(folders);
+}
+
 // -------------- END INVENTORY LIBRARY STUFF ------------------------------
 
 static void create_cache_dirs(void) {

@@ -310,11 +310,13 @@ void user_add_delete_hook(struct user_ctx *ctx,
 void user_remove_delete_hook(struct user_ctx *ctx,
 			      user_generic_cb cb, void *priv);
 
+
+// -------------------- INVENTORY STUFF ----------------------------------
+
 void cajeput_get_library_skeleton(struct simgroup_ctx *sgrp, 
 				  inventory_folder*** folders,
 				  size_t *num_folders);
-
-// -------------------- INVENTORY STUFF ----------------------------------
+void cajeput_free_library_skeleton(inventory_folder** folders);
 
 // Stuff for creating temporary descriptions of part of the inventory.
 // The sim doesn't store a copy of the inventory.
