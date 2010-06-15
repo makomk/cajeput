@@ -784,7 +784,44 @@ static void uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
 			    void(*cb)(uuid_t uuid, const char* first, 
 				      const char* last, void *priv),
 			    void *cb_priv) {
-  // FIXME - TODO
+
+GRID_PRIV_DEF_SGRP(sgrp);
+  sqlite3_stmt *stmt; int rc; uuid_t u;
+  char user_id_str[40];
+
+  rc = sqlite3_prepare_v2(grid->db, "SELECT first_name, last_name FROM users WHERE id=?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare uuid to name statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out;
+  }
+
+  uuid_unparse(id, user_id_str);
+  if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_finalize;
+  }
+
+  rc = sqlite3_step(stmt);
+  if(rc == SQLITE_DONE) {
+    printf("WARNING: user not found in UUID-to-name lookup for %s\n",
+	   user_id_str);
+    goto out_finalize;
+  } else if(rc != SQLITE_ROW) {
+    fprintf(stderr, "ERROR: Can't lookup name from UUID: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_finalize;
+  }
+
+  cb(id, (const char*)sqlite3_column_text(stmt, 0), 
+     (const char*)sqlite3_column_text(stmt, 1), cb_priv);
+  sqlite3_finalize(stmt);
+  return;
+
+ out_finalize:
+  sqlite3_finalize(stmt);
+ out:
   cb(id, NULL, NULL, cb_priv);
 }
 
