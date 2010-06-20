@@ -1722,6 +1722,84 @@ static bool load_initial_assets(standalone_grid_ctx *grid) {
   return true;
 }
 
+
+int schema_version_cb(void *priv, int argc, char **argv, char **col_names) {
+  int *schema_version = (int*)priv;
+  if(argc > 0 && argv != NULL && argv[0] != NULL) {
+    *schema_version = atoi(argv[0]);
+  }
+  return 0;
+}
+
+#define CUR_SCHEMA_VERSION 1
+
+const char *create_db_stmts[] = {
+  "CREATE TABLE assets (id varchar(36) primary key not null, name text, description text, asset_type int not null, data blob not null);",
+  "CREATE TABLE inventory_folders (user_id varchar(36) not null, folder_id varchar(36) not null, parent_id varchar(36), name text not null, version integer not null, asset_type integer not null, PRIMARY KEY(user_id, folder_id), FOREIGN KEY(user_id, parent_id) REFERENCES inventory_folders(user_id, folder_id) ON DELETE CASCADE ON UPDATE RESTRICT);",
+  "CREATE TABLE inventory_items (user_id varchar(36) not null, item_id varchar(36) not null, folder_id varchar(36) not null, name text not null, description text not null, creator text, inv_type integer not null, asset_type integer not null, asset_id varchar(36) not null, base_perms integer not null, current_perms integer not null, next_perms integer not null, group_perms integer not null, everyone_perms integer not null, group_id varchar(36) not null, group_owned integer not null, sale_price integer not null default 0, sale_type integer not null default 0, flags integer not null default 0, creation_date integer not null default 0, PRIMARY KEY(user_id, item_id), FOREIGN KEY(user_id, folder_id) REFERENCES inventory_folders(user_id, folder_id) ON DELETE CASCADE ON UPDATE RESTRICT);",
+  "CREATE TABLE users (first_name varchar(30) not null, last_name varchar(30) not null, id varchar(36) primary key not null, session_id varchar(36), passwd_salt varchar(10), passwd_sha256 varchar(64), time_created integer not null, home_region varchar(36), home_pos text, home_look_at text, last_region varchar(36), last_pos text, last_look_at text);",
+  "CREATE TABLE wearables (user_id varchar(36) NOT NULL, wearable_id int NOT NULL, item_id varchar(36) NOT NULL, asset_id varchar(36) NOT NULL);",
+  "CREATE INDEX folder_parent_index ON inventory_folders(user_id, parent_id);",
+  "CREATE INDEX item_folder_index ON inventory_items(user_id, folder_id);",
+  "CREATE UNIQUE INDEX wearable_id_index ON wearables(user_id, wearable_id);",
+  "CREATE INDEX wearable_index ON wearables(user_id);",
+  "CREATE TABLE schema_version (name varchar[64] PRIMARY KEY, version int);",
+  "INSERT INTO schema_version (name, version) VALUES ('cajeput_standalone', 1);",
+  "COMMIT TRANSACTION;",
+  NULL
+};
+
+bool init_db(struct standalone_grid_ctx *grid) {
+  int rc; int schema_version = 0;
+  rc = sqlite3_open("standalone.sqlite", &grid->db);
+  if( rc ){
+    fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(grid->db));
+    sqlite3_close(grid->db); return false;
+  }
+
+  rc = sqlite3_exec(grid->db, "PRAGMA foreign_keys = ON;", NULL, NULL, 
+		    NULL);
+  if(rc) {
+    fprintf(stderr, "ERROR: Can't enable foreign keys: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    sqlite3_close(grid->db); return false;
+  }
+
+  rc = sqlite3_exec(grid->db, "SELECT version FROM schema_version WHERE "
+		    "name = 'cajeput_standalone';", schema_version_cb, 
+		    &schema_version, NULL);
+  if(rc && rc != SQLITE_ERROR) {
+     fprintf(stderr, "ERROR: Can't query schema version: %i %s\n", 
+	     rc, sqlite3_errmsg(grid->db));
+    sqlite3_close(grid->db); return false;
+  }
+
+  if(schema_version > CUR_SCHEMA_VERSION) {
+    fprintf(stderr, "ERROR: Schema version %i is too new\n", 
+	    schema_version);
+    sqlite3_close(grid->db); return false;
+  } else if(schema_version == 0) {
+    fprintf(stderr, "Creating initial DB, please wait...\n");
+    if(sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, 
+		    NULL)) {
+      fprintf(stderr, "ERROR: cannot begin transaction!");
+      sqlite3_close(grid->db); return false;
+    }
+    for(int i = 0; create_db_stmts[i] != NULL; i++) {
+      if(sqlite3_exec(grid->db, create_db_stmts[i], NULL, NULL, 
+		    NULL)) {
+	fprintf(stderr, "ERROR: cannot execute statement: %s",
+		create_db_stmts[i]);
+	sqlite3_exec(grid->db, "ROLLBACK TRANSACTION;", NULL, NULL, 
+		     NULL);
+	sqlite3_close(grid->db); return false;
+      }
+    }
+  } else if(schema_version < CUR_SCHEMA_VERSION) {
+  }
+  return true;
+}
+
 int cajeput_grid_glue_init(int api_major, int api_minor,
 			   struct simgroup_ctx *sgrp, void **priv,
 			   struct cajeput_grid_hooks *hooks) {
@@ -1733,20 +1811,7 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
   grid->sgrp = sgrp;
   *priv = grid;
 
-  int rc;
-  rc = sqlite3_open("standalone.sqlite", &grid->db);
-  if( rc ){
-    fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(grid->db));
-    sqlite3_close(grid->db);
-    delete grid; return false;
-  }
-
-  rc = sqlite3_exec(grid->db, "PRAGMA foreign_keys = ON;", NULL, NULL, 
-		    NULL);
-  if(rc) {
-    fprintf(stderr, "ERROR: Can't enable foreign keys: %s\n", 
-	    sqlite3_errmsg(grid->db));
-    sqlite3_close(grid->db);
+  if(!init_db(grid)) {
     delete grid; return false;
   }
 
