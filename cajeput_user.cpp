@@ -55,8 +55,8 @@ void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
   sgrp->gridh.uuid_to_name(sgrp, id, cb, cb_priv);
 }
 
-user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
-			    uuid_t session_id) {
+user_ctx *user_find_session(struct simulator_ctx *sim, const uuid_t agent_id,
+			    const uuid_t session_id) {
   for(user_ctx *ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
     if(uuid_compare(ctx->user_id, agent_id) == 0 &&
        uuid_compare(ctx->session_id, session_id) == 0) {
@@ -66,7 +66,7 @@ user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
   return NULL;
 }
 
-user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id) {
+user_ctx *user_find_ctx(struct simulator_ctx *sim, const uuid_t agent_id) {
   for(user_ctx *ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
     if(uuid_compare(ctx->user_id, agent_id) == 0) {
       return ctx;

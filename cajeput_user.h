@@ -155,9 +155,9 @@ void user_add_animation(struct user_ctx *ctx, struct animation_desc* anim,
 void user_clear_animation_by_type(struct user_ctx *ctx, int caj_type);
 void user_clear_animation_by_id(struct user_ctx *ctx, uuid_t anim);
 
-user_ctx *user_find_ctx(struct simulator_ctx *sim, uuid_t agent_id);
-user_ctx *user_find_session(struct simulator_ctx *sim, uuid_t agent_id,
-			    uuid_t session_id);
+user_ctx *user_find_ctx(struct simulator_ctx *sim, const uuid_t agent_id);
+user_ctx *user_find_session(struct simulator_ctx *sim, const uuid_t agent_id,
+			    const uuid_t session_id);
 
 void user_send_message(struct user_ctx *user, const char* msg);
 void user_send_alert_message(struct user_ctx *ctx, const char* msg,
