@@ -462,7 +462,58 @@ static void cleanup(struct simgroup_ctx* sgrp) {
   delete grid;
 }
 
-// FIXME - NULL handling is spectacularly dodgy!
+// FIXME - NULL handling for UUID columns is spectacularly dodgy!
+
+#define INV_ITEM_COLUMNS " user_id, item_id, folder_id, name, description, " \
+  "creator, inv_type, asset_type, asset_id, base_perms, " \
+  "current_perms, next_perms, group_perms, everyone_perms, " \
+  "group_id, group_owned, sale_price, sale_type, flags, " \
+  " creation_date "
+
+static bool inv_item_from_sqlite(sqlite3_stmt *stmt, inventory_item *item) {
+  if(uuid_parse((const char*)sqlite3_column_text(stmt, 0), item->owner_id)) {
+    fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
+	    sqlite3_column_text(stmt, 0));
+    return false;
+  }
+  if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item->item_id)) {
+    fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
+	    sqlite3_column_text(stmt, 1));
+    return false;
+  }
+  if(uuid_parse((const char*)sqlite3_column_text(stmt, 2), item->folder_id)) {
+    fprintf(stderr, "ERROR: invalid folder ID in inventory: %s\n", 
+	    sqlite3_column_text(stmt, 2));
+    return false;
+  }
+  item->name = (char*)sqlite3_column_text(stmt, 3);
+  item->description = (char*)sqlite3_column_text(stmt, 4);
+  item->creator_id = (char*)sqlite3_column_text(stmt, 5);
+  if(uuid_parse(item->creator_id, item->creator_as_uuid)) {
+    fprintf(stderr, "DEBUG: invalid creator ID in inventory: %s\n", 
+	    sqlite3_column_text(stmt, 5));
+    uuid_clear(item->creator_as_uuid);
+  }
+  item->inv_type = sqlite3_column_int(stmt, 6);
+  item->asset_type = sqlite3_column_int(stmt, 7);
+  if(uuid_parse((const char*)sqlite3_column_text(stmt, 8), item->asset_id)) {
+    fprintf(stderr, "ERROR: invalid asset ID in inventory: %s\n", 
+	    sqlite3_column_text(stmt, 8));
+    return false;
+  }
+  item->perms.base = sqlite3_column_int(stmt, 9);
+  item->perms.current = sqlite3_column_int(stmt, 10);
+  item->perms.next = sqlite3_column_int(stmt, 11);
+  item->perms.group = sqlite3_column_int(stmt, 12);
+  item->perms.everyone = sqlite3_column_int(stmt, 13);
+  uuid_clear(item->group_id); item->group_owned = FALSE; // FIXME!
+  item->sale_price = sqlite3_column_int(stmt, 16);
+  item->sale_type = sqlite3_column_int(stmt, 17);
+  item->flags = sqlite3_column_int(stmt, 18);
+  item->creation_date = sqlite3_column_int(stmt, 19);
+
+  return true;
+}
 
 static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 				   void *user_priv, uuid_t folder_id,
@@ -515,11 +566,8 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 
   sqlite3_finalize(stmt);
 
-  rc = sqlite3_prepare_v2(grid->db, "SELECT user_id, item_id, folder_id, name, description, creator, "
-			  "inv_type, asset_type, asset_id, base_perms, "
-			  "current_perms, next_perms, group_perms, everyone_perms, "
-			  "group_id, group_owned, sale_price, sale_type, flags, "
-			  " creation_date FROM inventory_items WHERE "
+  rc = sqlite3_prepare_v2(grid->db, "SELECT " INV_ITEM_COLUMNS 
+			  " FROM inventory_items WHERE "
 			  " user_id = ? AND folder_id = ?;", -1, &stmt, NULL);
   if( rc ) {
       fprintf(stderr, "ERROR: Can't prepare inventory items query: %s\n", 
@@ -553,34 +601,10 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
     // asset_type, asset_id, base_perms, current_perms, next_perms, group_perms,
     // everyone_perms, group_id, group_owned, sale_price, sale_type, flags, 
     // creation_date
-
-    const char *name = (const char*)sqlite3_column_text(stmt, 3);
-    const char *description = (const char*)sqlite3_column_text(stmt, 4);
-    const char *creator = (const char*)sqlite3_column_text(stmt, 5);
-    struct inventory_item *item = caj_add_inventory_item(inv, name, description,
-							 creator);
-    if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item->item_id)) {
-      fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
-	     sqlite3_column_text(stmt, 1));
+    struct inventory_item item_from_db;
+    if(!inv_item_from_sqlite(stmt, &item_from_db))
       goto out_fail_finalize;
-    }
-    item->inv_type = sqlite3_column_int(stmt, 6);
-    item->asset_type = sqlite3_column_int(stmt, 7);
-    if(uuid_parse((const char*)sqlite3_column_text(stmt, 8), item->asset_id)) {
-      fprintf(stderr, "ERROR: invalid asset ID in inventory: %s\n", 
-	     sqlite3_column_text(stmt, 8));
-      goto out_fail_finalize;
-    }
-    item->perms.base = sqlite3_column_int(stmt, 9);
-    item->perms.current = sqlite3_column_int(stmt, 10);
-    item->perms.next = sqlite3_column_int(stmt, 11);
-    item->perms.group = sqlite3_column_int(stmt, 12);
-    item->perms.everyone = sqlite3_column_int(stmt, 13);
-    uuid_clear(item->group_id); item->group_owned = FALSE; // FIXME!
-    item->sale_price = sqlite3_column_int(stmt, 16);
-    item->sale_type = sqlite3_column_int(stmt, 17);
-    item->flags = sqlite3_column_int(stmt, 18);
-    item->creation_date = sqlite3_column_int(stmt, 19);
+    caj_add_inventory_item_copy(inv, &item_from_db);
   }
 
   sqlite3_finalize(stmt);
@@ -600,7 +624,53 @@ static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 				 void(*cb)(struct inventory_item* item, 
 					   void* priv),
 				 void *cb_priv) {
-  // TODO
+  GRID_PRIV_DEF_SGRP(sgrp);
+  sqlite3_stmt *stmt; int rc; char buf[40], buf2[40]; uuid_t user_id;
+  
+  rc = sqlite3_prepare_v2(grid->db, "SELECT " INV_ITEM_COLUMNS 
+			  " FROM inventory_items WHERE "
+			  " user_id = ? AND item_id = ?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare inventory item query: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out_fail;
+  }
+
+  user_get_uuid(user, user_id);
+  uuid_unparse(user_id, buf);
+  uuid_unparse(item_id, buf2);
+  if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
+     sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  rc = sqlite3_step(stmt);
+
+  if(rc == SQLITE_DONE) { 
+    fprintf(stderr, "DEBUG: inventory item not found\n");
+    goto out_fail_finalize;
+  }
+    
+  if(rc != SQLITE_ROW) {
+    fprintf(stderr, "ERROR executing statement: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_fail_finalize;
+  }
+
+  { 
+    struct inventory_item item;
+    if(!inv_item_from_sqlite(stmt, &item))
+      goto out_fail_finalize;
+    cb(&item, cb_priv); 
+  }
+  sqlite3_finalize(stmt);
+  return;
+
+ out_fail_finalize:
+  sqlite3_finalize(stmt);
+ out_fail:
   cb(NULL, cb_priv);  
 }
 
