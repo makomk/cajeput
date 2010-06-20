@@ -244,8 +244,8 @@ static int EncodePatchHeader(struct bit_packer *output, struct patch_header *hea
 {
   int temp;
   int wbits = (header->QuantWBits & 0x0f) + 2;
-  unsigned int maxWbits = (uint)wbits + 5;
-  unsigned int minWbits = ((uint)wbits >> 1);
+  unsigned int maxWbits = (unsigned int)wbits + 5;
+  unsigned int minWbits = ((unsigned int)wbits >> 1);
   int i, j;
 
   wbits = (int)minWbits;
