@@ -249,7 +249,7 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 			const uuid_t user_id, const uuid_t session_id,
 			const caj_vector3 *pos, const caj_vector3 *look_at) { 
   GRID_PRIV_DEF(sim);
-  sqlite3_stmt *stmt; int rc; uuid_t u;
+  sqlite3_stmt *stmt; int rc; uuid_t u; user_ctx *ctx;
   char user_id_str[40], region_id_str[40];
   char pos_str[80], look_at_str[80];
 
@@ -281,6 +281,77 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 	    sqlite3_errmsg(grid->db));
   }
 
+  sqlite3_finalize(stmt);
+
+  ctx = user_find_ctx(sim, user_id);
+  if(ctx == NULL) {
+    fprintf(stderr, "ERROR: can't find context for user in user_logoff\n");
+    goto out;
+  }
+
+  rc = sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+  if(rc) {
+    fprintf(stderr, "ERROR: Can't begin transaction: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out;
+  }  
+
+  rc = sqlite3_prepare_v2(grid->db, "DELETE FROM wearables WHERE user_id=?;", -1, &stmt, NULL);
+  if( rc ) {
+      fprintf(stderr, "ERROR: Can't prepare wearables clear statement: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      goto out;
+  }
+
+  if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT)) {
+    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_et_finalize;
+  }
+
+  if(sqlite3_step(stmt) != SQLITE_DONE) {
+    fprintf(stderr, "ERROR: Can't clear wearables from DB on logout: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    goto out_et_finalize;
+  }
+  
+  sqlite3_finalize(stmt);
+  
+  rc = sqlite3_prepare_v2(grid->db, "INSERT INTO wearables(user_id, " 
+			  "wearable_id, item_id, asset_id) VALUES (?, ?, ?, ?);",
+			  -1, &stmt, NULL);
+
+  if( rc ) {
+    fprintf(stderr, "ERROR: Can't prepare wearables INSERT statement: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    sqlite3_exec(grid->db, "END TRANSACTION;", NULL, NULL, NULL);
+    goto out;
+  }
+
+  for(int i = 0; i < SL_NUM_WEARABLES; i++) {
+    const wearable_desc* wearables = user_get_wearables(ctx);
+    char item_id_str[40], asset_id_str[40];
+    uuid_unparse(wearables[i].item_id, item_id_str);
+    uuid_unparse(wearables[i].asset_id, asset_id_str);
+    if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_int(stmt, 2, i) ||
+       sqlite3_bind_text(stmt, 3, item_id_str, -1, SQLITE_TRANSIENT) ||
+       sqlite3_bind_text(stmt, 4, asset_id_str, -1, SQLITE_TRANSIENT)) {
+      fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      continue;
+    }
+
+    if(sqlite3_step(stmt) != SQLITE_DONE) {
+      fprintf(stderr, "ERROR: Can't clear insert wearable into DB on logout: %s\n", 
+	      sqlite3_errmsg(grid->db));
+    }
+
+    sqlite3_reset(stmt);
+  }
+
+ out_et_finalize:
+  sqlite3_exec(grid->db, "END TRANSACTION;", NULL, NULL, NULL);
  out_finalize:
   sqlite3_finalize(stmt);
  out:
@@ -1081,6 +1152,31 @@ static GValueArray* build_inventory_skeleton(standalone_grid_ctx *grid,
   return skel;
 }
 
+static void set_default_wearables(user_ctx *user) {
+  uuid_t item_id, asset_id;
+  
+  uuid_parse("66c41e39-38f9-f75a-024e-585989bfab73", asset_id);
+  uuid_generate(item_id);  
+  user_set_wearable(user, SL_WEARABLE_BODY, item_id, asset_id);
+
+  uuid_parse("77c41e39-38f9-f75a-024e-585989bbabbb", asset_id);
+  uuid_generate(item_id);  
+  user_set_wearable(user, SL_WEARABLE_SKIN, item_id, asset_id);
+
+  uuid_parse("00000000-38f9-1111-024e-222222111110", asset_id);
+  uuid_generate(item_id);  
+  user_set_wearable(user, SL_WEARABLE_SHIRT, item_id, asset_id);
+
+  uuid_parse("00000000-38f9-1111-024e-222222111120", asset_id);
+  uuid_generate(item_id);  
+  user_set_wearable(user, SL_WEARABLE_PANTS, item_id, asset_id);
+
+  uuid_parse("d342e6c0-b9d2-11dc-95ff-0800200c9a66", asset_id);
+  uuid_generate(item_id);  
+  user_set_wearable(user, SL_WEARABLE_HAIR, item_id, asset_id);
+
+}
+
 static void login_to_simulator(SoupServer *server,
 			       SoupMessage *msg,
 			       GValueArray *params,
@@ -1208,6 +1304,46 @@ static void login_to_simulator(SoupServer *server,
   user_set_start_pos(user, &pos, &look_at);
 
   // FIXME - need to save caps string.
+
+  set_default_wearables(user);
+  
+  {
+    sqlite3_stmt *stmt; int rc;
+    rc = sqlite3_prepare_v2(grid->db, "SELECT wearable_id, item_id, asset_id FROM wearables WHERE user_id = ?;", -1, &stmt, NULL);
+    if( rc ) {
+      fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
+      goto out_fail;
+    }
+
+    uuid_unparse(uinfo.user_id, buf);
+    if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
+      fprintf(stderr, "Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
+      sqlite3_finalize(stmt);
+      goto out_fail;
+    }
+    rc = sqlite3_step(stmt);
+
+    while(rc == SQLITE_ROW) {
+      int wearable_id = sqlite3_column_int(stmt, 0);
+      uuid_t item_id, asset_id;
+      if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item_id)
+	 != 0 || uuid_parse((const char*)sqlite3_column_text(stmt, 2), 
+			      asset_id) != 0) {
+	fprintf(stderr, "ERROR: bad wearable entry in DB\n");
+	goto next_wearable;
+      }
+      user_set_wearable(user, wearable_id, item_id, asset_id);
+    next_wearable:
+      rc = sqlite3_step(stmt);
+    }
+
+    if(rc != SQLITE_DONE) {
+      fprintf(stderr, "ERROR: when loading wearables: %s\n", 
+	      sqlite3_errmsg(grid->db));
+      sqlite3_finalize(stmt);
+      goto out_fail;
+    }
+  }
 
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash, "login", G_TYPE_STRING, "true");
