@@ -41,10 +41,8 @@ typedef std::vector<caj_phys_collision> collisions_info;
 struct physics_ctx {
   simulator_ctx *sim;
 
-  int pipe[2];
   GStaticMutex mutex;
   GThread *thread;
-  GIOChannel *pipein;
 
   btDefaultCollisionConfiguration* collisionConfiguration;
   btCollisionDispatcher* dispatcher;
@@ -96,6 +94,8 @@ struct phys_obj {
   btKinematicCharacterController* control;
 #endif
 };
+
+static gboolean phys_update_in_mt(gpointer priv);
 
 // internal to this module
 #define PHYS_TYPE_PHANTOM 0
@@ -896,7 +896,7 @@ static gpointer physics_thread(gpointer data) {
     g_static_mutex_unlock(&phys->mutex);
 
     // poke the main thread. Note that this ain't really useful on the first pass
-    if(write(phys->pipe[1], "", 1) <= 0) {
+    if(g_idle_add(phys_update_in_mt, phys) == 0) {
       printf("WARNING: couldn't poke main thread in physics code\n");
     }
 
@@ -941,76 +941,68 @@ static gpointer physics_thread(gpointer data) {
   g_timer_destroy(timer); return NULL;
 }
 
-static gboolean got_poke(GIOChannel *source, GIOCondition cond, 
-			 gpointer priv) {
+// the part of the code handling physics updates that runs in the main thread
+static gboolean phys_update_in_mt(gpointer priv) {
   struct physics_ctx *phys = (struct physics_ctx*)priv;
-  if(cond & G_IO_IN) {
-    { 
-      char buf[40]; 
-      if(read(phys->pipe[0], buf, 40)  <= 0) {
-	printf("WARNING: couldn't read from physics pipe\n");
-      }
-    }
     
-    g_static_mutex_lock(&phys->mutex);
+  g_static_mutex_lock(&phys->mutex);
 
-    for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
-	iter != phys->physical.end(); iter++) {
-      struct phys_obj *physobj = *iter;
-      caj_vector3 newpos; caj_quat newrot;
+  for(std::set<phys_obj*>::iterator iter = phys->physical.begin(); 
+      iter != phys->physical.end(); iter++) {
+    struct phys_obj *physobj = *iter;
+    caj_vector3 newpos; caj_quat newrot;
 
-      if(physobj->obj == NULL) continue;
+    if(physobj->obj == NULL) continue;
 
-      newpos.x = physobj->pos.getX();
-      newpos.y = physobj->pos.getZ(); // swap Y and Z
-      newpos.z = physobj->pos.getY();
+    newpos.x = physobj->pos.getX();
+    newpos.y = physobj->pos.getZ(); // swap Y and Z
+    newpos.z = physobj->pos.getY();
 
-      newrot.x = physobj->rot.getX();
-      newrot.y = physobj->rot.getZ();
-      newrot.z = physobj->rot.getY();
-      newrot.w = physobj->rot.getW();
+    newrot.x = physobj->rot.getX();
+    newrot.y = physobj->rot.getZ();
+    newrot.z = physobj->rot.getY();
+    newrot.w = physobj->rot.getW();
       
-      physobj->obj->velocity.x = physobj->velocity.getX();
-      physobj->obj->velocity.y = physobj->velocity.getZ();
-      physobj->obj->velocity.z = physobj->velocity.getY();
+    physobj->obj->velocity.x = physobj->velocity.getX();
+    physobj->obj->velocity.y = physobj->velocity.getZ();
+    physobj->obj->velocity.z = physobj->velocity.getY();
 
-      if(physobj->objtype == OBJ_TYPE_AVATAR)
-	avatar_set_footfall(phys->sim, physobj->obj,
-			    &physobj->footfall);
+    if(physobj->objtype == OBJ_TYPE_AVATAR)
+      avatar_set_footfall(phys->sim, physobj->obj,
+			  &physobj->footfall);
 
-      assert(physobj->obj->parent == NULL);
+    assert(physobj->obj->parent == NULL);
     
-      if(fabs(newpos.x - physobj->obj->local_pos.x) >= 0.01 ||
-	 fabs(newpos.y - physobj->obj->local_pos.y) >= 0.01 ||
-	 fabs(newpos.z - physobj->obj->local_pos.z) >= 0.01 ||
-	 fabs(newrot.x - physobj->obj->rot.x) >= 0.01 ||
-	 fabs(newrot.y - physobj->obj->rot.y) >= 0.01 ||
-	 fabs(newrot.z - physobj->obj->rot.z) >= 0.01 ||
-	 fabs(newrot.w - physobj->obj->rot.w) >= 0.01) {
-	// FIXME - probably should send an update if velocity (previous or 
-	// current) is non-zero, too.
-	if(physobj->objtype != OBJ_TYPE_AVATAR)
-	  physobj->obj->rot = newrot; // FIXME - may have to change once linking added
-	world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
-      }
+    if(fabs(newpos.x - physobj->obj->local_pos.x) >= 0.01 ||
+       fabs(newpos.y - physobj->obj->local_pos.y) >= 0.01 ||
+       fabs(newpos.z - physobj->obj->local_pos.z) >= 0.01 ||
+       fabs(newrot.x - physobj->obj->rot.x) >= 0.01 ||
+       fabs(newrot.y - physobj->obj->rot.y) >= 0.01 ||
+       fabs(newrot.z - physobj->obj->rot.z) >= 0.01 ||
+       fabs(newrot.w - physobj->obj->rot.w) >= 0.01) {
+      // FIXME - probably should send an update if velocity (previous or 
+      // current) is non-zero, too.
+      if(physobj->objtype != OBJ_TYPE_AVATAR)
+	physobj->obj->rot = newrot; // FIXME - may have to change once linking added
+      world_move_obj_from_phys(phys->sim, physobj->obj, &newpos);
     }
-
-    int coll_upd_cnt = phys->collision_upds.size();
-    while(coll_upd_cnt-- > 0 && !phys->collision_upds.empty()) {
-      collisions_info *collisions = phys->collision_upds.front();
-      phys->collision_upds.pop_front();
-      g_static_mutex_unlock(&phys->mutex);
-      // the C++ STL standard apparently does now guarantee the array elements
-      // are stored contiguously in memory, so this should be safe...
-      world_update_collisions(phys->sim, &(*collisions->begin()), collisions->size());
-      g_static_mutex_lock(&phys->mutex);
-      delete collisions;
-    }
-
-    g_static_mutex_unlock(&phys->mutex);
   }
-  if(cond & G_IO_NVAL) return FALSE; // blech;
-  return TRUE;
+
+  int coll_upd_cnt = phys->collision_upds.size();
+  while(coll_upd_cnt-- > 0 && !phys->collision_upds.empty()) {
+    collisions_info *collisions = phys->collision_upds.front();
+    phys->collision_upds.pop_front();
+    g_static_mutex_unlock(&phys->mutex);
+    // the C++ STL standard apparently does now guarantee the array elements
+    // are stored contiguously in memory, so this should be safe...
+    world_update_collisions(phys->sim, &(*collisions->begin()), collisions->size());
+    g_static_mutex_lock(&phys->mutex);
+    delete collisions;
+  }
+
+  g_static_mutex_unlock(&phys->mutex);
+
+  return FALSE; // clear this idle callback
 }
 
 static void destroy_physics(struct simulator_ctx *sim, void *priv) {
@@ -1020,6 +1012,9 @@ static void destroy_physics(struct simulator_ctx *sim, void *priv) {
   phys->shutdown = 1;
   g_static_mutex_unlock(&phys->mutex);
   g_thread_join(phys->thread);
+
+  // cancel any remaining pending updates.
+  while(g_idle_remove_by_data(phys)) { }
 
   // You know I said this is only called from the physics thread? That's not
   // quite true. After we've shut down physics, there may be deleted objects
@@ -1138,12 +1133,6 @@ int cajeput_physics_init(int api_version, struct simulator_ctx *sim,
 
   phys->shutdown = 0;
   g_static_mutex_init(&phys->mutex);
-  if(pipe(phys->pipe)) {
-    printf("ERROR: couldn't create pipe for physics comms\n");
-    exit(1);
-  };
-  phys->pipein = g_io_channel_unix_new(phys->pipe[0]);
-  g_io_add_watch(phys->pipein, (GIOCondition)(G_IO_IN|G_IO_NVAL), got_poke, phys);
 
   phys->thread = g_thread_create(physics_thread, phys, TRUE, NULL);
   
