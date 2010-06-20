@@ -1535,6 +1535,15 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     delete grid; return false;
   }
 
+  rc = sqlite3_exec(grid->db, "PRAGMA foreign_keys = ON;", NULL, NULL, 
+		    NULL);
+  if(rc) {
+    fprintf(stderr, "ERROR: Can't enable foreign keys: %s\n", 
+	    sqlite3_errmsg(grid->db));
+    sqlite3_close(grid->db);
+    delete grid; return false;
+  }
+
   fprintf(stderr, "Loading initial assets to database...\n");
   if(!load_initial_assets(grid)) {
     fprintf(stderr, "ERROR: can't load initial assets\n");

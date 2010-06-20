@@ -6,7 +6,7 @@ pkg_check_modules (GLIB2 REQUIRED  glib-2.0)
 pkg_check_modules (LIBXML2 REQUIRED libxml-2.0)
 pkg_check_modules (LIBSOUP REQUIRED libsoup-2.4)
 pkg_check_modules (JSONGLIB REQUIRED json-glib-1.0)
-pkg_check_modules (SQLITE3 REQUIRED sqlite3)
+pkg_check_modules (SQLITE3 REQUIRED sqlite3 >= 3.6.19)
 #pkg_check_modules (BULLET REQUIRED bullet)
 
 set(BULLET_INCLUDE_DIRS bullet/src)
