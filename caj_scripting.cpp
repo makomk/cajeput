@@ -273,6 +273,8 @@ static void listen_callback(struct simulator_ctx *sim, struct world_obj *obj,
 			    const struct chat_message *msg,
 			    struct obj_chat_listener *listen, void *user_data);
 
+static gboolean mt_process_queued(gpointer data);
+
 // -------------- script thread code -----------------------------------------
 
 static void list_head_init(list_head *head) {
@@ -334,6 +336,7 @@ static void st_restore_script(sim_script *scr, caj_string *str) {
 
 static void send_to_mt(sim_scripts *simscr, script_msg *msg) {
   g_async_queue_push(simscr->to_mt, msg);
+  g_idle_add(mt_process_queued, simscr);
 }
 
 /* Delays execution of the script for delay seconds.
@@ -1474,6 +1477,9 @@ static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
     g_thread_join(simscr->thread);
   }
 
+  // shouldn't be any pending notifications, but if there are cancel them
+  while(g_idle_remove_by_data(simscr)) { }
+
   vm_world_free(simscr->vmw);
   delete simscr;
 }
@@ -1840,7 +1846,7 @@ static void handle_link_message(simulator_ctx *sim, void *priv, void *script,
   send_event(simscr, scr, event);
 }
 
-static gboolean script_poll_timer(gpointer data) {
+static gboolean mt_process_queued(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   script_msg* msg;
   for(;;) {
@@ -1879,7 +1885,7 @@ static gboolean script_poll_timer(gpointer data) {
     
   }
 
-  return TRUE;
+  return FALSE;
 }
 
 int caj_scripting_init(int api_version, struct simulator_ctx* sim, 
@@ -2054,8 +2060,6 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   if(simscr->thread == NULL) {
     printf("ERROR: couldn't create script thread\n"); exit(1);
   }
-
-  g_timeout_add(100, script_poll_timer, simscr); // FIXME - hacky!
 
   mkdir("script_tmp/", 0755);
 
