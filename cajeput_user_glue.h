@@ -97,6 +97,16 @@ uint32_t user_get_next_deleted_obj(user_ctx *ctx);
 int user_has_pending_deleted_objs(user_ctx *ctx);
 int user_get_next_updated_obj(user_ctx *ctx, uint32_t *localid, int *flags);
 
+// Wrapper around world_avatar_begin_sit. Returns true on success.
+// Don't forget to fill in info_out->offset!
+int user_begin_sit(struct user_ctx *ctx, struct primitive_obj *seat, 
+		   struct caj_sit_info *info_out);
+
+// Wrapper around world_avatar_complete_sit. Returns true on success.
+int user_complete_sit(struct user_ctx *ctx, struct caj_sit_info *info);
+
+void user_stand_up(struct user_ctx *ctx);
+
 // FIXME - this is really hacky and wrong
 int32_t user_get_an_anim_seq(struct user_ctx *ctx);
 

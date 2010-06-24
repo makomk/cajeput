@@ -663,7 +663,12 @@ static void revivify_prim_real(primitive_obj *prim,
   case 3:
     // FIXME - save these
     prim->attach_point = 0;
+    prim->sit_target.x = 0.0f; prim->sit_target.y = 0.0f;
+    prim->sit_target.z = 0.0f;
   default:
+    prim->avatar_sitting = NULL;
+    prim->num_avatars = 0;
+    prim->avatars = NULL;
     uuid_clear(prim->inv_item_id); // deliberately not saved
     prim->ob.parent = NULL; 
     prim->ob.phys = NULL; prim->ob.chat = NULL;

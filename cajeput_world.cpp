@@ -58,6 +58,10 @@ public:
 
 static void mark_deleted_obj_for_updates(simulator_ctx* sim, world_obj *obj);
 
+static void world_update_global_pos_int(struct simulator_ctx *sim, struct world_obj *ob);
+static void world_move_root_obj_int(struct simulator_ctx *sim, struct world_obj *ob,
+				    const caj_vector3 &new_pos);
+
 // --- START octree code ---
 
 #define OCTREE_VERT_SCALE 64
@@ -481,7 +485,7 @@ static void world_remove_obj(struct simulator_ctx *sim, struct world_obj *ob) {
   delete ob->chat; ob->chat = NULL;
 }
 
-struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id) {
+struct world_obj* world_object_by_id(struct simulator_ctx *sim, const uuid_t id) {
   std::map<obj_uuid_t,world_obj*>::iterator iter = sim->uuid_map.find(id);
   if(iter == sim->uuid_map.end()) 
     return NULL;
@@ -540,6 +544,12 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
   memset(prim->text_color, 0, sizeof(prim->text_color)); // technically redundant
   prim->sit_name = strdup(""); prim->touch_name = strdup("");
   prim->creation_date = time(NULL);
+
+  prim->sit_target.x = 0.0f; prim->sit_target.y = 0.0f;
+  prim->sit_target.z = 0.0f;
+  prim->avatar_sitting = NULL;
+  prim->num_avatars = 0;
+  prim->avatars = NULL;
   return prim;
 }
 
@@ -641,6 +651,9 @@ void world_free_prim(struct primitive_obj *prim) {
 }
 
 void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av) {
+  if(av->ob.parent != NULL)
+    world_unsit_avatar_now(sim, &av->ob);
+
   world_remove_obj(sim, &av->ob);
 
   for(int i = 0; i < NUM_ATTACH_POINTS; i++) {
@@ -651,6 +664,12 @@ void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av) {
 }
 
 void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
+  while(prim->num_avatars > 0) 
+    world_unsit_avatar_now(sim, prim->avatars[0]);
+  
+  if(prim->avatar_sitting != NULL)
+    world_unsit_avatar_now(sim, prim->avatar_sitting);
+
   world_remove_obj(sim, &prim->ob);
 
   if(prim->children != NULL) {
@@ -755,6 +774,123 @@ void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main,
   child->ob.local_pos.y -= main->ob.local_pos.y;
   child->ob.local_pos.z -= main->ob.local_pos.z;
   
+}
+
+static bool calc_sit_by_target(struct primitive_obj *seat,
+			       struct caj_sit_info *info_out, bool &has_sit_target) {
+  if(seat->sit_target.x != 0.0f || seat->sit_target.y != 0.0f || 
+     seat->sit_target.z != 0.0f) {
+    has_sit_target = true;
+    if(seat->avatar_sitting == NULL) {
+      uuid_copy(info_out->target, seat->ob.id);
+      info_out->offset = seat->sit_target;
+      info_out->rot.x = 0.0f; info_out->rot.y = 0.0f; info_out->rot.z = 0.0f; 
+      info_out->rot.w = 1.0f; 
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+int world_avatar_begin_sit(struct simulator_ctx *sim, struct world_obj *av,
+			   struct primitive_obj *seat, struct caj_sit_info *info_out) {
+  bool has_sit_target = false;
+
+  assert(av->type == OBJ_TYPE_AVATAR);
+  primitive_obj *root = world_get_root_prim(seat);
+
+  if(av->parent != NULL) return FALSE;
+
+  if(calc_sit_by_target(root, info_out, has_sit_target))
+    return TRUE;
+
+  for(int i = 0; i < root->num_children; i++) {
+    if(calc_sit_by_target(root->children[i], info_out, has_sit_target))
+      return TRUE;
+  }
+
+  // if any prim on the linkset has a sit target, we can't then go and sit on 
+  // a prim without one
+  if(has_sit_target) return FALSE;
+
+  // Finally, fall back to the original chosen prim.
+  uuid_copy(info_out->target, seat->ob.id);
+  // note that the caller is expected to fill in info_out->offset appropriately!
+  info_out->rot.x = 0.0f; info_out->rot.y = 0.0f; info_out->rot.z = 0.0f; 
+  info_out->rot.w = 1.0f;
+  return TRUE;
+}
+
+// NOTE: can't safely be used on its own until avatar update code is cleaned up.
+// Use user_complete_sit instead!
+int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
+			      const struct caj_sit_info *info) {
+  assert(av->type == OBJ_TYPE_AVATAR);
+  if(av->parent != NULL) return FALSE;
+
+  struct world_obj *obj = world_object_by_id(sim, info->target);
+  if(obj == NULL || obj->type != OBJ_TYPE_PRIM)
+    return FALSE;
+  primitive_obj *prim = (primitive_obj*)obj;
+  primitive_obj *root = world_get_root_prim(prim);
+  
+  if(prim->avatar_sitting != NULL) return FALSE;
+
+  prim->avatar_sitting = av; 
+
+  root->avatars = (world_obj**)realloc(root->avatars, sizeof(world_obj*) *
+				       (root->num_avatars+1));
+  root->avatars[root->num_avatars++] = av;
+  av->parent = &root->ob;
+  // FIXME - the position calculation is actually more complex than this.
+  av->local_pos = info->offset;
+  av->rot = info->rot;
+
+  world_update_global_pos_int(sim, av);
+
+  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_CHILDREN);
+  world_mark_object_updated(sim, av, CAJ_OBJUPD_PARENT | CAJ_OBJUPD_POSROT);
+  return TRUE;
+}
+
+void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av) {
+  assert(av->type == OBJ_TYPE_AVATAR);
+  if(av->parent == NULL) return;
+
+  primitive_obj *seat = (primitive_obj*)av->parent;
+  primitive_obj *root = world_get_root_prim(seat);
+  
+  assert(seat->ob.type == OBJ_TYPE_PRIM);
+  assert(seat->avatar_sitting == av);
+  assert(av->parent == &root->ob);
+  caj_vector3 new_pos;
+  object_compute_global_pos(av, &new_pos);
+  new_pos.z += 0.5f;
+  //world_update_global_pos_int(sim, av);
+  seat->avatar_sitting = NULL;
+  av->parent = NULL; 
+  //av->local_pos = av->world_pos;
+  world_move_root_obj_int(sim, av, new_pos);
+  
+  int i;
+  for(i = 0; i < root->num_avatars; i++) {
+    if(root->avatars[i] == av) {
+      for(int j = i; j < root->num_avatars-1; j++)
+	root->avatars[j] = root->avatars[j+1];
+      break;
+    }
+  }
+  assert(i < root->num_avatars);
+  root->num_avatars--;
+
+  world_mark_object_updated(sim, av, CAJ_OBJUPD_PARENT);
+  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_CHILDREN);
+
+  // FIXME - HACK
+  {
+    struct user_ctx *ctx = user_find_ctx(sim, av->id);
+    if(ctx != NULL) ctx->flags |= AGENT_FLAG_AV_FULL_UPD;
+  }
 }
 
 char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
@@ -1157,6 +1293,10 @@ void world_multi_update_obj(struct simulator_ctx *sim, struct world_obj *obj,
       for(int i = 0; i < prim->num_children; i++) {
 	world_update_global_pos_int(sim, &prim->children[i]->ob);
       }
+
+      for(int i = 0; i < prim->num_avatars; i++) {
+	world_update_global_pos_int(sim, prim->avatars[i]);
+      }
   }
 
   int objupd = 0;
@@ -1398,6 +1538,13 @@ static primitive_obj * clone_prim(primitive_obj *prim, int faithful) {
   newprim->inv.num_items = newprim->inv.alloc_items = 0;
   newprim->inv.items = NULL;
   newprim->inv.filename = NULL;
+
+  // FIXME - clear sit target?
+
+  // obviously, any avatar won't be sitting on the new prim too.
+  prim->avatar_sitting = NULL;
+  prim->num_avatars = 0;
+  prim->avatars = NULL; 
 
   return newprim;
 }

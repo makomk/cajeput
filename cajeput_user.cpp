@@ -334,12 +334,18 @@ static void set_default_anim(struct user_ctx* ctx, uuid_t anim) {
 #define AGENT_CONTROL_UP_POS (1<<4)
 #define AGENT_CONTROL_UP_NEG (1<<5)
 #define AGENT_CONTROL_FLY (1<<13)
+#define AGENT_CONTROL_STOP (1<<14) // ????
+#define AGENT_CONTROL_STAND_UP (1<<16) 
 
 void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
 			    const caj_quat *rot) {
   if(ctx->av != NULL) {
     if(!caj_quat_equal(&ctx->av->ob.rot, rot)) {
       ctx->av->ob.rot = *rot;
+    }
+
+    if(control_flags & AGENT_CONTROL_STAND_UP) {
+      user_stand_up(ctx);
     }
 
     int is_flying = (control_flags & AGENT_CONTROL_FLY) != 0;
@@ -389,6 +395,25 @@ void user_set_control_flags(struct user_ctx *ctx, uint32_t control_flags,
       }
     }
   }  
+}
+
+int user_begin_sit(struct user_ctx *ctx, struct primitive_obj *seat, 
+		   struct caj_sit_info *info_out) {
+  if(ctx->av == NULL) return FALSE;
+
+  return world_avatar_begin_sit(ctx->sim, &ctx->av->ob, seat, info_out);
+}
+
+int user_complete_sit(struct user_ctx *ctx, struct caj_sit_info *info) {
+  if(ctx->av == NULL) return FALSE;
+  int success = world_avatar_complete_sit(ctx->sim, &ctx->av->ob, info);
+  if(success) ctx->flags |= AGENT_FLAG_AV_FULL_UPD;
+  return success;
+}
+
+void user_stand_up(struct user_ctx *ctx) {
+  if(ctx->av == NULL) return;
+  world_unsit_avatar_now(ctx->sim, &ctx->av->ob);
 }
 
 int32_t user_get_an_anim_seq(struct user_ctx *ctx) {
@@ -910,6 +935,7 @@ int user_complete_movement(user_ctx *ctx) {
     // yes, this is right, even though footfall's not a quaternion
     ctx->av->footfall.x = ctx->av->footfall.y = 0.0f;
     ctx->av->footfall.z = 0.0f; ctx->av->footfall.w = 1.0f;
+    ctx->av->ob.parent = NULL;
     
     uuid_copy(ctx->av->ob.id, ctx->user_id);
     world_insert_obj(ctx->sim, &ctx->av->ob);

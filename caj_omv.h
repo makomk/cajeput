@@ -28,6 +28,7 @@
 #include <set>
 #include <string>
 #include "caj_types.h"
+#include "cajeput_world.h"
 
 // for clients speaking the Linden Labs/Open Metaverse UDP protocol
 
@@ -94,6 +95,9 @@ struct omuser_ctx {
 
   // Image transfers
   std::map<obj_uuid_t,image_request*> image_reqs;
+
+  // For sitting
+  struct caj_sit_info sit_info;
 };
 
 struct omuser_sim_ctx {

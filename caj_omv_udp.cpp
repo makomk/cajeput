@@ -241,6 +241,67 @@ static void handle_AgentAnimation_msg(struct omuser_ctx* lctx, struct sl_message
   user_set_flag(lctx->u, AGENT_FLAG_ANIM_UPDATE);
 }
 
+static void handle_AgentRequestSit_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AgentRequestSit, AgentData, ad, msg);
+  SL_DECLBLK_GET1(AgentRequestSit, TargetObject, targ, msg);
+  if(ad == NULL || targ == NULL || VALIDATE_SESSION(ad)) return;
+
+  sl_dump_packet(msg); // FIXME
+
+  uuid_clear(lctx->sit_info.target);
+  lctx->sit_info.offset = targ->Offset;
+
+  struct world_obj *ob = world_object_by_id(lctx->lsim->sim, targ->TargetID);
+  if(ob == NULL) {
+    user_send_alert_message(lctx->u, "Cannot sit on non-existant object", FALSE);
+    return;
+  } else if(ob->type != OBJ_TYPE_PRIM) {
+    user_send_alert_message(lctx->u, "You can only sit on prims.", FALSE);
+    return;
+  }
+
+  if(user_begin_sit(lctx->u, (primitive_obj*)ob, &lctx->sit_info)) {
+    SL_DECLMSG(AvatarSitResponse, resp);
+    SL_DECLBLK(AvatarSitResponse, SitObject, sitobj, &resp);
+    uuid_copy(sitobj->ID, lctx->sit_info.target);
+    SL_DECLBLK(AvatarSitResponse, SitTransform, sittrans, &resp);
+    sittrans->AutoPilot = FALSE; // ???
+    sittrans->SitPosition = lctx->sit_info.offset;
+    sittrans->SitRotation = lctx->sit_info.rot;
+    // FIXME - TODO - CameraEyeOffset / CameraAtOffset
+    sittrans->ForceMouselook = FALSE;
+    resp.flags |= MSG_RELIABLE;
+    sl_dump_packet(&resp); // FIXME
+    sl_send_udp(lctx, &resp);
+
+    // if we're not doing autopilot, we have to sit immediately.
+    if(!user_complete_sit(lctx->u, &lctx->sit_info)) {
+      user_send_alert_message(lctx->u, "Couldn't complete sit!", FALSE);
+    }
+    uuid_clear(lctx->sit_info.target);
+  } else {
+    user_send_alert_message(lctx->u, "You can't sit here.", FALSE);
+  }
+}
+
+static void handle_AgentSit_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  sl_dump_packet(msg); // FIXME
+
+  SL_DECLBLK_GET1(AgentSit, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) return;
+
+  if(uuid_is_null(lctx->sit_info.target)) {
+    user_send_alert_message(lctx->u, "Tried to sit with no target selected", FALSE);
+    return;
+  }
+
+  if(!user_complete_sit(lctx->u, &lctx->sit_info)) {
+    user_send_alert_message(lctx->u, "Couldn't complete sit!", FALSE);
+  }
+  
+  uuid_clear(lctx->sit_info.target);
+}
+
 static void handle_StartPingCheck_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(StartPingCheck, PingID, ping, msg);
   if(ping == NULL) return;
@@ -2258,8 +2319,8 @@ static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
       asset.data.len = xfer->len;
       asset.type = xfer->asset_type;
       uuid_copy(asset.id, xfer->asset_id);
-      asset.name = "no name"; // can't see *any* way to fill these out
-      asset.description = "no description";
+      asset.name = const_cast<char*>("no name"); // can't see *any* way to fill these out
+      asset.description = const_cast<char*>("no description");
       caj_put_asset(user_get_sgrp(lctx->u), &asset, 
 		    asset_save_cb, NULL);
     }
@@ -2675,7 +2736,7 @@ static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
   memset(obj_data+16+48, 0, 12); // not sure? rotational velocity?
   caj_string_set_bin(&objd->ObjectData, obj_data, 76);
 
-  objd->ParentID = 0;
+  objd->ParentID = (av->parent == NULL ? 0 : av->parent->local_id);
   objd->UpdateFlags = PRIM_FLAG_PHYSICAL|PRIM_FLAG_ANY_OWNER|
     PRIM_FLAG_INVENTORY_EMPTY|PRIM_FLAG_CAST_SHADOWS;
 
@@ -3124,6 +3185,7 @@ static gboolean got_packet(GIOChannel *source,
       lctx->addr = addr;
       lctx->sock = lsim->sock; lctx->counter = 0;
       lctx->appearance_serial = lctx->pause_serial = 0;
+      uuid_clear(lctx->sit_info.target);
 
       lctx->next = lsim->ctxts; lsim->ctxts = lctx;
 
@@ -3216,6 +3278,8 @@ static void sim_int_init_udp(struct simulator_ctx *sim, void *priv)  {
 
   ADD_HANDLER(AgentUpdate);
   ADD_HANDLER(SetAlwaysRun);
+  ADD_HANDLER(AgentRequestSit);
+  ADD_HANDLER(AgentSit);
   ADD_HANDLER(StartPingCheck);
   ADD_HANDLER(CompleteAgentMovement);
   ADD_HANDLER(EconomyDataRequest);

@@ -406,10 +406,11 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  caj_vect3_to_bin_le(rawmsg+len, (caj_vector3*)(blk+bt->vals[k].offset));
 	  len += 12;
 	  break;
-	case SL_MSG_LLQUATERNION: // TODO
-	  printf("Error: unhandled type LLQUATERNION packing message %s\n", 
-		 msg->tmpl->name);
-	  return 0;	  
+	case SL_MSG_LLQUATERNION: // FIXME - HACK!
+	  if(len+12 > buflen) { printf("Packet %s overran buffer packing %s.%s\n", msg->tmpl->name, bt->name, bt->vals[k].name); return 0;}
+	  caj_vect3_to_bin_le(rawmsg+len, (caj_vector3*)(blk+bt->vals[k].offset));
+	  len += 12;
+	  break;
 	case SL_MSG_LLVECTOR4: // TODO
 	  printf("Error: unhandled type LLVECTOR4 packing message %s\n", 
 		 msg->tmpl->name);

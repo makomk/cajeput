@@ -204,6 +204,12 @@ struct primitive_obj {
     char *filename; // ick. For working with the horrible Xfer system.
     // Clear filename and increment serial on inv updates
   } inv;
+
+  caj_vector3 sit_target;
+  struct world_obj *avatar_sitting;
+  // following two are only valid for root prim.
+  int num_avatars;
+  struct world_obj **avatars;
 };
 
 #define CHAT_TYPE_WHISPER 0
@@ -359,7 +365,7 @@ void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av);
 // free child prims or remove the prim from its parent.
 void world_free_prim(struct primitive_obj *prim);
 
-struct world_obj* world_object_by_id(struct simulator_ctx *sim, uuid_t id);
+struct world_obj* world_object_by_id(struct simulator_ctx *sim, const uuid_t id);
 struct world_obj* world_object_by_localid(struct simulator_ctx *sim, uint32_t id);
 
 struct primitive_obj* world_get_root_prim(struct primitive_obj *prim);
@@ -418,6 +424,24 @@ void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main,
 void user_send_script_dialog(user_ctx *ctx, primitive_obj* prim,
 			     char *msg, int num_buttons, char** buttons,
 			     int32_t channel);
+
+struct caj_sit_info {
+  uuid_t target;
+  caj_vector3 offset;
+  caj_quat rot;
+};
+
+// returns true on success, false on failure. Caller must fill in 
+// info_out->offset appropriately.
+int world_avatar_begin_sit(struct simulator_ctx *sim, struct world_obj *av,
+			   struct primitive_obj *seat, struct caj_sit_info *info_out);
+
+// NOTE: can't safely be used on its own until avatar update code is cleaned up.
+// Use user_complete_sit instead!
+int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
+			      const struct caj_sit_info *info);
+
+void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av);
 
 // --- this is messy --------------------
 
