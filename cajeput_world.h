@@ -206,10 +206,13 @@ struct primitive_obj {
   } inv;
 
   caj_vector3 sit_target;
-  struct world_obj *avatar_sitting;
+  caj_quat sit_rot;
+
   // following two are only valid for root prim.
   int num_avatars;
   struct world_obj **avatars;
+
+  struct world_obj *avatar_sitting;
 };
 
 #define CHAT_TYPE_WHISPER 0

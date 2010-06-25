@@ -118,6 +118,8 @@ list llGetObjectDetails(key id, list params) { } // TODO
 key llGetLandOwnerAt(vector pos) { } // TODO
 vector llGetAgentSize(key id) { } // TODO
 
+llSitTarget(vector pos, rotation rot) { }
+
 // bunch of stuff I need to implement
 string llGetScriptName() { }
 integer llGetScriptState(string name) { }

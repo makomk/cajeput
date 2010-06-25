@@ -547,6 +547,8 @@ struct primitive_obj* world_begin_new_prim(struct simulator_ctx *sim) {
 
   prim->sit_target.x = 0.0f; prim->sit_target.y = 0.0f;
   prim->sit_target.z = 0.0f;
+  prim->sit_rot.x = 0.0f; prim->sit_rot.y = 0.0f; prim->sit_rot.z = 0.0f;
+  prim->sit_rot.w = 1.0f;
   prim->avatar_sitting = NULL;
   prim->num_avatars = 0;
   prim->avatars = NULL;
@@ -784,8 +786,7 @@ static bool calc_sit_by_target(struct primitive_obj *seat,
     if(seat->avatar_sitting == NULL) {
       uuid_copy(info_out->target, seat->ob.id);
       info_out->offset = seat->sit_target;
-      info_out->rot.x = 0.0f; info_out->rot.y = 0.0f; info_out->rot.z = 0.0f; 
-      info_out->rot.w = 1.0f; 
+      info_out->rot = seat->sit_rot;
       return TRUE;
     }
   }

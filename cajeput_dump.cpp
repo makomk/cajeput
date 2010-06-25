@@ -665,6 +665,8 @@ static void revivify_prim_real(primitive_obj *prim,
     prim->attach_point = 0;
     prim->sit_target.x = 0.0f; prim->sit_target.y = 0.0f;
     prim->sit_target.z = 0.0f;
+    prim->sit_rot.x = 0.0f; prim->sit_rot.y = 0.0f; prim->sit_rot.z = 0.0f;
+    prim->sit_rot.w = 1.0f;
   default:
     prim->avatar_sitting = NULL;
     prim->num_avatars = 0;

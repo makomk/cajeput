@@ -552,6 +552,15 @@ static void llSetScale_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llSetScale, 0.2) // FIXME - what should the delay be?
 
+static void llSitTarget_rpc(script_state *st, sim_script *scr, int func_id) {
+  caj_vector3 pos; caj_quat rot;
+  vm_func_get_args(st, func_id, &pos, &rot);
+  // FIXME - clamp these!
+  scr->prim->sit_target = pos; scr->prim->sit_rot = rot;
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llSitTarget, 0.0)
 
 static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &spp ) {
   int len = vm_list_get_count(rules), index = 0;
@@ -1979,6 +1988,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_ROT);
   vm_world_add_func(simscr->vmw, "llSetScale", VM_TYPE_NONE, llSetScale_cb, 
 		    1, VM_TYPE_VECT);
+  vm_world_add_func(simscr->vmw, "llSitTarget", VM_TYPE_NONE, llSitTarget_cb, 
+		    2, VM_TYPE_VECT, VM_TYPE_ROT);
   vm_world_add_func(simscr->vmw, "llSetPrimitiveParams", VM_TYPE_NONE,
 		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParams", VM_TYPE_NONE,
