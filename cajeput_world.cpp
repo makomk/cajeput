@@ -665,12 +665,19 @@ void world_delete_avatar(struct simulator_ctx *sim, struct avatar_obj *av) {
   free(av);
 }
 
-void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
+static void linkset_unsit_all_avatars(struct simulator_ctx *sim, 
+				   struct primitive_obj* prim) {
+  // actually works on child prims too, not just linksets.
+
   while(prim->num_avatars > 0) 
     world_unsit_avatar_now(sim, prim->avatars[0]);
   
   if(prim->avatar_sitting != NULL)
     world_unsit_avatar_now(sim, prim->avatar_sitting);
+}
+
+void world_delete_prim(struct simulator_ctx *sim, struct primitive_obj *prim) {
+  linkset_unsit_all_avatars(sim, prim);
 
   world_remove_obj(sim, &prim->ob);
 
@@ -759,6 +766,10 @@ void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main,
     printf("ERROR: tried linking prim with too many children\n");
     return;
   }
+
+  // any avatars sitting on the child linkset must be unsat, since avatars 
+  // must not have a child prim as their parent object.
+  linkset_unsit_all_avatars(sim, child);
 
   main->children = (primitive_obj**)realloc(main->children, 
 			   sizeof(primitive_obj*)*(main->num_children+1));
