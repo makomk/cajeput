@@ -97,6 +97,7 @@ struct avatar_obj {
   struct world_obj ob;
   caj_vector4 footfall;
   primitive_obj *attachments[NUM_ATTACH_POINTS];
+  primitive_obj *sitting_on; // not the same as ob.parent
 };
 
 

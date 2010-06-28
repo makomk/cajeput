@@ -828,6 +828,7 @@ int world_avatar_begin_sit(struct simulator_ctx *sim, struct world_obj *av,
   // Finally, fall back to the original chosen prim.
   uuid_copy(info_out->target, seat->ob.id);
   // note that the caller is expected to fill in info_out->offset appropriately!
+  // FIXME - calculate it more accurately ourselves, if possible.
   info_out->rot.x = 0.0f; info_out->rot.y = 0.0f; info_out->rot.z = 0.0f; 
   info_out->rot.w = 1.0f;
   return TRUE;
@@ -854,8 +855,9 @@ int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
 				       (root->num_avatars+1));
   root->avatars[root->num_avatars++] = av;
   av->parent = &root->ob;
+  ((avatar_obj*)av)->sitting_on = prim;
   // FIXME - the position calculation is actually more complex than this.
-  av->local_pos = info->offset;
+  av->local_pos = info->offset + (prim->ob.world_pos - root->ob.world_pos);
   av->rot = info->rot;
 
   world_update_global_pos_int(sim, av);
@@ -866,13 +868,17 @@ int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
 }
 
 void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av) {
+  struct avatar_obj *real_av = (avatar_obj*)av;
   assert(av->type == OBJ_TYPE_AVATAR);
-  if(av->parent == NULL) return;
+  if(av->parent == NULL) {
+    assert(real_av->sitting_on == NULL);
+    return;
+  }
 
-  primitive_obj *seat = (primitive_obj*)av->parent;
+  assert(real_av->sitting_on != NULL);
+  primitive_obj *seat = real_av->sitting_on;
   primitive_obj *root = world_get_root_prim(seat);
   
-  assert(seat->ob.type == OBJ_TYPE_PRIM);
   assert(seat->avatar_sitting == av);
   assert(av->parent == &root->ob);
   caj_vector3 new_pos;

@@ -936,6 +936,7 @@ int user_complete_movement(user_ctx *ctx) {
     ctx->av->footfall.x = ctx->av->footfall.y = 0.0f;
     ctx->av->footfall.z = 0.0f; ctx->av->footfall.w = 1.0f;
     ctx->av->ob.parent = NULL;
+    ctx->av->sitting_on = NULL;
     
     uuid_copy(ctx->av->ob.id, ctx->user_id);
     world_insert_obj(ctx->sim, &ctx->av->ob);
