@@ -913,6 +913,22 @@ void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av) {
   }
 }
 
+int world_unsit_avatar_via_script(struct simulator_ctx *sim,
+				  struct primitive_obj *src_prim,
+				  uuid_t avatar_id) {
+  world_obj *avatar = world_object_by_id(sim, avatar_id);
+  if(avatar == NULL || avatar->type != OBJ_TYPE_AVATAR ||
+     avatar->parent == NULL)
+    return FALSE;
+  src_prim = world_get_root_prim(src_prim);
+  // FIXME - should also allow unsit if avatar is over land owned 
+  // by the prim owner. 
+  if(&src_prim->ob != avatar->parent)
+    return FALSE;
+  world_unsit_avatar_now(sim, avatar);
+  return TRUE;
+}
+
 char* world_prim_upd_inv_filename(struct primitive_obj* prim) {
   if(prim->inv.filename != NULL) return prim->inv.filename;
 

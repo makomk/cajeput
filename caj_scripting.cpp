@@ -564,6 +564,18 @@ static void llSitTarget_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llSitTarget, 0.0)
 
+static void llUnSit_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *id; uuid_t agent_id;
+  vm_func_get_args(st, func_id, &id);
+  if(uuid_parse(id, agent_id) == 0 && !uuid_is_null(agent_id)) {
+    world_unsit_avatar_via_script(scr->simscr->sim, scr->prim, agent_id);
+  }
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llUnSit, 0.0)
+
+
 static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &spp ) {
   int len = vm_list_get_count(rules), index = 0;
   while(index < len) {
@@ -1896,10 +1908,9 @@ static void handle_prim_change_event(simulator_ctx *sim, void *priv,
     changed |= CHANGED_SHAPE;
 
   // FIXME - shouldn't do this here. Won't work for non-root prims.
+  // FIXME - is this right for avatars?!
   if(update_level & CAJ_OBJUPD_CHILDREN)
     changed |= CHANGED_LINK;
-  
-  // FIXME - only do this if we have a sit target.
   if(update_level & CAJ_OBJUPD_AV_ON_SEAT)
     changed |= CHANGED_LINK;
 
@@ -2049,6 +2060,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    1, VM_TYPE_VECT);
   vm_world_add_func(simscr->vmw, "llSitTarget", VM_TYPE_NONE, llSitTarget_cb, 
 		    2, VM_TYPE_VECT, VM_TYPE_ROT);
+  vm_world_add_func(simscr->vmw, "llUnSit", VM_TYPE_NONE, llUnSit_cb, 
+		    1, VM_TYPE_KEY);
   vm_world_add_func(simscr->vmw, "llSetPrimitiveParams", VM_TYPE_NONE,
 		    llSetPrimitiveParams_cb, 1, VM_TYPE_LIST);
   vm_world_add_func(simscr->vmw, "llSetLinkPrimitiveParams", VM_TYPE_NONE,

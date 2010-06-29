@@ -120,6 +120,7 @@ key llGetLandOwnerAt(vector pos) { } // TODO
 vector llGetAgentSize(key id) { } // TODO
 
 llSitTarget(vector pos, rotation rot) { }
+llUnSit(key id) { }
 
 // bunch of stuff I need to implement
 string llGetScriptName() { }

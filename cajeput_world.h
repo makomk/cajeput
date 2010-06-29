@@ -451,6 +451,9 @@ int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
 			      const struct caj_sit_info *info);
 
 void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av);
+int world_unsit_avatar_via_script(struct simulator_ctx *sim,
+				  struct primitive_obj *src_prim,
+				  uuid_t avatar_id);
 
 // --- this is messy --------------------
 
