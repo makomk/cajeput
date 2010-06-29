@@ -309,10 +309,38 @@ int sl_parse_message(unsigned char* data, int len, struct sl_message* msgout) {
   return 0;
 }
 
+static int sl_zeroencode(unsigned char *data, int datalen, unsigned char* buf,
+		       int buflen) {
+  int i, off = 0, zeros = 0;
+  for(i = 0; i < datalen; i++) {
+    if(data[i] != 0) {
+      if(zeros > 0) {
+	if(off+2 > buflen) return -1;
+	buf[off++] = 0; buf[off++] = (unsigned)zeros; 
+	zeros = 0;
+      }
+      if(off >= buflen) return -1;
+      buf[off++] = data[i];
+    } else {
+      zeros++;
+      if(zeros >= 255) {
+	if(off+2 > buflen) return -1;
+	buf[off++] = 0; buf[off++] = (unsigned)zeros; 
+	zeros = 0;
+      }
+    }
+  }
+  if(zeros > 0) {
+    if(off+2 > buflen) return -1;
+    buf[off++] = 0; buf[off++] = (unsigned)zeros; 
+    zeros = 0;
+  }
+  return off;
+}
+
 int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
   int len = 0; unsigned char *rawmsg = data+6; int i,j,k, tmp;
   if(buflen < 10) return 0; buflen -= 6;
-  msg->flags &= ~MSG_ZEROCODED; // FIXME - handle zerocoding!
   data[0] = msg->flags;
   *(uint32_t*)(data+1) = htonl(msg->seqno);
   data[5] = 0;
@@ -433,6 +461,24 @@ int sl_pack_message(struct sl_message* msg, unsigned char* data, int buflen) {
 	  return 0;
 	}
       }
+    }
+  }
+
+  if(msg->flags & MSG_ZEROCODED) {
+    unsigned char zerobuf[BUFFER_SIZE];
+    int zerolen = sl_zeroencode(rawmsg, len, zerobuf, BUFFER_SIZE);
+    if(zerolen < 0) {
+      printf("DEBUG: zero-coding %s message failed\n",
+	     msg->tmpl->name);
+      data[0] &= ~MSG_ZEROCODED;
+    } else if(zerolen >= len) {
+      printf("DEBUG: zero-coding %s message increased length from %i to %i\n",
+	     msg->tmpl->name, len, zerolen);
+      data[0] &= ~MSG_ZEROCODED;
+    } else {
+      printf("DEBUG: zero-coded %s message OK\n",
+	     msg->tmpl->name);
+      memcpy(rawmsg, zerobuf, zerolen); len = zerolen;
     }
   }
   
