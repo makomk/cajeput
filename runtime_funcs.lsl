@@ -109,6 +109,7 @@ vector llGetScale() { }
 integer llGetAttached() {}
 integer llSameGroup(key id) {} // TODO
 float llGetAlpha(integer face) {} // TODO
+key llAvatarOnSitTarget() {}
 
 key llGetLinkKey(integer linknum) { }
 

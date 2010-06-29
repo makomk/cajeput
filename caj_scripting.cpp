@@ -805,6 +805,18 @@ static void llGetAttached_rpc(script_state *st, sim_script *scr, int func_id) {
 
 RPC_TO_MAIN(llGetAttached, 0.0)
 
+static void llAvatarOnSitTarget_rpc(script_state *st, sim_script *scr, int func_id) {
+  // FIXME - should return NULL_KEY if we don't have a sit target
+  if(scr->prim->avatar_sitting != NULL) {
+    vm_func_set_key_ret(st, func_id, scr->prim->avatar_sitting->id);
+  } else {
+    uuid_t u; uuid_clear(u);
+    vm_func_set_key_ret(st, func_id, u);
+  }
+  rpc_func_return(st, scr, func_id);
+}
+
+RPC_TO_MAIN(llAvatarOnSitTarget, 0.0)
 
 static void llGetLinkKey_rpc(script_state *st, sim_script *scr, int func_id) {
 
@@ -1980,6 +1992,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 		    llGetOwner_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetAttached", VM_TYPE_INT,
 		    llGetAttached_cb, 0);
+   vm_world_add_func(simscr->vmw, "llAvatarOnSitTarget", VM_TYPE_KEY,
+		    llAvatarOnSitTarget_cb, 0);
   vm_world_add_func(simscr->vmw, "llGetLinkKey", VM_TYPE_KEY,
 		    llGetLinkKey_cb, 1, VM_TYPE_INT);
   vm_world_add_func(simscr->vmw, "llSetPos", VM_TYPE_NONE, llSetPos_cb, 

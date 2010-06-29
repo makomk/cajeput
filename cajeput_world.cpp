@@ -858,7 +858,7 @@ int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
   ((avatar_obj*)av)->sitting_on = prim;
   // FIXME - the position calculation is actually more complex than this.
   av->local_pos = info->offset + (prim->ob.world_pos - root->ob.world_pos);
-  av->rot = info->rot;
+  av->rot = info->rot; // FIXME - rotation calculation here is wrong!
 
   world_update_global_pos_int(sim, av);
 
