@@ -76,8 +76,10 @@ struct world_obj {
 #define CAJ_OBJUPD_MATERIAL 0x40
 #define CAJ_OBJUPD_TEXT 0x80
 #define CAJ_OBJUPD_PARENT 0x100 // object reparented
-#define CAJ_OBJUPD_CHILDREN 0x200 // object's children changed; FIXME - make sure this is sent
+#define CAJ_OBJUPD_CHILDREN 0x200 // object's children changed (not including avatars); FIXME - make sure this is sent
 #define CAJ_OBJUPD_EXTRA_PARAMS 0x400
+#define CAJ_OBJUPD_AVATARS 0x800 // object's avatar children changed due to avatar sitting or standing.
+#define CAJ_OBJUPD_AV_ON_SEAT 0x1000 // avatar sat on this prim or got up.
 
   // bunch of SL constants
 #define MATERIAL_STONE   0
@@ -264,6 +266,10 @@ struct primitive_obj {
     // these are optional if you don't use any chat listeners.
     void (*disable_listens)(simulator_ctx *sim, void *priv, void *script);
     void (*reenable_listens)(simulator_ctx *sim, void *priv, void *script);
+
+    // also entirely optional. Feeds object update info to scripts.
+    void (*prim_change_event)(simulator_ctx *sim, void *priv, void *script,
+			      int update_level);
   };
 
   int caj_scripting_init(int api_version, struct simulator_ctx* sim, 

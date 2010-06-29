@@ -862,8 +862,9 @@ int world_avatar_complete_sit(struct simulator_ctx *sim, struct world_obj *av,
 
   world_update_global_pos_int(sim, av);
 
-  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_CHILDREN);
+  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_AVATARS);
   world_mark_object_updated(sim, av, CAJ_OBJUPD_PARENT | CAJ_OBJUPD_POSROT);
+  world_mark_object_updated(sim, &prim->ob, CAJ_OBJUPD_AV_ON_SEAT);
   return TRUE;
 }
 
@@ -901,8 +902,9 @@ void world_unsit_avatar_now(struct simulator_ctx *sim, struct world_obj *av) {
   assert(i < root->num_avatars);
   root->num_avatars--;
 
-  world_mark_object_updated(sim, av, CAJ_OBJUPD_PARENT);
-  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_CHILDREN);
+  world_mark_object_updated(sim, av, CAJ_OBJUPD_PARENT); // FIXME
+  world_mark_object_updated(sim, &root->ob, CAJ_OBJUPD_AVATARS);
+  world_mark_object_updated(sim, &seat->ob, CAJ_OBJUPD_AV_ON_SEAT);
 
   // FIXME - HACK
   {
@@ -1668,6 +1670,23 @@ static void mark_object_updated_nophys(simulator_ctx* sim, world_obj *obj,
       user->obj_upd[obj->local_id] = update_level; 
     } else {
       cur->second |= update_level;
+    }
+  }
+
+  // FIXME - optimise this to avoid unnecesary checks.
+  for(unsigned i = 0; i < prim->inv.num_items; i++) {
+    inventory_item *inv = prim->inv.items[i];
+    if(inv->inv_type == INV_TYPE_LSL && inv->asset_type == ASSET_LSL_TEXT 
+       && inv->spriv != NULL) {
+      script_info *sinfo = (script_info*)inv->spriv;
+      if(sinfo->priv != NULL) {
+	int evmask = sim->scripth.get_evmask(sim, sim->script_priv, sinfo->priv);
+	if((evmask & CAJ_EVMASK_PRIM_CHANGED) && 
+	   sim->scripth.prim_change_event != NULL) {
+	  sim->scripth.prim_change_event(sim, sim->script_priv, sinfo->priv, 
+					 update_level);
+	}
+      }
     }
   }
 }

@@ -245,6 +245,7 @@ timer_sched::timer_sched(sim_script *scr_) : time(scr_->next_timer_event), scr(s
 #define CAJ_SMSG_EVMASK 8
 #define CAJ_SMSG_DETECTED 9 // FIXME - rename this to EVENT 
 #define CAJ_SMSG_RESTORE_SCRIPT 10
+#define CAJ_SMSG_CHANGED_EVENT 11
 
 typedef void(*script_rpc_func)(script_state *st, sim_script *sc, int func_id);
 
@@ -262,6 +263,7 @@ struct script_msg {
     int evmask;
     generic_event *event;
     caj_string cstr;
+    int changed;
   } u;
 };
 
@@ -1239,6 +1241,9 @@ static void script_upd_evmask(sim_script *scr) {
   if(vm_event_has_handler(scr->vm, EVENT_LINK_MESSAGE)) {
     evmask |= CAJ_EVMASK_LINK_MESSAGE;
   }
+  if(vm_event_has_handler(scr->vm, EVENT_CHANGED)) {
+    evmask |= CAJ_EVMASK_PRIM_CHANGED;
+  }
 
   script_msg *smsg = new script_msg();
   smsg->msg_type = CAJ_SMSG_EVMASK;
@@ -1467,6 +1472,10 @@ static gpointer script_thread(gpointer data) {
 	  msg->scr->pending_events.push_back(msg->u.event);
 	  awaken_script(msg->scr, &running);
 	}
+	break;
+      case CAJ_SMSG_CHANGED_EVENT:
+	msg->scr->changed |= msg->u.changed;
+	awaken_script(msg->scr, &running);
 	break;
       }
 
@@ -1867,6 +1876,42 @@ static void handle_link_message(simulator_ctx *sim, void *priv, void *script,
   send_event(simscr, scr, event);
 }
 
+static void handle_prim_change_event(simulator_ctx *sim, void *priv, 
+				     void *script, int update_level) {
+  printf("DEBUG: got prim_change_event 0x%x", update_level);
+
+  sim_scripts *simscr = (sim_scripts*)priv;
+  sim_script *scr = (sim_script*)script;
+  if((scr->evmask & CAJ_EVMASK_PRIM_CHANGED) == 0 ||
+     (update_level & (CAJ_OBJUPD_CHILDREN|CAJ_OBJUPD_TEXTURE|
+		      CAJ_OBJUPD_SCALE|CAJ_OBJUPD_SHAPE|
+		      CAJ_OBJUPD_AV_ON_SEAT)) == 0)  return;
+  
+  int32_t changed = 0;
+  if(update_level & CAJ_OBJUPD_TEXTURE)
+    changed |= CHANGED_COLOR|CHANGED_TEXTURE; // FIXME - can't tell which
+  if(update_level & CAJ_OBJUPD_SCALE)
+    changed |= CHANGED_SCALE;
+  if(update_level & CAJ_OBJUPD_SHAPE)
+    changed |= CHANGED_SHAPE;
+
+  // FIXME - shouldn't do this here. Won't work for non-root prims.
+  if(update_level & CAJ_OBJUPD_CHILDREN)
+    changed |= CHANGED_LINK;
+  
+  // FIXME - only do this if we have a sit target.
+  if(update_level & CAJ_OBJUPD_AV_ON_SEAT)
+    changed |= CHANGED_LINK;
+
+  if(changed != 0) {
+    script_msg *msg = new script_msg();
+    msg->msg_type = CAJ_SMSG_CHANGED_EVENT;
+    msg->scr = scr;
+    msg->u.changed = changed;
+    send_to_script(simscr, msg);
+  }
+}
+
 static gboolean mt_process_queued(gpointer data) {
   sim_scripts *simscr = (sim_scripts*)data;
   script_msg* msg;
@@ -2099,6 +2144,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   hooks->link_message = handle_link_message;
   hooks->disable_listens = disable_listens;
   hooks->reenable_listens = reenable_listens;
+  hooks->prim_change_event = handle_prim_change_event;
 
   return 1;
 }
