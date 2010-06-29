@@ -1890,8 +1890,6 @@ static void handle_link_message(simulator_ctx *sim, void *priv, void *script,
 
 static void handle_prim_change_event(simulator_ctx *sim, void *priv, 
 				     void *script, int update_level) {
-  printf("DEBUG: got prim_change_event 0x%x", update_level);
-
   sim_scripts *simscr = (sim_scripts*)priv;
   sim_script *scr = (sim_script*)script;
   if((scr->evmask & CAJ_EVMASK_PRIM_CHANGED) == 0 ||
