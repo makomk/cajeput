@@ -921,7 +921,7 @@ RPC_TO_MAIN(llGetOwnerKey, 0.0);
 // modified to provide restricted version information to untrusted scripts at
 // some point in the future.
 static void osGetSimulatorVersion_cb(script_state *st, void *sc_priv, int func_id) {
-  vm_func_set_str_ret(st, func_id, CAJ_VERSION_FOR_OS_SCRIPT);
+  vm_func_set_str_ret(st, func_id, caj_version_for_os_script);
   vm_func_return(st, func_id);
 }
 

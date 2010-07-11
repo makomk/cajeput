@@ -9,19 +9,19 @@ CAJ_GIT_DATE='$Format:%ad$'
 [[ "$CAJ_GIT_REVISION" == \$* ]] && CAJ_GIT_REVISION=`git log HEAD^..HEAD --pretty=format:%H  `
 [[ "$CAJ_GIT_DATE" == \$* ]] &&CAJ_GIT_DATE=`git log HEAD^..HEAD --pretty=format:%ad `
 
-cp caj_version.h.in caj_version.h.new
-sed -i "s/%CAJ_GIT_REVISION%/$CAJ_GIT_REVISION/g" caj_version.h.new
-sed -i "s/%CAJ_GIT_DATE%/$CAJ_GIT_DATE/g" caj_version.h.new
+cp caj_version.c.in caj_version.c.new
+sed -i "s/%CAJ_GIT_REVISION%/$CAJ_GIT_REVISION/g" caj_version.c.new
+sed -i "s/%CAJ_GIT_DATE%/$CAJ_GIT_DATE/g" caj_version.c.new
 
-if [ -e caj_version.h ]; then
-    if diff caj_version.h caj_version.h.new > /dev/null; then
-	echo "No changes to caj_version.h"
-	rm caj_version.h.new
+if [ -e caj_version.c ]; then
+    if diff caj_version.c caj_version.c.new > /dev/null; then
+	echo "No changes to caj_version.c"
+	rm caj_version.c.new
     else
-	mv caj_version.h.new caj_version.h
-	echo "caj_version.h updated"
+	mv caj_version.c.new caj_version.c
+	echo "caj_version.c updated"
     fi
 else
-    mv caj_version.h.new caj_version.h
+    mv caj_version.c.new caj_version.c
 fi
     

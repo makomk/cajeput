@@ -1094,7 +1094,7 @@ static void handle_CompleteAgentMovement_msg(struct omuser_ctx* lctx, struct sl_
     user_get_initial_look_at(ctx, &dat->LookAt);
     dat->RegionHandle = sim_get_region_handle(lctx->lsim->sim);
     dat->Timestamp = time(NULL);
-    caj_string_set(&simdat->ChannelVersion, CAJ_VERSION_STRING);
+    caj_string_set(&simdat->ChannelVersion, caj_version_name_str);
     sl_send_udp(lctx, &amc);
   }
 }
