@@ -2586,7 +2586,7 @@ static void llDeleteSubString_cb(script_state *st, void *sc_priv, int func_id) {
   // too sensible for LSL?
   if(begin > end) begin = end;
   char *left = src+begin, *right = src+end;
-  for( ; *right != NULL; left++, right++) {
+  for( ; right != NULL; left++, right++) {
     *left = *right;
   }
   *left = NULL;
