@@ -1,0 +1,78 @@
+#
+# Suppressions for DBus
+#
+
+{
+   Leaks from specialised GType code
+   Memcheck:Leak
+   fun:realloc
+   fun:g_realloc
+   fun:g_string_maybe_expand
+   fun:g_string_insert_len
+   fun:g_string_append
+   fun:build_specialization_name
+   fun:lookup_or_register_specialized
+}
+
+#
+# Suppressions for GType
+#
+
+{
+   Leaks from glib type system (type_data_make_W)
+   Memcheck:Leak
+   fun:calloc
+   fun:g_malloc0
+   fun:type_data_make_W
+}
+
+{
+   Leaks from glib type system (type_node_any_new_W)
+   Memcheck:Leak
+   fun:calloc
+   fun:g_malloc0
+   fun:type_node_any_new_W
+}
+
+{
+   Leaks from glib type system (type_add_flags_W)
+   Memcheck:Leak
+   fun:calloc
+   fun:g_malloc0
+   fun:type_add_flags_W
+}
+
+{
+   Leaks from glib type system (type_node_any_new_W realloc)
+   Memcheck:Leak
+   fun:realloc
+   fun:g_realloc
+   fun:type_node_any_new_W
+}
+
+{
+   Leaks from glib type system (type_add_flags_W realloc)
+   Memcheck:Leak
+   fun:realloc
+   fun:g_realloc
+   fun:type_add_flags_W
+}
+
+{
+   Leaks from glib type system (type_node_any_new_W realloc 2)
+   Memcheck:Leak
+   fun:malloc
+   fun:realloc
+   fun:g_realloc
+   fun:type_node_any_new_W
+}
+
+{
+   Leaks from glib type system (type_add_flags_W realloc 2)
+   Memcheck:Leak
+   fun:malloc
+   fun:realloc
+   fun:g_realloc
+   fun:type_add_flags_W
+}
+

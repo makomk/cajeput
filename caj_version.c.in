@@ -24,7 +24,7 @@
 
 #include "caj_version.h"
 
-#define CAJ_VERSION_STR "0.1 ALPHA"
+#define CAJ_VERSION_STR "0.1.0 ALPHA"
 #define CAJ_GIT_REVISION "%CAJ_GIT_REVISION%"
 #define CAJ_GIT_DATE "%CAJ_GIT_DATE%"
 

@@ -1,1 +1,2 @@
 make_caj_version.sh export-subst
+make_release_tarball.sh export-ignore
