@@ -1935,7 +1935,12 @@ static void step_script(script_state* st, int num_steps) {
 	{
 	  heap_header *p = get_stk_ptr(stack_top+1);
 	  stack_top += ptr_stack_sz()-1;
-	  stack_top[1] = p->len; heap_ref_decr(p, st); 
+	  int len = 0; 
+	  unsigned char *str = (unsigned char*)script_getptr(p);
+	  for(int i = 0; i < p->len; i++) {
+	    if(str[i] < 128 || str[i] >= 192) len++;
+	  }
+	  stack_top[1] = len; heap_ref_decr(p, st); 
 	  break;
 	}
       case INSN_LISTLEN:
