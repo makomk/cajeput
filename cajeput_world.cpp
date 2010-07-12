@@ -30,6 +30,8 @@
 #include <cassert>
 #include <stdio.h>
 
+#define CAJ_LOGGER (sim->sgrp->log)
+
 struct script_info {
 private:
   int m_refcnt;
@@ -302,9 +304,9 @@ void world_send_chat(struct simulator_ctx *sim, struct chat_message* chat) {
   case CHAT_TYPE_SHOUT:
     range = 100.0f; break;
   }
-  printf("DEBUG: Sending chat message from %s @ (%f, %f, %f) range %f: %s\n",
-	 chat->name, chat->pos.x, chat->pos.y, chat->pos.z,
-	 range, chat->msg);
+  CAJ_DEBUG("DEBUG: Sending chat message from %s @ (%f, %f, %f) range %f: %s\n",
+	    chat->name, chat->pos.x, chat->pos.y, chat->pos.z,
+	    range, chat->msg);
   real_octree_send_chat(sim,sim->world_tree,chat,range,OCTREE_DEPTH-1);
 }
 
@@ -342,7 +344,7 @@ void world_chat_from_prim(struct simulator_ctx *sim, struct primitive_obj* prim,
       if(ctx->userh != NULL && ctx->userh->chat_callback != NULL)
 	ctx->userh->chat_callback(ctx->user_priv, &chat);
     } else {
-      printf("DEBUG: discarding llOwnerSay for absent user\n");
+      CAJ_DEBUG("DEBUG: discarding llOwnerSay for absent user\n");
     }
   } else {
     world_send_chat(sim, &chat);
@@ -759,11 +761,11 @@ static void prim_reenable_listens(struct simulator_ctx *sim,
 void world_prim_link(struct simulator_ctx *sim,  struct primitive_obj* main, 
 		     struct primitive_obj* child) {
   if(main->ob.parent != NULL || child->ob.parent != NULL || child->num_children != 0) {
-    printf("FIXME - can't handle this prim linking case");
+    CAJ_WARN("FIXME - can't handle this prim linking case");
     return;
   }
   if(main->num_children > 255) {
-    printf("ERROR: tried linking prim with too many children\n");
+    CAJ_WARN("ERROR: tried linking prim with too many children\n");
     return;
   }
 
@@ -976,7 +978,7 @@ void world_set_script_evmask(struct simulator_ctx *sim, struct primitive_obj* pr
 void user_prim_touch(struct user_ctx *ctx, struct primitive_obj* prim, 
 		     int touch_type, const struct caj_touch_info *info) {
   struct simulator_ctx *sim = ctx->sim;
-  printf("DEBUG: in user_prim_touch, type %i\n", touch_type);
+  CAJ_DEBUG("DEBUG: in user_prim_touch, type %i\n", touch_type);
   int handled = 0;
 
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
@@ -992,17 +994,17 @@ void user_prim_touch(struct user_ctx *ctx, struct primitive_obj* prim,
 	handled = 1; // any touch handler will do for this
 
 	// we leave finer-grained filtering to the script engine
-	printf("DEBUG: sending touch event %i to script\n", touch_type);
+	CAJ_DEBUG("DEBUG: sending touch event %i to script\n", touch_type);
 	sim->scripth.touch_event(sim, sim->script_priv, sinfo->priv,
 				 ctx, &ctx->av->ob, touch_type, info);
       } else {
-	 printf("DEBUG: ignoring script not interested in touch event\n");
+	 CAJ_DEBUG("DEBUG: ignoring script not interested in touch event\n");
       }
     }
   }
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
-    printf("DEBUG: passing touch event to parent prim\n");
+    CAJ_DEBUG("DEBUG: passing touch event to parent prim\n");
     user_prim_touch(ctx, (primitive_obj*)prim->ob.parent, 
 		    touch_type, info);
   }
@@ -1097,7 +1099,7 @@ inventory_item* prim_update_script(struct simulator_ctx *sim, struct primitive_o
     if(uuid_compare(prim->inv.items[i]->item_id, item_id) == 0) {
       inventory_item *inv = prim->inv.items[i];
       if(inv->asset_type != ASSET_LSL_TEXT) {
-	printf("ERROR: attempt to update a script, but item isn't a script!\n");
+	CAJ_WARN("ERROR: attempt to update a script, but item isn't a script!\n");
 	return NULL;
       }
       script_info* sinfo = (script_info*)inv->spriv;
@@ -1144,6 +1146,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 		     const char *name, const char *descrip, uint32_t flags,
 		     const permission_flags *perms) {
   inventory_item *inv = NULL;
+  simulator_ctx *sim = ctx->sim;
 
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
     if(strcmp(name, prim->inv.items[i]->name) == 0) {
@@ -1151,7 +1154,7 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
     }
   }
   if(inv != NULL) {
-    printf("FIXME: item name clash in user_rez_script");
+    CAJ_WARN("FIXME: item name clash in user_rez_script");
     user_send_message(ctx, "FIXME: item name clash in user_rez_script");
     return;
   }
@@ -1172,8 +1175,8 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
 
   inv->perms = *perms;
 
-  printf("DEBUG: rez script perms base 0x%x owner 0x%x group 0x%x everyone 0x%x next 0x%x\n",
-	 perms->base, perms->current, perms->group, perms->everyone, perms->next);
+  CAJ_DEBUG("DEBUG: rez script perms base 0x%x owner 0x%x group 0x%x everyone 0x%x next 0x%x\n",
+	    perms->base, perms->current, perms->group, perms->everyone, perms->next);
 
   inv->asset_type = ASSET_LSL_TEXT; 
   inv->inv_type = INV_TYPE_LSL;
@@ -1192,15 +1195,15 @@ void user_rez_script(struct user_ctx *ctx, struct primitive_obj *prim,
   caj_string_set(&asset->data, "default\n{\n  state_entry() {\n    llSay(0, \"Script running\");\n  }\n}\n");
   inv->asset_hack = asset;
 
-  script_info* sinfo = new script_info(ctx->sim, prim, inv);
+  script_info* sinfo = new script_info(sim, prim, inv);
   sinfo->priv = NULL; inv->spriv = sinfo;
 
   prim_add_inventory(prim, inv);
   
   // FIXME - check whether it should be created running...
-  if(ctx->sim->scripth.add_script != NULL) {
-    sinfo->priv = ctx->sim->scripth.add_script(ctx->sim, ctx->sim->script_priv, 
-					     prim, inv, asset, NULL, NULL);
+  if(sim->scripth.add_script != NULL) {
+    sinfo->priv = sim->scripth.add_script(sim, sim->script_priv, 
+					  prim, inv, asset, NULL, NULL);
   } else {
     sinfo->priv = NULL;
   }
@@ -1743,17 +1746,17 @@ static void send_prim_collision(struct simulator_ctx *sim, struct primitive_obj*
 	handled = 1; // any touch handler will do for this
 
 	// we leave finer-grained filtering to the script engine
-	printf("DEBUG: sending collision event %i to script\n", coll_type);
+	CAJ_DEBUG("DEBUG: sending collision event %i to script\n", coll_type);
 	sim->scripth.collision_event(sim, sim->script_priv, sinfo->priv,
 				     collider, coll_type);
       } else {
-	//printf("DEBUG: ignoring script not interested in collision event\n");
+	//CAJ_DEBUG("DEBUG: ignoring script not interested in collision event\n");
       }
     }
   }
   if(prim->ob.parent != NULL && prim->ob.parent->type == OBJ_TYPE_PRIM &&
      !handled) {
-    //printf("DEBUG: passing collision event to parent prim\n");
+    //CAJ_DEBUG("DEBUG: passing collision event to parent prim\n");
     send_prim_collision(sim, (primitive_obj*)prim->ob.parent, coll_type, collider);
   }
 }

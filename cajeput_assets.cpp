@@ -23,6 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_int.h" 
 #include "cajeput_j2k.h"
+#include "caj_logging.h"
 #include <stdio.h>
 #include <sys/types.h> 
 #include <sys/stat.h>
@@ -30,12 +31,14 @@
 #include <cassert>
 #include <fcntl.h>
 
+#define CAJ_LOGGER (sgrp->log)
+
 //  ----------- Texture-related stuff ----------------
 
 
 // may want to move this to a thread, but it's reasonably fast since it 
 // doesn't have to do a full decode
-static void sim_texture_read_metadata(struct texture_desc *desc) {
+static void sim_texture_read_metadata(caj_logger *log, struct texture_desc *desc) {
   struct cajeput_j2k info;
   if(cajeput_j2k_info(desc->data, desc->len, &info)) {
     assert(info.num_discard > 0);
@@ -46,27 +49,27 @@ static void sim_texture_read_metadata(struct texture_desc *desc) {
 	   info.num_discard*sizeof(int));
   } else {
     char buf[40]; uuid_unparse(desc->asset_id, buf);
-    printf("WARNING: texture metadata read failed for %s\n", buf);
+    CAJ_WARN_L(log, "WARNING: texture metadata read failed for %s\n", buf);
     desc->num_discard = 1;
     desc->discard_levels = new int[1];
     desc->discard_levels[0] = desc->len;
   }
 }
 
-static void save_texture(texture_desc *desc, const char* dirname) {
+static void save_texture(caj_logger *log, texture_desc *desc, const char* dirname) {
   char asset_str[40], fname[80]; int fd;
     uuid_unparse(desc->asset_id, asset_str);
     snprintf(fname, 80, "%s/%s.jp2", dirname, asset_str);
     fd = open(fname, O_WRONLY|O_CREAT|O_EXCL, 0644);
     if(fd < 0) {
-      printf("Warning: couldn't open %s for temp texture save\n",
-	     fname);
+      CAJ_WARN_L(log, "Warning: couldn't open %s for temp texture save\n",
+		 fname);
     } else {
       int ret = write(fd, desc->data, desc->len);
       if(ret != desc->len) {
 	if(ret < 0) perror("save local texture");
-	printf("Warning: couldn't write full texure to %s: %i/%i\n",
-	       fname, ret, desc->len);
+	CAJ_WARN_L(log, "Warning: couldn't write full texure to %s: %i/%i\n",
+		   fname, ret, desc->len);
       }
       close(fd);
     }
@@ -82,11 +85,11 @@ void sim_add_local_texture(struct simulator_ctx *sim, uuid_t asset_id,
   desc->refcnt = 0; 
   desc->width = desc->height = desc->num_discard = 0;
   desc->discard_levels = NULL;
-  sim_texture_read_metadata(desc);
+  sim_texture_read_metadata(sim->sgrp->log, desc);
   sim->sgrp->textures[asset_id] = desc;
 
   if(is_local) {
-    save_texture(desc, "temp_assets");
+    save_texture(sim->sgrp->log, desc, "temp_assets");
   }
 }
 
@@ -122,8 +125,8 @@ void texture_finished_load(struct simgroup_ctx *sgrp, void *priv,
     desc->len = asset->data.len;
     desc->data = (unsigned char*)malloc(desc->len);
     memcpy(desc->data, asset->data.data, desc->len);
-    sim_texture_read_metadata(desc);
-    save_texture(desc,"tex_cache");
+    sim_texture_read_metadata(sgrp->log, desc);
+    save_texture(sgrp->log, desc,"tex_cache");
   }
 }
 
@@ -141,12 +144,12 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc) {
       sprintf(fname, "%s/%s.jp2", texture_dirs[i], asset_str);
       if(stat(fname, &st) != 0 || st.st_size == 0) continue;
 
-      printf("DEBUG: loading texture from %s, len %i\n",fname,(int)st.st_size);
+      CAJ_DEBUG("DEBUG: loading texture from %s, len %i\n",fname,(int)st.st_size);
 
       desc->len = st.st_size;
       fd = open(fname, O_RDONLY);
       if(fd < 0) {
-	printf("ERROR: couldn't open texture cache file\n");
+	CAJ_ERROR("ERROR: couldn't open texture cache file\n");
 	break;
       }
       
@@ -160,12 +163,12 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc) {
       close(fd);
 
       if(off < desc->len) {
-	printf("ERROR: Couldn't read texture from file\n");
+	CAJ_ERROR("ERROR: Couldn't read texture from file\n");
 	free(data); break;
       }
 
       desc->data = data;
-      sim_texture_read_metadata(desc);
+      sim_texture_read_metadata(sgrp->log, desc);
       return;
     }
 
@@ -223,7 +226,7 @@ void caj_get_asset(struct simgroup_ctx *sgrp, uuid_t asset_id,
     desc->asset.data.data = NULL;
     sgrp->assets[asset_id] = desc;
     
-    printf("DEBUG: sending asset request via grid\n");
+    CAJ_DEBUG("DEBUG: sending asset request via grid\n");
     sgrp->gridh.get_asset(sgrp, &desc->asset);
   }
   

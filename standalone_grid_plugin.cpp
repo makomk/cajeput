@@ -26,6 +26,7 @@
 #include "cajeput_grid_glue.h"
 #include "caj_types.h"
 #include "caj_parse_nini.h"
+#include "caj_logging.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +47,10 @@ struct standalone_grid_ctx {
   std::set<simulator_ctx *> sims;
   std::map<obj_uuid_t, simulator_ctx*> sim_by_uuid;
   sqlite3 *db;
+  caj_logger *log;
 };
+
+#define CAJ_LOGGER (grid->log)
 
 #define GRID_PRIV_DEF(sim) struct standalone_grid_ctx* grid = (struct standalone_grid_ctx*) sim_get_grid_priv(sim);
 #define GRID_PRIV_DEF_SGRP(sgrp) struct standalone_grid_ctx* grid = (struct standalone_grid_ctx*) caj_get_grid_priv(sgrp);
@@ -231,11 +235,11 @@ static void user_entered(struct simgroup_ctx *sgrp,
   GRID_PRIV_DEF(sim);
 
   if(user_glue->prev_user != NULL) {
-    printf("DEBUG: calling back to previous region on avatar entry\n");
+    CAJ_DEBUG("DEBUG: calling back to previous region on avatar entry\n");
     user_ctx *old_ctx = user_glue->prev_user->ctx;
     if(old_ctx != NULL && 
        (user_get_flags(old_ctx) & AGENT_FLAG_TELEPORT_COMPLETE)) {
-      printf("DEBUG: releasing teleported user\n");
+      CAJ_DEBUG("DEBUG: releasing teleported user\n");
       user_session_close(old_ctx, true); // needs the delay...
     }
     user_grid_glue_deref(user_glue->prev_user);
@@ -255,7 +259,7 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 
   rc = sqlite3_prepare_v2(grid->db, "UPDATE users SET last_region=?, last_pos=?, last_look_at=? WHERE id=?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare last_pos update statement: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare last_pos update statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out;
   }
@@ -271,13 +275,13 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
      sqlite3_bind_text(stmt, 2, pos_str, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_text(stmt, 3, look_at_str, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_text(stmt, 4, user_id_str, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
-	    sqlite3_errmsg(grid->db));
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
+	      sqlite3_errmsg(grid->db));
     goto out_finalize;
   }
 
   if(sqlite3_step(stmt) != SQLITE_DONE) {
-    fprintf(stderr, "ERROR: Can't update last position on logout: %s\n", 
+    CAJ_ERROR("ERROR: Can't update last position on logout: %s\n", 
 	    sqlite3_errmsg(grid->db));
   }
 
@@ -285,32 +289,32 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 
   ctx = user_find_ctx(sim, user_id);
   if(ctx == NULL) {
-    fprintf(stderr, "ERROR: can't find context for user in user_logoff\n");
+    CAJ_ERROR("ERROR: can't find context for user in user_logoff\n");
     goto out;
   }
 
   rc = sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
   if(rc) {
-    fprintf(stderr, "ERROR: Can't begin transaction: %s\n", 
+    CAJ_ERROR("ERROR: Can't begin transaction: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out;
   }  
 
   rc = sqlite3_prepare_v2(grid->db, "DELETE FROM wearables WHERE user_id=?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare wearables clear statement: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare wearables clear statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out;
   }
 
   if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_et_finalize;
   }
 
   if(sqlite3_step(stmt) != SQLITE_DONE) {
-    fprintf(stderr, "ERROR: Can't clear wearables from DB on logout: %s\n", 
+    CAJ_ERROR("ERROR: Can't clear wearables from DB on logout: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_et_finalize;
   }
@@ -322,7 +326,7 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 			  -1, &stmt, NULL);
 
   if( rc ) {
-    fprintf(stderr, "ERROR: Can't prepare wearables INSERT statement: %s\n", 
+    CAJ_ERROR("ERROR: Can't prepare wearables INSERT statement: %s\n", 
 	    sqlite3_errmsg(grid->db));
     sqlite3_exec(grid->db, "END TRANSACTION;", NULL, NULL, NULL);
     goto out;
@@ -337,13 +341,13 @@ static void user_logoff(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
        sqlite3_bind_int(stmt, 2, i) ||
        sqlite3_bind_text(stmt, 3, item_id_str, -1, SQLITE_TRANSIENT) ||
        sqlite3_bind_text(stmt, 4, asset_id_str, -1, SQLITE_TRANSIENT)) {
-      fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+      CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	      sqlite3_errmsg(grid->db));
       continue;
     }
 
     if(sqlite3_step(stmt) != SQLITE_DONE) {
-      fprintf(stderr, "ERROR: Can't clear insert wearable into DB on logout: %s\n", 
+      CAJ_ERROR("ERROR: Can't clear insert wearable into DB on logout: %s\n", 
 	      sqlite3_errmsg(grid->db));
     }
 
@@ -541,19 +545,20 @@ static void cleanup(struct simgroup_ctx* sgrp) {
   "group_id, group_owned, sale_price, sale_type, flags, " \
   " creation_date "
 
-static bool inv_item_from_sqlite(sqlite3_stmt *stmt, inventory_item *item) {
+static bool inv_item_from_sqlite(standalone_grid_ctx *grid, 
+				 sqlite3_stmt *stmt, inventory_item *item) {
   if(uuid_parse((const char*)sqlite3_column_text(stmt, 0), item->owner_id)) {
-    fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
+    CAJ_ERROR("ERROR: invalid item ID in inventory: %s\n", 
 	    sqlite3_column_text(stmt, 0));
     return false;
   }
   if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item->item_id)) {
-    fprintf(stderr, "ERROR: invalid item ID in inventory: %s\n", 
+    CAJ_ERROR("ERROR: invalid item ID in inventory: %s\n", 
 	    sqlite3_column_text(stmt, 1));
     return false;
   }
   if(uuid_parse((const char*)sqlite3_column_text(stmt, 2), item->folder_id)) {
-    fprintf(stderr, "ERROR: invalid folder ID in inventory: %s\n", 
+    CAJ_ERROR("ERROR: invalid folder ID in inventory: %s\n", 
 	    sqlite3_column_text(stmt, 2));
     return false;
   }
@@ -561,14 +566,14 @@ static bool inv_item_from_sqlite(sqlite3_stmt *stmt, inventory_item *item) {
   item->description = (char*)sqlite3_column_text(stmt, 4);
   item->creator_id = (char*)sqlite3_column_text(stmt, 5);
   if(uuid_parse(item->creator_id, item->creator_as_uuid)) {
-    fprintf(stderr, "DEBUG: invalid creator ID in inventory: %s\n", 
+    CAJ_INFO("DEBUG: invalid creator ID in inventory: %s\n", 
 	    sqlite3_column_text(stmt, 5));
     uuid_clear(item->creator_as_uuid);
   }
   item->inv_type = sqlite3_column_int(stmt, 6);
   item->asset_type = sqlite3_column_int(stmt, 7);
   if(uuid_parse((const char*)sqlite3_column_text(stmt, 8), item->asset_id)) {
-    fprintf(stderr, "ERROR: invalid asset ID in inventory: %s\n", 
+    CAJ_ERROR("ERROR: invalid asset ID in inventory: %s\n", 
 	    sqlite3_column_text(stmt, 8));
     return false;
   }
@@ -597,7 +602,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 
   rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id, name, version, asset_type FROM inventory_folders WHERE user_id = ? AND parent_id = ?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare inventory folder query: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare inventory folder query: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail;
   }
@@ -607,7 +612,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(folder_id, buf2);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -618,7 +623,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
       break;
     
     if(rc != SQLITE_ROW) {
-      fprintf(stderr, "ERROR executing statement: %s\n", 
+      CAJ_ERROR("ERROR executing statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail_finalize;
     }
@@ -626,7 +631,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
     // SELECT folder_id, name, version, asset_type 
 
     if(uuid_parse((const char*)sqlite3_column_text(stmt, 0) /*folder_id*/, u)) {
-       fprintf(stderr, "ERROR: invalid folder ID in inventory: %s\n", 
+       CAJ_ERROR("ERROR: invalid folder ID in inventory: %s\n", 
 	       sqlite3_column_text(stmt, 0));
       goto out_fail_finalize;
     }
@@ -641,7 +646,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 			  " FROM inventory_items WHERE "
 			  " user_id = ? AND folder_id = ?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare inventory items query: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare inventory items query: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail;
   }
@@ -651,7 +656,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(folder_id, buf2);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -663,7 +668,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
       break;
     
     if(rc != SQLITE_ROW) {
-      fprintf(stderr, "ERROR executing statement: %s\n", 
+      CAJ_ERROR("ERROR executing statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail_finalize;
     }
@@ -673,7 +678,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
     // everyone_perms, group_id, group_owned, sale_price, sale_type, flags, 
     // creation_date
     struct inventory_item item_from_db;
-    if(!inv_item_from_sqlite(stmt, &item_from_db))
+    if(!inv_item_from_sqlite(grid, stmt, &item_from_db))
       goto out_fail_finalize;
     caj_add_inventory_item_copy(inv, &item_from_db);
   }
@@ -702,7 +707,7 @@ static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			  " FROM inventory_items WHERE "
 			  " user_id = ? AND item_id = ?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare inventory item query: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare inventory item query: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail;
   }
@@ -712,7 +717,7 @@ static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(item_id, buf2);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_text(stmt, 2, buf2, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -720,19 +725,19 @@ static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   rc = sqlite3_step(stmt);
 
   if(rc == SQLITE_DONE) { 
-    fprintf(stderr, "DEBUG: inventory item not found\n");
+    CAJ_INFO("DEBUG: inventory item not found\n");
     goto out_fail_finalize;
   }
     
   if(rc != SQLITE_ROW) {
-    fprintf(stderr, "ERROR executing statement: %s\n", 
+    CAJ_ERROR("ERROR executing statement: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
 
   { 
     struct inventory_item item;
-    if(!inv_item_from_sqlite(stmt, &item))
+    if(!inv_item_from_sqlite(grid, stmt, &item))
       goto out_fail_finalize;
     cb(&item, cb_priv); 
   }
@@ -765,7 +770,7 @@ static void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			  "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", -1, &stmt, NULL);
 
    if( rc ) {
-     fprintf(stderr, "ERROR: Can't prepare add inventory item query: %s\n", 
+     CAJ_ERROR("ERROR: Can't prepare add inventory item query: %s\n", 
 	     sqlite3_errmsg(grid->db));
      goto out_fail;
    }
@@ -797,7 +802,7 @@ static void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
       sqlite3_bind_int(stmt, 18, inv->sale_type) ||
       sqlite3_bind_int(stmt, 19, inv->flags) ||
       sqlite3_bind_int(stmt, 20, inv->creation_date)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
    }
@@ -805,7 +810,7 @@ static void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
    rc = sqlite3_step(stmt);
     
    if(rc != SQLITE_DONE) {
-     fprintf(stderr, "ERROR executing inventory item add statement: %s\n", 
+     CAJ_ERROR("ERROR executing inventory item add statement: %s\n", 
 	     sqlite3_errmsg(grid->db));
      goto out_fail_finalize;
    }
@@ -831,14 +836,14 @@ void get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
 
   rc = sqlite3_prepare_v2(grid->db, "SELECT name, description, asset_type, data FROM assets WHERE id = ?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare get_asset query: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare get_asset query: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_fail;
   }
 
   uuid_unparse(asset->id, buf);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -847,10 +852,10 @@ void get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
 
   if(rc == SQLITE_DONE) {
     uuid_unparse(asset->id, buf);
-    fprintf(stderr, "ERROR: Asset %s not in database\n", buf);
+    CAJ_ERROR("ERROR: Asset %s not in database\n", buf);
     goto out_fail_finalize; // asset not found.
   } else if(rc != SQLITE_ROW) {
-     fprintf(stderr, "ERROR: Can't execute get_asset query: %s\n", 
+     CAJ_ERROR("ERROR: Can't execute get_asset query: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -877,7 +882,7 @@ void put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
 
   rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
   if( rc ) {
-    fprintf(stderr, "ERROR: Can't prepare asset load query: %s\n", 
+    CAJ_ERROR("ERROR: Can't prepare asset load query: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail;
   }
@@ -889,7 +894,7 @@ void put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
      sqlite3_bind_int(stmt, 4, asset->type) ||
      sqlite3_bind_blob(stmt, 5, asset->data.data, asset->data.len, 
 		       SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -899,7 +904,7 @@ void put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
   rc = sqlite3_step(stmt);
 
   if(rc != SQLITE_DONE) {
-    fprintf(stderr, "ERROR: Can't add asset: %s\n", 
+    CAJ_ERROR("ERROR: Can't add asset: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_finalize;
   }
@@ -932,25 +937,25 @@ GRID_PRIV_DEF_SGRP(sgrp);
 
   rc = sqlite3_prepare_v2(grid->db, "SELECT first_name, last_name FROM users WHERE id=?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare uuid to name statement: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare uuid to name statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out;
   }
 
   uuid_unparse(id, user_id_str);
   if(sqlite3_bind_text(stmt, 1, user_id_str, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_finalize;
   }
 
   rc = sqlite3_step(stmt);
   if(rc == SQLITE_DONE) {
-    printf("WARNING: user not found in UUID-to-name lookup for %s\n",
+    CAJ_WARN("WARNING: user not found in UUID-to-name lookup for %s\n",
 	   user_id_str);
     goto out_finalize;
   } else if(rc != SQLITE_ROW) {
-    fprintf(stderr, "ERROR: Can't lookup name from UUID: %s\n", 
+    CAJ_ERROR("ERROR: Can't lookup name from UUID: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_finalize;
   }
@@ -999,14 +1004,14 @@ static bool create_user_inv(standalone_grid_ctx *grid, const uuid_t user_id,
   rc = sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, 
 		    NULL);
   if(rc) {
-    fprintf(stderr, "ERROR: Can't begin transaction: %s\n", 
+    CAJ_ERROR("ERROR: Can't begin transaction: %s\n", 
 	    sqlite3_errmsg(grid->db));
     return false;
   }
 
   rc = sqlite3_prepare_v2(grid->db, "INSERT INTO inventory_folders (user_id, folder_id, parent_id, name, version, asset_type) VALUES (?, ?, ?, ?, ?, ?)", -1, &stmt, NULL);
   if( rc ) {
-    fprintf(stderr, "ERROR: Can't prepare folder create: %s\n", 
+    CAJ_ERROR("ERROR: Can't prepare folder create: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_fail_nofree;
   }
@@ -1020,7 +1025,7 @@ static bool create_user_inv(standalone_grid_ctx *grid, const uuid_t user_id,
      sqlite3_bind_int(stmt, 5, 1) /* version */ ||
      sqlite3_bind_int(stmt, 6, ASSET_ROOT) /* asset_type */ ||
      sqlite3_step(stmt) != SQLITE_DONE) {
-    fprintf(stderr, "ERROR: Can't create inventory root folder: %s\n",
+    CAJ_ERROR("ERROR: Can't create inventory root folder: %s\n",
 	    sqlite3_errmsg(grid->db));
     goto out_fail;
   }
@@ -1038,7 +1043,7 @@ static bool create_user_inv(standalone_grid_ctx *grid, const uuid_t user_id,
        sqlite3_bind_int(stmt, 5, 1) /* version */ ||
        sqlite3_bind_int(stmt, 6, initial_folders[i].asset_type) ||
        sqlite3_step(stmt) != SQLITE_DONE) {
-      fprintf(stderr, "ERROR: Can't create initial inventory folder %s: %s\n",
+      CAJ_ERROR("ERROR: Can't create initial inventory folder %s: %s\n",
 	      initial_folders[i].name, sqlite3_errmsg(grid->db));
       goto out_fail;
     }
@@ -1046,7 +1051,7 @@ static bool create_user_inv(standalone_grid_ctx *grid, const uuid_t user_id,
 
   sqlite3_finalize(stmt);
   if(sqlite3_exec(grid->db, "COMMIT TRANSACTION;", NULL, NULL, NULL)) {
-    fprintf(stderr, "ERROR: Can't commit initial inventory creation: %s\n",
+    CAJ_ERROR("ERROR: Can't commit initial inventory creation: %s\n",
 	    sqlite3_errmsg(grid->db));
     return false;
   } else {
@@ -1065,7 +1070,7 @@ static bool find_inv_root(standalone_grid_ctx *grid, const uuid_t user_id,
   sqlite3_stmt *stmt; int rc; char buf[64];
   rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id FROM inventory_folders WHERE user_id = ? AND parent_id IS NULL AND asset_type = ?", -1, &stmt, NULL);
   if( rc ) {
-    fprintf(stderr, "ERROR: Can't prepare inv_root lookup: %s\n", 
+    CAJ_ERROR("ERROR: Can't prepare inv_root lookup: %s\n", 
 	    sqlite3_errmsg(grid->db));
     return false;
   }
@@ -1074,7 +1079,7 @@ static bool find_inv_root(standalone_grid_ctx *grid, const uuid_t user_id,
 
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT) ||
      sqlite3_bind_int(stmt, 2, ASSET_ROOT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     sqlite3_finalize(stmt);
     return false;
@@ -1082,11 +1087,11 @@ static bool find_inv_root(standalone_grid_ctx *grid, const uuid_t user_id,
 
   rc = sqlite3_step(stmt);
   if(rc == SQLITE_DONE) {
-    fprintf(stderr, "DEBUG: no inventory root found, need to create one\n");
+    CAJ_INFO("INFO: no inventory root found, need to create one\n");
     sqlite3_finalize(stmt);
     return create_user_inv(grid, user_id, inv_root_out);
   } else if(rc != SQLITE_ROW) {
-    fprintf(stderr, "ERROR executing statement: %s\n", sqlite3_errmsg(grid->db));
+    CAJ_ERROR("ERROR executing statement: %s\n", sqlite3_errmsg(grid->db));
     sqlite3_finalize(stmt);
     return false;
   }
@@ -1106,14 +1111,14 @@ static GValueArray* build_inventory_skeleton(standalone_grid_ctx *grid,
   // FIXME - can this use an index?
   rc = sqlite3_prepare_v2(grid->db, "SELECT folder_id, parent_id, name, version, asset_type FROM inventory_folders WHERE user_id = ?;", -1, &stmt, NULL);
   if( rc ) {
-      fprintf(stderr, "ERROR: Can't prepare inventory skeleton query: %s\n", 
+      CAJ_ERROR("ERROR: Can't prepare inventory skeleton query: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out;
   }
 
   uuid_unparse(user_id, buf);
   if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
-    fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", 
+    CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", 
 	    sqlite3_errmsg(grid->db));
     goto out_finalize;
   }
@@ -1124,7 +1129,7 @@ static GValueArray* build_inventory_skeleton(standalone_grid_ctx *grid,
       break;
     
     if(rc != SQLITE_ROW) {
-      fprintf(stderr, "ERROR executing statement: %s\n", 
+      CAJ_ERROR("ERROR executing statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_finalize;
     }
@@ -1191,7 +1196,7 @@ static void login_to_simulator(SoupServer *server,
   const char *error_msg = "Error logging in";
   struct sim_new_user uinfo;
   // GError *error = NULL;
-  printf("DEBUG: Got a login_to_simulator call\n");
+  CAJ_INFO("INFO: Got a login_to_simulator call\n");
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
@@ -1209,23 +1214,23 @@ static void login_to_simulator(SoupServer *server,
     sqlite3_stmt *stmt; int rc;
     rc = sqlite3_prepare_v2(grid->db, "SELECT first_name, last_name, id, passwd_salt, passwd_sha256, last_region, last_pos, last_look_at FROM users WHERE first_name = ? AND last_name = ?;", -1, &stmt, NULL);
     if( rc ) {
-      fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
+      CAJ_ERROR("ERROR: Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
       goto out_fail;
     }
     if(sqlite3_bind_text(stmt, 1, first, -1, SQLITE_TRANSIENT) ||
        sqlite3_bind_text(stmt, 2, last, -1, SQLITE_TRANSIENT)) {
-      fprintf(stderr, "Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
+      CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
       sqlite3_finalize(stmt);
       goto out_fail;
     }
     rc = sqlite3_step(stmt);
     if(rc == SQLITE_DONE) {
-      fprintf(stderr, "ERROR: user does not exist\n");
+      CAJ_ERROR("ERROR: user does not exist\n");
       sqlite3_finalize(stmt);
       error_msg = "Incorrect username or password";
       goto out_fail;
     } else if(rc != SQLITE_ROW) {
-      fprintf(stderr, "Error executing statement: %s\n", sqlite3_errmsg(grid->db));
+       CAJ_ERROR("ERROR: Couldn't execute statement: %s\n", sqlite3_errmsg(grid->db));
       sqlite3_finalize(stmt);
       goto out_fail;
     }
@@ -1241,7 +1246,7 @@ static void login_to_simulator(SoupServer *server,
 
     // FIXME - in theory this leads to a potential timing attack.
     if(strcasecmp(our_sha256, (const char*)pw_sha256) != 0) {
-      fprintf(stderr, "ERROR: incorrect password entered\n");
+      CAJ_ERROR("ERROR: incorrect password entered\n");
       g_checksum_free(ck);
       sqlite3_finalize(stmt);
       error_msg = "Incorrect username or password";
@@ -1264,7 +1269,7 @@ static void login_to_simulator(SoupServer *server,
       if(sim != NULL && sqlite3_column_type(stmt, 6) != SQLITE_NULL &&
 	 sscanf((const char*)sqlite3_column_text(stmt, 6), "<%f, %f, %f>",
 		&tx, &ty, &tz) == 3) {
-	printf("DEBUG: got initial position <%f, %f, %f>\n", tx, ty, tz);
+	CAJ_DEBUG("DEBUG: got initial position <%f, %f, %f>\n", tx, ty, tz);
 	pos.x = tx; pos.y = ty; pos.z = tz;
 	
 	if(sqlite3_column_type(stmt, 7) != SQLITE_NULL && 
@@ -1311,13 +1316,13 @@ static void login_to_simulator(SoupServer *server,
     sqlite3_stmt *stmt; int rc;
     rc = sqlite3_prepare_v2(grid->db, "SELECT wearable_id, item_id, asset_id FROM wearables WHERE user_id = ?;", -1, &stmt, NULL);
     if( rc ) {
-      fprintf(stderr, "Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
+      CAJ_ERROR("ERROR: Can't prepare user lookup: %s\n", sqlite3_errmsg(grid->db));
       goto out_fail;
     }
 
     uuid_unparse(uinfo.user_id, buf);
     if(sqlite3_bind_text(stmt, 1, buf, -1, SQLITE_TRANSIENT)) {
-      fprintf(stderr, "Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
+      CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
       sqlite3_finalize(stmt);
       goto out_fail;
     }
@@ -1329,7 +1334,7 @@ static void login_to_simulator(SoupServer *server,
       if(uuid_parse((const char*)sqlite3_column_text(stmt, 1), item_id)
 	 != 0 || uuid_parse((const char*)sqlite3_column_text(stmt, 2), 
 			      asset_id) != 0) {
-	fprintf(stderr, "ERROR: bad wearable entry in DB\n");
+	CAJ_ERROR("ERROR: bad wearable entry in DB\n");
 	goto next_wearable;
       }
       user_set_wearable(user, wearable_id, item_id, asset_id);
@@ -1338,7 +1343,7 @@ static void login_to_simulator(SoupServer *server,
     }
 
     if(rc != SQLITE_DONE) {
-      fprintf(stderr, "ERROR: when loading wearables: %s\n", 
+      CAJ_ERROR("ERROR: when loading wearables: %s\n", 
 	      sqlite3_errmsg(grid->db));
       sqlite3_finalize(stmt);
       goto out_fail;
@@ -1387,7 +1392,7 @@ static void login_to_simulator(SoupServer *server,
   { 
     uuid_parse("e219aca4-ed7a-4118-946a-35c270b3b09f", u); // HACK to get startup
     if(!find_inv_root(grid, agent_id, u)) {
-      printf("ERROR: couldn't find inventory root folder\n");
+      CAJ_ERROR("ERROR: couldn't find inventory root folder\n");
       // FIXME - error out here.
     }
     uuid_unparse(u, buf);
@@ -1561,15 +1566,16 @@ static void xmlrpc_handler (SoupServer *server,
 				SoupClientContext *client,
 				gpointer user_data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
+  GRID_PRIV_DEF_SGRP(sgrp);
   char *method_name;
   GValueArray *params;
 
   if(strcmp(path,"/") != 0) {
-    printf("DEBUG: request for unhandled path %s\n",
+    CAJ_DEBUG("DEBUG: request for unhandled path %s\n",
 	   path);
     if (msg->method == SOUP_METHOD_POST) {
-      printf("DEBUG: POST data is ~%s~\n",
-	     msg->request_body->data);
+      CAJ_DEBUG("DEBUG: POST data is ~%s~\n",
+		msg->request_body->data);
     }
     soup_message_set_status(msg,404);
     return;
@@ -1583,19 +1589,19 @@ static void xmlrpc_handler (SoupServer *server,
   if(!soup_xmlrpc_parse_method_call(msg->request_body->data,
 				    msg->request_body->length,
 				    &method_name, &params)) {
-    printf("Couldn't parse XMLRPC method call\n");
-    printf("DEBUG: ~%s~\n", msg->request_body->data);
+    CAJ_WARN("WARNING: Couldn't parse XMLRPC method call\n");
+    CAJ_DEBUG("DEBUG: ~%s~\n", msg->request_body->data);
     soup_message_set_status(msg,500);
     return;
   }
 
-  printf("DEBUG XMLRPC call: ~%s~\n", msg->request_body->data);
+  CAJ_DEBUG("DEBUG XMLRPC call: ~%s~\n", msg->request_body->data);
 
   if(strcmp(method_name, "login_to_simulator") == 0) {
     login_to_simulator(server, msg, params, sgrp);
     
   } else {
-    printf("DEBUG: unknown xmlrpc method %s called\n", method_name);
+    CAJ_INFO("INFO: unknown xmlrpc method %s called\n", method_name);
     g_value_array_free(params);
     soup_xmlrpc_set_fault(msg, SOUP_XMLRPC_FAULT_SERVER_ERROR_REQUESTED_METHOD_NOT_FOUND,
 			  "Method %s not found", method_name);
@@ -1631,7 +1637,7 @@ static void load_assets_2(sqlite3_stmt *stmt, standalone_grid_ctx *grid,
 
   GKeyFile *cfg = caj_parse_nini_xml(path);
   if(cfg == NULL) {
-    printf("WARNING: couldn't load asset set file %s\n", filename);
+    CAJ_WARN("WARNING: couldn't load asset set file %s\n", filename);
     return;
   }
 
@@ -1650,7 +1656,7 @@ static void load_assets_2(sqlite3_stmt *stmt, standalone_grid_ctx *grid,
     gchar* assetfile = g_key_file_get_value(cfg, sect_list[i], "fileName", NULL);
     if(assetid_str == NULL || name == NULL || assettype_str == NULL || 
        assetfile == NULL) {
-      printf("ERROR: bad entry %s in asset set %s\n", sect_list[i], filename);
+      CAJ_ERROR("ERROR: bad entry %s in asset set %s\n", sect_list[i], filename);
       goto out_cont;
     }
 
@@ -1659,7 +1665,7 @@ static void load_assets_2(sqlite3_stmt *stmt, standalone_grid_ctx *grid,
     data = read_whole_file(path, &datalen);
 
     if(data == NULL) {
-      printf("ERROR: can't read asset file %s\n", path);
+      CAJ_ERROR("ERROR: can't read asset file %s\n", path);
       goto out_cont;
     }
 
@@ -1668,14 +1674,14 @@ static void load_assets_2(sqlite3_stmt *stmt, standalone_grid_ctx *grid,
        sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT) ||
        sqlite3_bind_text(stmt, 3, "Default asset", -1, SQLITE_TRANSIENT) ||
        sqlite3_bind_int(stmt, 4, atoi(assettype_str))) {
-      fprintf(stderr, "ERROR: Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
+      CAJ_ERROR("ERROR: Can't bind sqlite params: %s\n", sqlite3_errmsg(grid->db));
       goto out_cont;
     }
 
     rc = sqlite3_step(stmt);
     
     if(rc != SQLITE_DONE && rc != SQLITE_CONSTRAINT) {
-      fprintf(stderr, "ERROR executing asset add statement: %s\n", 
+      CAJ_ERROR("ERROR executing asset add statement: %s\n", 
 	      sqlite3_errmsg(grid->db));
       goto out_cont;
     }
@@ -1693,13 +1699,13 @@ static bool load_initial_assets(standalone_grid_ctx *grid) {
   sqlite3_stmt *stmt; int rc;
   GKeyFile *asset_sets = caj_parse_nini_xml("assets/AssetSets.xml");
   if(asset_sets == NULL) {
-    printf("ERROR: couldn't load assets/AssetSets.xml\n");
+    CAJ_ERROR("ERROR: couldn't load assets/AssetSets.xml\n");
     return false;
   }
   
   rc = sqlite3_prepare_v2(grid->db, "INSERT INTO assets (id, name, description, asset_type, data) values (?, ?, ?, ?, ?);", -1, &stmt, NULL);
   if( rc ) {
-    fprintf(stderr, "ERROR: Can't prepare asset load query: %s\n", 
+    CAJ_ERROR("ERROR: Can't prepare asset load query: %s\n", 
 	    sqlite3_errmsg(grid->db));
     return false;
   }
@@ -1710,7 +1716,7 @@ static bool load_initial_assets(standalone_grid_ctx *grid) {
     gchar* filename = g_key_file_get_value(asset_sets, sect_list[i], "file", NULL);
 
     if(filename == NULL) {
-      printf("WARNING: bad section %s in assets/AssetSets.xml\n", sect_list[i]);
+      CAJ_WARN("WARNING: bad section %s in assets/AssetSets.xml\n", sect_list[i]);
     } else {
       load_assets_2(stmt, grid, filename);
     }
@@ -1753,14 +1759,14 @@ bool init_db(struct standalone_grid_ctx *grid) {
   int rc; int schema_version = 0;
   rc = sqlite3_open("standalone.sqlite", &grid->db);
   if( rc ){
-    fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(grid->db));
+    CAJ_ERROR("ERROR: Can't open database: %s\n", sqlite3_errmsg(grid->db));
     sqlite3_close(grid->db); return false;
   }
 
   rc = sqlite3_exec(grid->db, "PRAGMA foreign_keys = ON;", NULL, NULL, 
 		    NULL);
   if(rc) {
-    fprintf(stderr, "ERROR: Can't enable foreign keys: %s\n", 
+    CAJ_ERROR("ERROR: Can't enable foreign keys: %s\n", 
 	    sqlite3_errmsg(grid->db));
     sqlite3_close(grid->db); return false;
   }
@@ -1769,26 +1775,26 @@ bool init_db(struct standalone_grid_ctx *grid) {
 		    "name = 'cajeput_standalone';", schema_version_cb, 
 		    &schema_version, NULL);
   if(rc && rc != SQLITE_ERROR) {
-     fprintf(stderr, "ERROR: Can't query schema version: %i %s\n", 
+     CAJ_ERROR("ERROR: Can't query schema version: %i %s\n", 
 	     rc, sqlite3_errmsg(grid->db));
     sqlite3_close(grid->db); return false;
   }
 
   if(schema_version > CUR_SCHEMA_VERSION) {
-    fprintf(stderr, "ERROR: Schema version %i is too new\n", 
+    CAJ_ERROR("ERROR: Schema version %i is too new\n", 
 	    schema_version);
     sqlite3_close(grid->db); return false;
   } else if(schema_version == 0) {
-    fprintf(stderr, "Creating initial DB, please wait...\n");
+    CAJ_PRINT("Creating initial DB, please wait...\n");
     if(sqlite3_exec(grid->db, "BEGIN TRANSACTION;", NULL, NULL, 
 		    NULL)) {
-      fprintf(stderr, "ERROR: cannot begin transaction!");
+      CAJ_ERROR("ERROR: cannot begin transaction!");
       sqlite3_close(grid->db); return false;
     }
     for(int i = 0; create_db_stmts[i] != NULL; i++) {
       if(sqlite3_exec(grid->db, create_db_stmts[i], NULL, NULL, 
 		    NULL)) {
-	fprintf(stderr, "ERROR: cannot execute statement: %s",
+	CAJ_ERROR("ERROR: cannot execute statement: %s",
 		create_db_stmts[i]);
 	sqlite3_exec(grid->db, "ROLLBACK TRANSACTION;", NULL, NULL, 
 		     NULL);
@@ -1808,20 +1814,20 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     return false;
 
   struct standalone_grid_ctx *grid = new standalone_grid_ctx;
-  grid->sgrp = sgrp;
+  grid->sgrp = sgrp; grid->log = caj_get_logger(sgrp);
   *priv = grid;
 
   if(!init_db(grid)) {
     delete grid; return false;
   }
 
-  fprintf(stderr, "Loading initial assets to database...\n");
+  CAJ_PRINT("Loading initial assets to database...\n");
   if(!load_initial_assets(grid)) {
-    fprintf(stderr, "ERROR: can't load initial assets\n");
+    CAJ_ERROR("ERROR: can't load initial assets\n");
     sqlite3_close(grid->db);
     delete grid; return false;
   }
-  fprintf(stderr, "Initial assets loaded.\n");
+  CAJ_PRINT("Initial assets loaded.\n");
 
   hooks->do_grid_login = do_grid_login;
   hooks->map_block_request = map_block_request;

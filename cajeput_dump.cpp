@@ -33,6 +33,8 @@
 #include <assert.h> // HACK - remove this!
 #include <stdio.h>
 
+#define CAJ_LOGGER logger
+
 static int dump_write_u32(int fd, uint32_t val) {
   unsigned char buf[4];
   buf[0] = val >> 24; buf[1] = val >> 16; buf[2] = val >> 8; buf[3] = val;
@@ -314,7 +316,7 @@ static dump_desc caj_str_dump[] = {
   { 0, 0 }  
 };
 
-static int dump_object(int fd, dump_desc *dump, void *obj) {
+static int dump_object(int fd, dump_desc *dump, void *obj, caj_logger *logger) {
   char *data = (char*)obj;
   for(int i = 0; dump[i].type != 0; i++) {
     switch(dump[i].type) {
@@ -376,14 +378,14 @@ static int dump_object(int fd, dump_desc *dump, void *obj) {
 	break;
       }
     default:
-      printf("FIXME: bad type %i in dump_object\n", dump[i].type);
+      CAJ_ERROR("FIXME: bad type %i in dump_object\n", dump[i].type);
       return 1;
     }
   }
   return 0;
 }
 
-static int undump_object(int fd, dump_desc *dump, void *obj) {
+static int undump_object(int fd, dump_desc *dump, void *obj, caj_logger *logger) {
   char *data = (char*)obj;
   for(int i = 0; dump[i].type != 0; i++) {
     switch(dump[i].type) {
@@ -453,19 +455,20 @@ static int undump_object(int fd, dump_desc *dump, void *obj) {
 	break;
       }
     default:
-      printf("FIXME: bad type %i in undump_object\n", dump[i].type);
+      CAJ_ERROR("FIXME: bad type %i in undump_object\n", dump[i].type);
       return 1;
     }
   }
   return 0;
 }
 
-static int dump_prim_inv(int fd, simulator_ctx *sim, inventory_item *inv) {
+static int dump_prim_inv(int fd, simulator_ctx *sim, inventory_item *inv,
+			 caj_logger *logger) {
   if(dump_write_u32(fd, INV_MAGIC_V1)) return 1;
-  if(dump_object(fd, inv_dump_v1, inv)) return 1;
+  if(dump_object(fd, inv_dump_v1, inv, logger)) return 1;
   if(inv->asset_hack != NULL) {
     if(dump_write_u32(fd, ASSET_MAGIC_V1)) return 1;
-    if(dump_object(fd, asset_dump_v1, inv->asset_hack)) return 1;
+    if(dump_object(fd, asset_dump_v1, inv->asset_hack, logger)) return 1;
   }
   
   if(inv->inv_type == INV_TYPE_LSL) {
@@ -473,7 +476,7 @@ static int dump_prim_inv(int fd, simulator_ctx *sim, inventory_item *inv) {
     world_save_script_state(sim, inv, &script_st);
     if(script_st.len != 0 && script_st.data != NULL) {
       if(dump_write_u32(fd, SCRIPT_MAGIC_V1) ||
-	 dump_object(fd, caj_str_dump, &script_st)) {
+	 dump_object(fd, caj_str_dump, &script_st, logger)) {
 	caj_string_free(&script_st); return 1;      
       }
     }
@@ -483,10 +486,11 @@ static int dump_prim_inv(int fd, simulator_ctx *sim, inventory_item *inv) {
   return 0;
 }
 
-static int load_prim_inv_v1(int fd, inventory_item **inv_out) {
+static int load_prim_inv_v1(int fd, inventory_item **inv_out, 
+			    caj_logger *logger) {
   inventory_item *inv = new inventory_item();
   inv->name = inv->description = inv->creator_id = NULL;
-  if(undump_object(fd, inv_dump_v1, inv)) {
+  if(undump_object(fd, inv_dump_v1, inv, logger)) {
     free(inv->name); free(inv->description);
     free(inv->creator_id); delete inv;
     return 1;
@@ -495,11 +499,11 @@ static int load_prim_inv_v1(int fd, inventory_item **inv_out) {
   *inv_out = inv; return 0;
 }
 
-static int load_prim_asset_v1(int fd, inventory_item *inv) {
+static int load_prim_asset_v1(int fd, inventory_item *inv, caj_logger *logger) {
   simple_asset *asset = new simple_asset();
   asset->name = asset->description = NULL;
   asset->data.data = NULL;
-  if(undump_object(fd, asset_dump_v1, asset)) {
+  if(undump_object(fd, asset_dump_v1, asset, logger)) {
     free(asset->name); free(asset->description);
     free(asset->data.data); delete asset;
     return 1;
@@ -508,7 +512,7 @@ static int load_prim_asset_v1(int fd, inventory_item *inv) {
 }
 
 // FIXME - leaks memory in error case
-static int load_prim_inv(int fd, primitive_obj *prim) {
+static int load_prim_inv(int fd, primitive_obj *prim, caj_logger *logger) {
   prim->inv.alloc_items = prim->inv.num_items;
   prim->inv.items = (inventory_item**)calloc(prim->inv.alloc_items, sizeof(inventory_item*));
 
@@ -520,35 +524,35 @@ static int load_prim_inv(int fd, primitive_obj *prim) {
       switch(magic) {
       case 0: // terminating 0
 	if(prim->inv.items[i] == NULL) {
-	  printf("ERROR: bad prim inventory item\n");
+	  CAJ_ERROR("ERROR: bad prim inventory item\n");
 	  return 1;
 	}
 	break;
       case INV_MAGIC_V1: 
-	if(load_prim_inv_v1(fd, &prim->inv.items[i])) return 1;
+	if(load_prim_inv_v1(fd, &prim->inv.items[i], logger)) return 1;
 	break;
       case ASSET_MAGIC_V1:
 	if(prim->inv.items[i] == NULL || 
 	   prim->inv.items[i]->asset_hack != NULL) {
-	  printf("ERROR: bad prim inventory item\n");
+	  CAJ_ERROR("ERROR: bad prim inventory item\n");
 	  return 1;
 	}
-	if(load_prim_asset_v1(fd, prim->inv.items[i])) return 1;
+	if(load_prim_asset_v1(fd, prim->inv.items[i], logger)) return 1;
 	break;
       case SCRIPT_MAGIC_V1:
 	if(prim->inv.items[i] == NULL || 
 	   prim->inv.items[i]->spriv != NULL) {
-	  printf("ERROR: bad prim inventory item\n");
+	  CAJ_ERROR("ERROR: bad prim inventory item\n");
 	  return 1;
 	}
 	{
 	  caj_string data;
-	  if(undump_object(fd, caj_str_dump, &data)) return 1;
+	  if(undump_object(fd, caj_str_dump, &data, logger)) return 1;
 	  world_load_script_state(prim->inv.items[i], &data);
 	}
 	break;
       default:
-	printf("ERROR: bad/unsupported prim inventory magic\n");
+	CAJ_ERROR("ERROR: bad/unsupported prim inventory magic\n");
 	return 1;
       }
     } while(magic != 0);
@@ -557,14 +561,15 @@ static int load_prim_inv(int fd, primitive_obj *prim) {
   return 0;
 }
 
-static int dump_prim(int fd, simulator_ctx *sim, primitive_obj *prim) {
+static int dump_prim(int fd, simulator_ctx *sim, primitive_obj *prim, 
+		     caj_logger *logger) {
   if(dump_write_u32(fd, PRIM_MAGIC_V3)) return 1;
-  if(dump_object(fd, prim_dump_v3, prim)) return 1;
+  if(dump_object(fd, prim_dump_v3, prim, logger)) return 1;
   for(unsigned i = 0; i < prim->inv.num_items; i++) {
-    if(dump_prim_inv(fd, sim, prim->inv.items[i])) return 1;
+    if(dump_prim_inv(fd, sim, prim->inv.items[i], logger)) return 1;
   }
   for(int i = 0; i < prim->num_children; i++) {
-    if(dump_prim(fd, sim, (primitive_obj*)prim->children[i])) return 1;
+    if(dump_prim(fd, sim, (primitive_obj*)prim->children[i], logger)) return 1;
   }
   return 0;
 }
@@ -572,12 +577,12 @@ static int dump_prim(int fd, simulator_ctx *sim, primitive_obj *prim) {
 static void revivify_prim(simulator_ctx *sim, primitive_obj *prim, 
 			  int version);
 
-static int load_prim_v1(int fd, simulator_ctx *sim) {
+static int load_prim_v1(int fd, simulator_ctx *sim, caj_logger *logger) {
   primitive_obj *prim = new primitive_obj();
   prim->ob.type = OBJ_TYPE_PRIM;
   prim->name = prim->description = NULL;
   prim->tex_entry.data = NULL;
-  if(undump_object(fd, prim_dump_v1, prim)) {
+  if(undump_object(fd, prim_dump_v1, prim, logger)) {
     free(prim->name); free(prim->description);
     free(prim->tex_entry.data); delete prim;
     return 1;
@@ -587,13 +592,14 @@ static int load_prim_v1(int fd, simulator_ctx *sim) {
   return 0;
 }  
 
-static int load_prim_v2(int fd, simulator_ctx *sim) {
+static int load_prim_v2(int fd, simulator_ctx *sim, caj_logger *logger) {
   primitive_obj *prim = new primitive_obj();
   prim->ob.type = OBJ_TYPE_PRIM;
   prim->name = prim->description = NULL;
   prim->tex_entry.data = NULL; prim->hover_text = NULL;
   prim->inv.alloc_items = 0; prim->inv.items = NULL;
-  if(undump_object(fd, prim_dump_v2, prim) || load_prim_inv(fd, prim)) {
+  if(undump_object(fd, prim_dump_v2, prim, logger) ||
+     load_prim_inv(fd, prim, logger)) {
     free(prim->name); free(prim->description);
     free(prim->tex_entry.data); free(prim->hover_text);
     delete prim;
@@ -604,7 +610,8 @@ static int load_prim_v2(int fd, simulator_ctx *sim) {
   return 0;
 }  
 
-static primitive_obj* load_prim_v3_real(int fd, simulator_ctx *sim) {
+static primitive_obj* load_prim_v3_real(int fd, simulator_ctx *sim, 
+					caj_logger *logger) {
   primitive_obj *prim = new primitive_obj();
   prim->ob.type = OBJ_TYPE_PRIM;
   prim->name = prim->description = NULL;
@@ -612,7 +619,8 @@ static primitive_obj* load_prim_v3_real(int fd, simulator_ctx *sim) {
   prim->sit_name = NULL; prim->touch_name = NULL;
   prim->extra_params.data = NULL;
   prim->inv.alloc_items = 0; prim->inv.items = NULL;
-  if(undump_object(fd, prim_dump_v3, prim) || load_prim_inv(fd, prim)) {
+  if(undump_object(fd, prim_dump_v3, prim, logger) ||
+     load_prim_inv(fd, prim, logger)) {
     free(prim->name); free(prim->description);
     free(prim->tex_entry.data); free(prim->hover_text);
     free(prim->sit_name); free(prim->touch_name);
@@ -622,7 +630,7 @@ static primitive_obj* load_prim_v3_real(int fd, simulator_ctx *sim) {
   }
 
   if(prim->num_children < 0 || prim->num_children > 255) {
-    printf("RESTORE ERROR: prim with bad number of children\n");
+    CAJ_ERROR("RESTORE ERROR: prim with bad number of children\n");
     return NULL;
   }
 
@@ -632,15 +640,15 @@ static primitive_obj* load_prim_v3_real(int fd, simulator_ctx *sim) {
     uint32_t magic;
     if(dump_read_u32(fd, &magic)) return NULL;
     if(magic != PRIM_MAGIC_V3) return NULL;
-    prim->children[i] = load_prim_v3_real(fd, sim);
+    prim->children[i] = load_prim_v3_real(fd, sim, logger);
     if(prim->children[i] == NULL) return NULL;
   }
 
   return prim;
 }  
 
-static int load_prim_v3(int fd, simulator_ctx *sim) {
-  primitive_obj *prim = load_prim_v3_real(fd, sim);
+static int load_prim_v3(int fd, simulator_ctx *sim, caj_logger *logger) {
+  primitive_obj *prim = load_prim_v3_real(fd, sim, logger);
   if(prim == NULL) return 1;
   revivify_prim(sim, prim, 3);
   return 0;
@@ -689,66 +697,68 @@ static void revivify_prim(simulator_ctx *sim, primitive_obj *prim,
   
   revivify_prim_real(prim, version);
   world_insert_obj(sim, &prim->ob);
-  //printf("DEBUG: loaded a v%i prim from saved state\n", version);
+  //CAJ_DEBUG("DEBUG: loaded a v%i prim from saved state\n", version);
 }
 
 void world_int_dump_prims(simulator_ctx *sim) {
   char filename[256], fname_new[256]; // FIXME!!!
+  caj_logger *logger = sim->sgrp->log;
   snprintf(filename, 256, "simstate-%s.dat", sim->shortname);
   snprintf(fname_new, 256, "simstate-%s.dat.new", sim->shortname);  
   int fd = open(fname_new, O_WRONLY|O_CREAT|O_TRUNC, 0644);
   if(fd < 0) {
-    printf("ERROR: couldn't open file to save simstate\n"); return;
+    CAJ_ERROR("ERROR: couldn't open file to save simstate\n"); return;
   }
   for(std::map<uint32_t,world_obj*>::iterator iter = sim->localid_map.begin();
       iter != sim->localid_map.end(); iter++) {
     if(iter->second->type == OBJ_TYPE_PRIM) {
       primitive_obj *prim = (primitive_obj*) iter->second;
       if(prim->ob.parent == NULL) {
-	if(dump_prim(fd, sim, prim)) {
-	  printf("ERROR: dump_prims failed saving %lu\n", (unsigned long)prim->ob.local_id);
+	if(dump_prim(fd, sim, prim, logger)) {
+	  CAJ_ERROR("ERROR: dump_prims failed saving %lu\n", (unsigned long)prim->ob.local_id);
 	  close(fd); return;
 	}
       }
     }
   }
-  if(close(fd) < 0) { printf("ERROR: dump_prims write error?\n"); return; }
+  if(close(fd) < 0) { CAJ_ERROR("ERROR: dump_prims write error?\n"); return; }
   if(rename(fname_new, filename)) {
-    printf("ERROR: dump_prims failed to rename simstate\n"); return;
+    CAJ_ERROR("ERROR: dump_prims failed to rename simstate\n"); return;
   }
 }
 
 void world_int_load_prims(simulator_ctx *sim) {
+  caj_logger *logger = sim->sgrp->log;
   char filename[256]; // FIXME!!!
   snprintf(filename, 256, "simstate-%s.dat", sim->shortname);
   int fd = open(filename, O_RDONLY, 0644);
   if(fd < 0) {
-    printf("ERROR: couldn't open saved simstate\n"); return;
+    CAJ_ERROR("ERROR: couldn't open saved simstate\n"); return;
   }
   for(;;) {
     uint32_t val;
     if(dump_read_u32(fd, &val)) break;
     switch(val) {
     case PRIM_MAGIC_V1:
-      if(load_prim_v1(fd, sim)) {
-	printf("ERROR: failure loading v1 prim from saved simstate\n"); 
+      if(load_prim_v1(fd, sim, logger)) {
+	CAJ_ERROR("ERROR: failure loading v1 prim from saved simstate\n"); 
 	close(fd); exit(1);
       }
       break;
     case PRIM_MAGIC_V2:
-      if(load_prim_v2(fd, sim)) {
-	printf("ERROR: failure loading v2 prim from saved simstate\n"); 
+      if(load_prim_v2(fd, sim, logger)) {
+	CAJ_ERROR("ERROR: failure loading v2 prim from saved simstate\n"); 
 	close(fd); exit(1);
       }
       break;
     case PRIM_MAGIC_V3:
-      if(load_prim_v3(fd, sim)) {
-	printf("ERROR: failure loading v3 prim from saved simstate\n"); 
+      if(load_prim_v3(fd, sim, logger)) {
+	CAJ_ERROR("ERROR: failure loading v3 prim from saved simstate\n"); 
 	close(fd); exit(1);
       }
       break;
     default:
-      printf("ERROR: unexpected magic in simstate\n"); close(fd); exit(1);
+      CAJ_ERROR("ERROR: unexpected magic in simstate\n"); close(fd); exit(1);
     }
   }
   close(fd); 

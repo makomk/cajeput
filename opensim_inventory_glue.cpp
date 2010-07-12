@@ -243,7 +243,7 @@ static void got_inventory_items_resp(SoupSession *session, SoupMessage *msg, gpo
   struct inventory_contents* inv;
   user_grid_glue_deref(user_glue);
   if(msg->status_code != 200) {
-    printf("Inventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    printf("ERROR: Inventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto fail;
   }
 

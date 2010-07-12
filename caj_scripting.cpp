@@ -51,6 +51,8 @@
      You may be right, but on your own head be it!
 */
 
+#define CAJ_LOGGER (scr->simscr->log)
+
 #define DEBUG_CHANNEL 2147483647
 
 struct sim_script;
@@ -323,17 +325,17 @@ static void st_load_script(sim_script *scr) {
   scr->vm = NULL;
   int len;
   unsigned char *dat = read_file_data(scr->cvm_file, &len);
-  if(dat == NULL) { printf("ERROR: can't read script file?!\n"); return; }
+  if(dat == NULL) { CAJ_ERROR("ERROR: can't read script file?!\n"); return; }
 
   scr->vm = vm_load_script(scr->simscr->log, dat, len); free(dat);
-  if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
+  if(scr->vm == NULL) { CAJ_ERROR("ERROR: couldn't load script\n"); return; }
 
   vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
 }
 
 static void st_restore_script(sim_script *scr, caj_string *str) {
   scr->vm = vm_load_script(scr->simscr->log, str->data, str->len);
-  if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
+  if(scr->vm == NULL) { CAJ_ERROR("ERROR: couldn't load script\n"); return; }
 
   vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
 }
@@ -408,7 +410,7 @@ static void llSay_cb(script_state *st, void *sc_priv, int func_id) {
   int chan; char* message;
   vm_func_get_args(st, func_id, &chan, &message);
 
-  printf("DEBUG: llSay on %i: %s\n", chan, message);
+  CAJ_DEBUG("DEBUG: llSay on %i: %s\n", chan, message);
   do_say(scr, chan, message, CHAT_TYPE_NORMAL);
 
   vm_func_return(st, func_id);
@@ -435,7 +437,7 @@ static void llOwnerSay_cb(script_state *st, void *sc_priv, int func_id) {
   char* message;
   vm_func_get_args(st, func_id, &message);
 
-  printf("DEBUG: llOwnerSay: %s\n", message);
+  CAJ_DEBUG("DEBUG: llOwnerSay: %s\n", message);
   do_say(scr, 0, message, CHAT_TYPE_OWNER_SAY);
 
   vm_func_return(st, func_id);
@@ -624,7 +626,7 @@ static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &
 	  break;
 	default:
 	  debug_message_mt(scr, "llSetPrimitiveParams: Unknown prim type");
-	  printf("DEBUG: llSetPrimitiveParams prim type %i", what);
+	  CAJ_DEBUG("DEBUG: llSetPrimitiveParams unknown prim type %i", what);
 	  goto out;
 	}
       }
@@ -686,7 +688,7 @@ static void set_prim_params(sim_script *scr, heap_header *rules, world_spp_ctx &
       break;
     default: 
       debug_message_mt(scr, "llSetPrimitiveParams: Unknown rule type");
-      printf("DEBUG: llSetPrimitiveParams rule type %i", what);
+      CAJ_DEBUG("DEBUG: llSetPrimitiveParams: unknown rule type %i", what);
       goto out;
     }
   }
@@ -936,7 +938,7 @@ static void osTeleportAgent_loc_rpc(script_state *st, sim_script *scr, int func_
   // FIXME - needs better verification and protection!
   if(user != NULL) {
     uint64_t region_handle = ((uint64_t)x<<40)|((uint64_t)y<<8);
-    printf("DEBUG: teleporting to %llu\n", (long long unsigned)region_handle);
+    CAJ_DEBUG("DEBUG: teleporting to %llu\n", (long long unsigned)region_handle);
     user_teleport_location(user, region_handle, &pos, &look_at, FALSE);
   }
  out:
@@ -954,7 +956,7 @@ static void osTeleportAgent_name_rpc(script_state *st, sim_script *scr, int func
   user = user_find_ctx(scr->simscr->sim, user_id);
   // FIXME - needs better verification and protection!
   if(user != NULL) {
-    printf("DEBUG: teleporting to %s\n", region);
+    CAJ_DEBUG("DEBUG: teleporting to %s\n", region);
     user_teleport_by_region_name(user, region, &pos, &look_at, FALSE);
   }
  out:
@@ -1125,7 +1127,7 @@ static void llListen_rpc(script_state *st, sim_script *scr, int func_id) {
   }
   if(listen_id < 0) {
     if(scr->listens.size() >= MAX_LISTENS) {
-      printf("DEBUG: max listens exceeded\n");
+      CAJ_DEBUG("DEBUG: max listens exceeded\n");
       goto out; 
     } else {
       listen_id = scr->listens.size(); 
@@ -1166,13 +1168,13 @@ static void llListenRemove_rpc(script_state *st, sim_script *scr, int func_id) {
   vm_func_get_args(st, func_id, &listen_id);
   listen_id--; // we have an offset of 1;
   if(listen_id < 0 || listen_id >= (int)scr->listens.size()) {
-    printf("DEBUG: llListenRemove: listen ID out of range\n");
+    CAJ_DEBUG("DEBUG: llListenRemove: listen ID out of range\n");
     goto out;
   }
 
   listen = scr->listens[listen_id]; scr->listens[listen_id] = NULL;
   if(listen == NULL) {
-    printf("DEBUG: llListenRemove: listen ID invalid\n");
+    CAJ_DEBUG("DEBUG: llListenRemove: listen ID invalid\n");
     goto out;
   }
 
@@ -1330,7 +1332,7 @@ static gpointer script_thread(gpointer data) {
 	}
 
 	if(scr->state_entry) {
-	  printf("DEBUG: calling state_entry\n");
+	  CAJ_DEBUG("DEBUG: calling state_entry\n");
 	  scr->state_entry = 0;
 	  vm_call_event(scr->vm,EVENT_STATE_ENTRY);
 	} else if(scr->changed != 0) {
@@ -1342,7 +1344,7 @@ static gpointer script_thread(gpointer data) {
 	} else if(!scr->pending_events.empty()) {
 	  // FIXME - coalesce detected events into one call somehow
 	  
-	  printf("DEBUG: handing pending queued event\n");
+	  CAJ_DEBUG("DEBUG: handing pending queued event\n");
 	  generic_event *event = scr->pending_events.front();
 	  scr->pending_events.pop_front();
 	  switch(event->event_id) {
@@ -1372,7 +1374,7 @@ static gpointer script_thread(gpointer data) {
 	      break;
 	    }
 	  default:
-	    printf("INTERNAL ERROR: unhandled event type - impossible!\n");
+	    CAJ_DEBUG("INTERNAL ERROR: unhandled event type - impossible!\n");
 	    delete event;
 	    break;
 	  }
@@ -1426,44 +1428,44 @@ static gpointer script_thread(gpointer data) {
 	delete msg;
 	return NULL;
       case CAJ_SMSG_ADD_SCRIPT:
-	printf("DEBUG: handling ADD_SCRIPT\n");
+	CAJ_DEBUG_L(simscr->log, "DEBUG: handling ADD_SCRIPT\n");
 	g_static_mutex_lock(&simscr->vm_mutex);
 	msg->scr->time = g_timer_elapsed(simscr->timer, NULL);
 	st_load_script(msg->scr);
 	g_static_mutex_unlock(&simscr->vm_mutex);
 	if(msg->scr->vm != NULL) {
-	  printf("DEBUG: adding to run queue\n");
+	  CAJ_DEBUG_L(simscr->log, "DEBUG: adding to run queue\n");
 	  msg->scr->is_running = 1;
 	  list_insert_before(&msg->scr->list, &running);
 	  script_upd_evmask(msg->scr);
 	} else {
-	  printf("DEBUG: failed to load script\n");
+	  CAJ_DEBUG_L(simscr->log, "DEBUG: failed to load script\n");
 	  // FIXME - what to do?
 	  msg->scr->is_running = 0;
 	  list_insert_after(&msg->scr->list, &waiting);
 	}
 	break;
       case CAJ_SMSG_RESTORE_SCRIPT:
-	printf("DEBUG: handling RESTORE_SCRIPT\n");
+	CAJ_DEBUG_L(simscr->log, "DEBUG: handling RESTORE_SCRIPT\n");
 	g_static_mutex_lock(&simscr->vm_mutex);
 	msg->scr->time = g_timer_elapsed(simscr->timer, NULL);
 	st_restore_script(msg->scr, &msg->u.cstr);
 	g_static_mutex_unlock(&simscr->vm_mutex);
 	caj_string_free(&msg->u.cstr);
 	if(msg->scr->vm != NULL) {
-	  printf("DEBUG: adding to run queue\n");
+	  CAJ_DEBUG_L(simscr->log, "DEBUG: adding to run queue\n");
 	  msg->scr->is_running = 1;
 	  list_insert_before(&msg->scr->list, &running);
 	  script_upd_evmask(msg->scr);
 	} else {
-	  printf("DEBUG: failed to load script\n");
+	  CAJ_DEBUG_L(simscr->log, "DEBUG: failed to load script\n");
 	  // FIXME - what to do?
 	  msg->scr->is_running = 0;
 	  list_insert_after(&msg->scr->list, &waiting);
 	}
 	break;
       case CAJ_SMSG_KILL_SCRIPT:
-	printf("DEBUG: got KILL_SCRIPT\n");
+	CAJ_DEBUG_L(simscr->log, "DEBUG: got KILL_SCRIPT\n");
 	list_remove(&msg->scr->list);
 	st_update_timer_sched(msg->scr, 0.0);
 	if(msg->scr->vm != NULL) vm_free_script(msg->scr->vm);
@@ -1480,7 +1482,7 @@ static gpointer script_thread(gpointer data) {
 	break;
       case CAJ_SMSG_DETECTED:
 	if(msg->scr->pending_events.size() >= MAX_QUEUED_EVENTS) {
-	  printf("DEBUG: discarding script event due to queue size\n");
+	  CAJ_DEBUG_L(simscr->log, "DEBUG: discarding script event due to queue size\n");
 	  delete msg->u.event;
 	} else {
 	  msg->scr->pending_events.push_back(msg->u.event);
@@ -1528,11 +1530,11 @@ static void shutdown_scripting(struct simulator_ctx *sim, void *priv) {
   delete simscr;
 }
 
-static void save_script_text_file(caj_string *dat, char *name) {
+static void save_script_text_file(caj_logger *logger, caj_string *dat, char *name) {
   int len = dat->len;  if(len > 0 && dat->data[len-1] == 0) len--;
   int fd = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
   if(fd < 0) {
-    printf("ERROR: couldn't open script file for save\n"); return;
+    CAJ_ERROR_L(logger, "ERROR: couldn't open script file for save\n"); return;
   }
   int off = 0; ssize_t ret;
   while(off < len) {
@@ -1546,7 +1548,7 @@ static void save_script_text_file(caj_string *dat, char *name) {
 // internal function, main thread
 static void mt_free_script(sim_script *scr) {
   if(scr->vm != NULL) { 
-    printf("ERROR: mt_free_script before scr->vm freed. This will leak!\n");
+    CAJ_ERROR("ERROR: mt_free_script before scr->vm freed. This will leak!\n");
   }
   free(scr->cvm_file);
   delete scr;
@@ -1585,7 +1587,7 @@ static void compile_done(GPid pid, gint status,  gpointer data) {
   int success;
   sim_script *scr = (sim_script*)data;
   g_spawn_close_pid(pid);
-  printf("DEBUG: script compile done, result %i\n", status);
+  CAJ_DEBUG("DEBUG: script compile done, result %i\n", status);
   
   if(WIFEXITED(status) && WEXITSTATUS(status) == 0) {
     success = 1;
@@ -1593,7 +1595,7 @@ static void compile_done(GPid pid, gint status,  gpointer data) {
       mt_enable_script(scr);
     }
   } else {
-    printf("ERROR: script compile failed\n");
+    CAJ_DEBUG("ERROR: script compile failed\n");
     success = 0;
     scr->mt_state = SCR_MT_COMPILE_ERROR;
   }
@@ -1670,12 +1672,13 @@ static void* add_script(simulator_ctx *sim, void *priv, primitive_obj *prim,
   snprintf(srcname, 60, "script_tmp/%s.lsl", buf); 
   snprintf(binname, 60, "script_tmp/%s.cvm", buf);
   printf("DEBUG: compiling and adding script\n");
-  save_script_text_file(&asset->data, srcname);
+  save_script_text_file(simscr->log, &asset->data, srcname);
   
   args[0] = "./lsl_compile"; args[1] = srcname; args[2] = binname; args[3] = 0;
   if(!g_spawn_async_with_pipes(NULL, args, NULL, G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, 
 			       &pid, NULL, &stdout_compile, &stderr_compile, NULL)) {
-    printf("ERROR: couldn't launch script compiler\n"); return NULL;
+    CAJ_ERROR_L(simscr->log, "ERROR: couldn't launch script compiler\n");
+    return NULL;
   }
 
   sim_script *scr = new sim_script(prim, simscr);
@@ -1808,7 +1811,8 @@ static void handle_touch(simulator_ctx *sim, void *priv, void *script,
     case CAJ_TOUCH_CONT: event_id = EVENT_TOUCH; break;
     case CAJ_TOUCH_END: event_id = EVENT_TOUCH_END; break;
     default:
-      printf("FIXME: unhandled touch type\n"); return;
+      CAJ_ERROR("FIXME: unhandled touch type\n"); 
+      return;
     }
 
     detected_event *det = new detected_event();
@@ -1835,7 +1839,8 @@ static void handle_collision(simulator_ctx *sim, void *priv, void *script,
     case CAJ_COLLISION_CONT: event_id = EVENT_COLLISION; break;
     case CAJ_COLLISION_END: event_id = EVENT_COLLISION_END; break;
     default:
-      printf("FIXME: unhandled touch type\n"); return;
+      CAJ_ERROR("FIXME: unhandled collision type\n"); 
+      return;
     }
 
     detected_event *det = new detected_event();
@@ -1949,8 +1954,8 @@ static gboolean mt_process_queued(gpointer data) {
       break;
     case CAJ_SMSG_EVMASK:
       if(msg->scr->prim != NULL) {
-	printf("DEBUG: got new script evmask 0x%x for %p in main thread\n",
-	       (unsigned)msg->u.evmask, msg->scr);
+	CAJ_DEBUG_L(simscr->log, "DEBUG: got new script evmask 0x%x for %p in main thread\n",
+		    (unsigned)msg->u.evmask, msg->scr);
 	msg->scr->evmask = msg->u.evmask;
 	world_set_script_evmask(msg->scr->simscr->sim, msg->scr->prim, 
 				msg->scr, msg->u.evmask);
@@ -1976,7 +1981,7 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
     sgrp_config_get_bool(sim_get_simgroup(sim), "script", 
 			 "enable_unsafe_funcs", NULL);
   if(enable_unsafe_funcs) {
-    printf("!!! WARNING !!!\n"
+    CAJ_WARN_L(simscr->log, "!!! WARNING !!!\n"
 	   "You have enabled the use of unsafe scripting functions.\n"
 	   "Do *NOT* do this on a publicly-accessible region\n"
 	   "!!! WARNING !!!\n");
@@ -2142,7 +2147,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   simscr->thread = g_thread_create(script_thread, simscr, TRUE, NULL);
   assert(simscr->to_st != NULL); assert(simscr->to_mt != NULL); 
   if(simscr->thread == NULL) {
-    printf("ERROR: couldn't create script thread\n"); exit(1);
+    CAJ_ERROR_L(simscr->log, "ERROR: couldn't create script thread\n"); 
+    exit(1);
   }
 
   mkdir("script_tmp/", 0755);

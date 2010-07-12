@@ -29,10 +29,11 @@
 
 // -- START of caps code --
 
+#define CAJ_LOGGER (sim->sgrp->log)
+
 // Note - length of this is hardcoded places
 // Also note - the OpenSim grid server kinda assumes this path.
 #define CAPS_PATH "/CAPS"
-
 
 struct cap_descrip {
   struct simgroup_ctx *sgrp;
@@ -57,7 +58,7 @@ struct cap_descrip* caps_new_capability_named(struct simulator_ctx *sim,
   if(len == 0 || desc->cap[len-1] != '/') {
     desc->cap[len] = '/'; desc->cap[len+1] = 0;
   }
-  printf("DEBUG: Adding capability %s\n", desc->cap);
+  CAJ_DEBUG("DEBUG: Adding capability %s\n", desc->cap);
   sim->sgrp->caps[desc->cap] = desc;
   
   return desc;
@@ -105,7 +106,7 @@ static void caps_handler (SoupServer *server,
 			  SoupClientContext *client,
 			  gpointer user_data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
-  printf("Got request: %s %s\n",msg->method, path);
+  CAJ_DEBUG_L(sgrp->log, "Got request: %s %s\n",msg->method, path);
   if(strncmp(path,CAPS_PATH "/",6) == 0) {
     path += 6;
     std::map<std::string,cap_descrip*>::iterator it;
@@ -215,13 +216,14 @@ static void free_update_script_desc(user_ctx* ctx, void *priv) {
 
 static void update_script_compiled_cb(void *priv, int success, 
 				      const char* output, int output_len) {
-  printf("DEBUG: in update_script_compiled_cb\n");
   update_script_desc *upd = (update_script_desc*)priv;
+  CAJ_DEBUG_L(upd->sim->sgrp->log, "DEBUG: in update_script_compiled_cb\n");
   soup_server_unpause_message(upd->sim->sgrp->soup, upd->msg);
   sim_shutdown_release(upd->sim);
   if(upd->ctx != NULL) {
     caj_llsd *resp; caj_llsd *errors;
-    printf("DEBUG: sending %s script compile response\n", success ? "successful" : "unsuccessful");
+    CAJ_DEBUG_L(upd->sim->sgrp->log,  "DEBUG: sending %s script compile response\n", 
+		success ? "successful" : "unsuccessful");
     resp = llsd_new_map();
     llsd_map_append(resp,"state",llsd_new_string("complete"));
     llsd_map_append(resp,"new_asset",llsd_new_uuid(upd->asset_id));
@@ -254,6 +256,7 @@ static void update_script_compiled_cb(void *priv, int success,
 static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   update_script_desc *upd = (update_script_desc*)user_data;
   primitive_obj * prim; inventory_item *inv;
+  simulator_ctx *sim = ctx->sim;
   
   if (msg->method != SOUP_METHOD_POST) {
     soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
@@ -265,17 +268,17 @@ static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_dat
   caps_remove(upd->cap);
   user_remove_delete_hook(ctx, free_update_script_desc, upd);
 
-  // printf("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
+  // CAJ_DEBUG("Got UpdateScriptTask data >%s<\n", msg->request_body->data);
 
   struct world_obj* obj = world_object_by_id(ctx->sim, upd->task_id);
   if(obj == NULL) {
-    printf("ERROR: UpdateScriptTask for non-existent object\n");
+    CAJ_WARN("ERROR: UpdateScriptTask for non-existent object\n");
     goto out_fail;
   } else if(!user_can_modify_object(ctx, obj)) {
-    printf("ERROR: UpdateScriptTask with insufficient permissions on object\n");
+    CAJ_WARN("ERROR: UpdateScriptTask with insufficient permissions on object\n");
     goto out_fail;
   } else if(obj->type != OBJ_TYPE_PRIM) {
-    printf("ERROR: UpdateScriptTask for non-prim object\n");
+    CAJ_WARN("ERROR: UpdateScriptTask for non-prim object\n");
     goto out_fail;
   }
   prim = (primitive_obj*) obj;
