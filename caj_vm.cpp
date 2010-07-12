@@ -2576,11 +2576,17 @@ static void llGetSubString_cb(script_state *st, void *sc_priv, int func_id) {
   if(end < 0) end = 0;
   end++; // LSL uses ranges that include end
   if(end > len) end = len;
-  // FIXME - our handling of begin > end is sensible, but possibly 
-  // too sensible for LSL?
-  if(begin > end) begin = end;
-  src[end] = 0; 
-  vm_func_set_str_ret(st, func_id, src+begin);
+  if(begin > len) begin = len;
+  if(begin > end) {
+    // Yes, this is utterly bizarre, but it seems to be what LSL expects!
+    // No doubt there are still subtle incompatibilities lurking here, though.
+    memmove(src+end, src+begin, len-begin);
+    src[end+len-begin] = 0;
+    vm_func_set_str_ret(st, func_id, src);
+  } else {
+    src[end] = 0; 
+    vm_func_set_str_ret(st, func_id, src+begin);
+  }
   free(src);
   vm_func_return(st, func_id);  
 }
@@ -2595,15 +2601,19 @@ static void llDeleteSubString_cb(script_state *st, void *sc_priv, int func_id) {
   if(end < 0) end = 0;
   end++; // LSL uses ranges that include end
   if(end > len) end = len;
-  // FIXME - our handling of begin > end is sensible, but possibly 
-  // too sensible for LSL?
-  if(begin > end) begin = end;
-  char *left = src+begin, *right = src+end;
-  for( ; right != NULL; left++, right++) {
-    *left = *right;
+  if(begin > len) begin = len;
+  if(begin > end) {
+    // not sure this is quite right, but...
+    src[begin] = 0;
+    vm_func_set_str_ret(st, func_id, src+end);
+  } else {
+    char *left = src+begin, *right = src+end;
+    for( ; *right != 0; left++, right++) {
+      *left = *right;
+    }
+    *left = 0;
+    vm_func_set_str_ret(st, func_id, src);
   }
-  *left = NULL;
-  vm_func_set_str_ret(st, func_id, src);
   free(src);
   vm_func_return(st, func_id);  
 }
