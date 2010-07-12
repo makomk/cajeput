@@ -25,6 +25,9 @@
 #include <map>
 #include <string>
 #include "cajeput_grid_glue.h"
+#include "caj_logging.h"
+
+#define CAJ_LOGGER (grid->log)
 
 struct user_name {
   char *first, *last;
@@ -33,6 +36,7 @@ struct user_name {
 struct grid_glue_ctx {
   int old_xmlrpc_grid_proto, new_userserver, use_xinventory;
   simgroup_ctx *sgrp;
+  caj_logger *log;
   gchar *userserver, *gridserver, *assetserver;
   gchar *inventoryserver;
   gchar *grid_recvkey, *grid_sendkey;

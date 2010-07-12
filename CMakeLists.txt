@@ -18,7 +18,7 @@ add_library(openjpeg STATIC libopenjpeg/bio.c libopenjpeg/cio.c libopenjpeg/dwt.
 
 add_custom_target(make_caj_version ALL COMMAND ./make_caj_version.sh DEPENDS caj_version.c.in)
 
-add_executable(cajeput_sim cajeput_main.cpp cajeput_caps.cpp caj_llsd.c physics_bullet.cpp cajeput_inventory.cpp cajeput_assets.cpp opensim_xml_glue.cpp cajeput_j2k.c terrain_compress.c cajeput_anims.c cajeput_evqueue.cpp cajeput_hooks.cpp caj_parse_nini.c caj_scripting.cpp caj_types.cpp caj_vm.cpp cajeput_dump.cpp cajeput_world.cpp cajeput_user.cpp caj_version.c caj_version.h caj_vm_insns.h)
+add_executable(cajeput_sim cajeput_main.cpp cajeput_caps.cpp caj_logging.cpp caj_llsd.c physics_bullet.cpp cajeput_inventory.cpp cajeput_assets.cpp opensim_xml_glue.cpp cajeput_j2k.c terrain_compress.c cajeput_anims.c cajeput_evqueue.cpp cajeput_hooks.cpp caj_parse_nini.c caj_scripting.cpp caj_types.cpp caj_vm.cpp cajeput_dump.cpp cajeput_world.cpp cajeput_user.cpp caj_version.c caj_version.h caj_vm_insns.h)
 set_source_files_properties(caj_version.c PROPERTIES GENERATED 1)
 add_dependencies(cajeput_sim make_caj_version)
 

@@ -26,6 +26,7 @@
 #include "caj_vm.h"
 #include "caj_version.h"
 #include "caj_script.h"
+#include "caj_logging.h"
 #include <fcntl.h>
 #include <deque>
 #include <set>
@@ -80,6 +81,7 @@ struct sim_scripts {
   GAsyncQueue *to_st;
   GAsyncQueue *to_mt;
   vm_world *vmw;
+  caj_logger *log;
 
   // this is evil. It allows the main thread to access the VM data structures.
   // However, it's intentionally *not* used for RPC calls in the main thread.
@@ -323,14 +325,14 @@ static void st_load_script(sim_script *scr) {
   unsigned char *dat = read_file_data(scr->cvm_file, &len);
   if(dat == NULL) { printf("ERROR: can't read script file?!\n"); return; }
 
-  scr->vm = vm_load_script(dat, len); free(dat);
+  scr->vm = vm_load_script(scr->simscr->log, dat, len); free(dat);
   if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
 
   vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
 }
 
 static void st_restore_script(sim_script *scr, caj_string *str) {
-  scr->vm = vm_load_script(str->data, str->len);
+  scr->vm = vm_load_script(scr->simscr->log, str->data, str->len);
   if(scr->vm == NULL) { printf("ERROR: couldn't load script\n"); return; }
 
   vm_prepare_script(scr->vm, scr, scr->simscr->vmw); 
@@ -1980,7 +1982,8 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
 	   "!!! WARNING !!!\n");
   }
 
-  simscr->sim = sim;
+  simscr->sim = sim; 
+  simscr->log = caj_get_logger(sim_get_simgroup(sim));
   simscr->vmw = vm_world_new(state_change_cb);
   vm_world_add_event(simscr->vmw, "state_entry", VM_TYPE_NONE, EVENT_STATE_ENTRY, 0);
   vm_world_add_event(simscr->vmw, "touch_start", VM_TYPE_NONE, EVENT_TOUCH_START,

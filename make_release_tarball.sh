@@ -35,7 +35,7 @@ fi
 
 CAJ_PREFIX="cajeput-$CAJ_VERSION"
 CAJ_TARBALL="$CAJ_PREFIX.tar"
-CAJ_TARBALL_BZ="$CAJ_TARBALL.bz2"
+CAJ_TARBALL_BZ2="$CAJ_TARBALL.bz2"
 
 if [ -e "$CAJ_TARBALL" ]; then
     echo "Error: $CAJ_TARBALL already exists"
@@ -43,7 +43,7 @@ if [ -e "$CAJ_TARBALL" ]; then
 fi
 
 if [ -e "$CAJ_TARBALL_BZ" ]; then
-    echo "Error: $CAJ_TARBALL_BZ already exists"
+    echo "Error: $CAJ_TARBALL_BZ2 already exists"
     exit 1
 fi
 

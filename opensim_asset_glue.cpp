@@ -23,6 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
+#include "caj_logging.h"
 #include <libsoup/soup.h>
 #include "caj_types.h"
 #include <uuid/uuid.h>
@@ -64,6 +65,7 @@ static xml_serialisation_desc deserialise_asset[] = {
 static void get_asset_resp(SoupSession *session, SoupMessage *msg, 
 			   gpointer user_data) {
   asset_req_desc* req = (asset_req_desc*)user_data;
+  GRID_PRIV_DEF_SGRP(req->sgrp);
   simple_asset *asset = req->asset;
   xmlDocPtr doc; os_asset oasset;
   oasset.data.data = NULL;
@@ -71,7 +73,7 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
      soup_message_headers_get_content_type(msg->response_headers, NULL); */
   caj_shutdown_release(req->sgrp);
 
-  printf("Get asset resp: got %i %s (len %i)\n",
+  CAJ_DEBUG("Get asset resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
 	 (int)msg->response_body->length);
   // printf("{%s}\n", msg->response_body->data);
@@ -81,7 +83,7 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
 				  msg->response_body->length,"asset.xml",
 				  NULL,0);
     if(doc == NULL) {
-      printf("ERROR: XML parse failed for asset\n");
+      CAJ_ERROR("ERROR: XML parse failed for asset\n");
       goto out_fail;
     }
 
@@ -92,12 +94,12 @@ static void get_asset_resp(SoupSession *session, SoupMessage *msg,
 
     if(!osglue_deserialise_xml(doc, node, deserialise_asset,
 			       &oasset)) {
-      printf("ERROR: couldn't deserialise asset XML\n");
+      CAJ_ERROR("ERROR: couldn't deserialise asset XML\n");
       goto out_fail_free;
     }
 
     if(uuid_compare(oasset.full_id, asset->id) != 0) {
-      printf("WARNING: returned asset from asset server has unexpected ID\n");
+      CAJ_WARN("WARNING: returned asset from asset server has unexpected ID\n");
     }
       
     caj_string_steal(&asset->data, &oasset.data);
@@ -131,7 +133,7 @@ void osglue_get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
 
   uuid_unparse(asset->id, asset_id);
   snprintf(url, 255, "%sassets/%s/", grid->assetserver, asset_id);
-  printf("DEBUG: requesting asset %s\n", url);
+  CAJ_DEBUG("DEBUG: requesting asset %s\n", url);
 
   SoupMessage *msg = soup_message_new ("GET", url);
   asset_req_desc *req = new asset_req_desc;
@@ -153,14 +155,15 @@ static void put_asset_resp(SoupSession *session, SoupMessage *msg,
 			   gpointer user_data) {
   uuid_t asset_id;
   put_asset_req_desc* req = (put_asset_req_desc*)user_data;
+  GRID_PRIV_DEF_SGRP(req->sgrp);
   /* const char* content_type = 
      soup_message_headers_get_content_type(msg->response_headers, NULL); */
   caj_shutdown_release(req->sgrp);
 
-  printf("Upload asset resp: got %i %s (len %i)\n",
+  CAJ_DEBUG("Upload asset resp: got %i %s (len %i)\n",
 	 (int)msg->status_code, msg->reason_phrase, 
 	 (int)msg->response_body->length);
-  printf("{%s}\n", msg->response_body->data);
+  CAJ_DEBUG("{%s}\n", msg->response_body->data);
 
   if(msg->status_code == 200) {
     uuid_copy(asset_id, req->asset_id);
@@ -170,12 +173,12 @@ static void put_asset_resp(SoupSession *session, SoupMessage *msg,
     if(doc != NULL) {
       xmlNodePtr node = xmlDocGetRootElement(doc);
       if(strcmp((char*)node->name, "string") != 0) {
-	printf("ERROR: unexpected XML response from asset upload\n");
+	CAJ_ERROR("ERROR: unexpected XML response from asset upload\n");
 	uuid_clear(asset_id);
       } else {
 	xmlChar *text = xmlNodeListGetString(doc, node->children, 1);
 	if(text == NULL || uuid_parse((char*)text, asset_id)) {
-	  printf("ERROR: bad XML response from asset upload\n");
+	  CAJ_ERROR("ERROR: bad XML response from asset upload\n");
 	  uuid_clear(asset_id);
 	}
 	xmlFree(text);
@@ -184,7 +187,7 @@ static void put_asset_resp(SoupSession *session, SoupMessage *msg,
     }
     req->cb(asset_id, req->cb_priv);
   } else {
-    printf("ERROR: asset upload failed\n");
+    CAJ_WARN("ERROR: asset upload failed\n");
     uuid_clear(asset_id);
     req->cb(asset_id, req->cb_priv);
   }
@@ -213,10 +216,10 @@ void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
 
   uuid_unparse(asset->id, asset_id);
   snprintf(url, 255, "%sassets/", grid->assetserver);
-  printf("DEBUG: uploading asset %s\n", asset_id);
+  CAJ_DEBUG("DEBUG: uploading asset %s\n", asset_id);
   
   if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0) {
-    printf("DEBUG: couldn't start XML document\n"); goto fail;
+    CAJ_ERROR("ERROR: couldn't start XML document\n"); goto fail;
   }
   
   if(xmlTextWriterStartElement(writer, BAD_CAST "AssetBase") < 0) goto fail;  
@@ -229,15 +232,15 @@ void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
   oasset.local = FALSE; oasset.temporary = FALSE;
   if(!osglue_serialise_xml(writer, deserialise_asset, &oasset)) {
 
-    printf("DEBUG: error serialising asset\n"); goto fail;
+    CAJ_ERROR("ERROR: error serialising asset\n"); goto fail;
   }
     
   if(xmlTextWriterEndElement(writer) < 0) {
-    printf("DEBUG: error writing end element\n"); goto fail;
+    CAJ_ERROR("ERROR: error writing end element\n"); goto fail;
   }
   
   if(xmlTextWriterEndDocument(writer) < 0) {
-    printf("DEBUG: couldn't end XML document\n"); goto fail;
+    CAJ_ERROR("ERROR: couldn't end XML document\n"); goto fail;
     
   }
 
@@ -261,6 +264,6 @@ void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
  fail:
   xmlFreeTextWriter(writer);
   xmlBufferFree(buf);
-  printf("ERROR: couldn't format asset store request\n");
+  CAJ_ERROR("ERROR: couldn't format asset store request\n");
   return;
 }

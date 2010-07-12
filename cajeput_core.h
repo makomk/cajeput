@@ -38,6 +38,7 @@ struct user_ctx;
 struct simulator_ctx;
 struct simgroup_ctx;
 struct cap_descrip;
+struct caj_logger;
 
 // --- START sim query code ---
 
@@ -55,6 +56,7 @@ uint16_t sim_get_http_port(struct simulator_ctx *sim);
 uint16_t sim_get_udp_port(struct simulator_ctx *sim);
 struct simulator_ctx* caj_local_sim_by_region_handle(struct simgroup_ctx *sgrp,
 						     uint64_t region_handle);
+struct caj_logger* caj_get_logger(struct simgroup_ctx *sgrp);
 void* caj_get_grid_priv(struct simgroup_ctx *sgrp);
 void caj_set_grid_priv(struct simgroup_ctx *sgrp, void* p);
 void* sim_get_grid_priv(struct simulator_ctx *sim);

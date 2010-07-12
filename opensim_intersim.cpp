@@ -136,7 +136,7 @@ static char* make_child_cap(user_ctx *user, uint64_t region_handle) {
   }
 }
 
-static void fill_in_child_caps(user_ctx *user, JsonNode *node) {
+static void fill_in_child_caps(user_ctx *user, JsonNode *node, grid_glue_ctx *grid) {
   USER_PRIV_DEF2(user);
   assert(user_glue != NULL);
   if(node == NULL|| JSON_NODE_TYPE(node) != JSON_NODE_ARRAY) 
@@ -147,21 +147,21 @@ static void fill_in_child_caps(user_ctx *user, JsonNode *node) {
   for(int i = 0; i < len; i++) {
     JsonNode* item = json_array_get_element(arr,i);
     if(item == NULL || JSON_NODE_TYPE(item) != JSON_NODE_OBJECT) {
-      printf("ERROR: Child cap item not object\n"); continue;
+      CAJ_WARN("ERROR: Child cap item not object\n"); continue;
     }
     JsonObject* obj = json_node_get_object(item);
     const char *handle = helper_json_get_string(obj,"handle");
     const char *seed = helper_json_get_string(obj,"seed");
     if(handle == NULL || seed == NULL) {
-      printf("ERROR: Child cap item bad\n"); continue;
+      CAJ_WARN("ERROR: Child cap item bad\n"); continue;
     }
     uint64_t region_handle = atoll(handle);
     user_glue->child_seeds[region_handle] = std::string(seed);
-    printf(" DEBUG:  filled in child cap %s: %s\n", handle, seed);
+    CAJ_DEBUG(" DEBUG:  filled in child cap %s: %s\n", handle, seed);
   }
 }
 
-static void set_wearables_from_json(user_ctx *user, JsonNode *node) {
+static void set_wearables_from_json(user_ctx *user, JsonNode *node, grid_glue_ctx *grid) {
   JsonArray *arr; int len;
    if(node == NULL || JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
      return;
@@ -173,34 +173,35 @@ static void set_wearables_from_json(user_ctx *user, JsonNode *node) {
      uuid_t item_id, asset_id;
      if(helper_json_to_uuid(json_array_get_element(arr, i), item_id) ||
 	helper_json_to_uuid(json_array_get_element(arr, i+1), asset_id)) {
-       printf("ERROR: failed to extract wearable %i from JSON\n",i/2);
+       CAJ_ERROR("ERROR: failed to extract wearable %i from JSON\n",i/2);
      } else {
        user_set_wearable(user, i/2, item_id, asset_id);
      }
    }
 
-   printf("DEBUG: set wearables from JSON\n");
+   CAJ_DEBUG("DEBUG: set wearables from JSON\n");
 }
 
 static void agent_POST_stage2(void *priv, int is_ok) {
   int is_child = 0; uint64_t region_handle;
   char seed_cap[50]; const char *caps_path, *s;
   agent_POST_state* st = (agent_POST_state*)priv;
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
   struct sim_new_user uinfo; JsonNode *node;
   user_ctx *user; simulator_ctx *sim;
  
   soup_server_unpause_message(st->server,st->msg);
   if(helper_json_get_uuid(object, "agent_id", uinfo.user_id)) {
-    printf("DEBUG agent POST: couldn't get agent_id\n");
+    CAJ_ERROR("ERROR: agent POST: couldn't get agent_id\n");
     is_ok = 0; goto out;
   }
   if(helper_json_get_uuid(object, "session_id", uinfo.session_id)) {
-    printf("DEBUG agent POST: couldn't get session_id\n");
+    CAJ_ERROR("ERROR: agent POST: couldn't get session_id\n");
     is_ok = 0; goto out;
   }
   if(helper_json_get_uuid(object, "secure_session_id", uinfo.secure_session_id)) {
-    printf("DEBUG agent POST: couldn't get secure_session_id\n");
+    CAJ_ERROR("ERROR: agent POST: couldn't get secure_session_id\n");
     is_ok = 0; goto out;
   }
 
@@ -211,13 +212,13 @@ static void agent_POST_stage2(void *priv, int is_ok) {
     uint32_t region_x, region_y;
     s = helper_json_get_string(object, "destination_x");
     if(s == NULL) {
-      printf("DEBUG agent POST: couldn't get region X pos\n");
+      CAJ_ERROR("ERROR: agent POST: couldn't get region X pos\n");
       is_ok = 0; goto out;
     }
     region_x = atol(s);
     s = helper_json_get_string(object, "destination_y");
     if(s == NULL) {
-      printf("DEBUG agent POST: couldn't get region Y pos\n");
+      CAJ_ERROR("ERROR: agent POST: couldn't get region Y pos\n");
       is_ok = 0; goto out;
     }
     region_y = atol(s);
@@ -226,13 +227,13 @@ static void agent_POST_stage2(void *priv, int is_ok) {
     region_handle = atoll(s);
   }
   if(region_handle == 0) {
-    printf("DEBUG agent POST: bogus region handle\n");
+    CAJ_ERROR("ERROR: agent POST: bogus region handle\n");
     is_ok = 0; goto out;    
   }
 
   sim = caj_local_sim_by_region_handle(st->sgrp, region_handle);
   if(sim == NULL) {
-    printf("DEBUG agent POST: not one of our regions\n");
+    CAJ_ERROR("ERROR: agent POST: not one of our regions\n");
     is_ok = 0; goto out;
   }
 
@@ -240,20 +241,20 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   uinfo.first_name = (char*)helper_json_get_string(object, "first_name");
   uinfo.last_name = (char*)helper_json_get_string(object, "last_name");
   if(uinfo.first_name == NULL || uinfo.last_name == NULL) {
-    printf("DEBUG agent POST: couldn't get user name\n");
+    CAJ_ERROR("ERROR: agent POST: couldn't get user name\n");
     is_ok = 0; goto out;
   }
   caps_path = (char*)helper_json_get_string(object, "caps_path");
   s = (char*)helper_json_get_string(object, "circuit_code");
   if(caps_path == NULL || s == NULL) {
-    printf("DEBUG agent POST: caps path or circuit_code missing\n");
+    CAJ_ERROR("ERROR: agent POST: caps path or circuit_code missing\n");
     is_ok = 0; goto out;
   }
   uinfo.circuit_code = atol(s);
   if(helper_json_get_boolean(object, "child", &is_child)) {
     // HACK - this is now used for initial login, but without the "child"
     // element!
-    printf("DEBUG agent POST: \"child\" attribute missing (non-fatal)\n");
+    CAJ_ERROR("ERROR: agent POST: \"child\" attribute missing (non-fatal)\n");
     //is_ok = 0; goto out;    
     is_child = FALSE; 
   }
@@ -267,13 +268,13 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   user = sim_prepare_new_user(sim, &uinfo);
 
   if(user != NULL) {
-    fill_in_child_caps(user, json_object_get_member(object,"children_seeds"));
+    fill_in_child_caps(user, json_object_get_member(object,"children_seeds"), grid);
     add_child_cap(user, region_handle, caps_path);
 
     // used for the initial login
     node = json_object_get_member(object,"wearables");
     if(node != NULL) {
-      set_wearables_from_json(user, node);
+      set_wearables_from_json(user, node, grid);
     }
 
     caj_vector3 start_pos;
@@ -306,18 +307,18 @@ static void agent_POST_handler(SoupServer *server,
   GRID_PRIV_DEF_SGRP(sgrp);
 
   if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
-    printf("Root JSON node not object?!\n");
+    CAJ_ERROR("ERROR: Root JSON node not object?!\n");
     goto out_fail;
   }
   object = json_node_get_object(node);
   agent_id_st = helper_json_get_string(object, "agent_id");
   session_id_st = helper_json_get_string(object,"session_id");
   if(agent_id_st == NULL || session_id_st == NULL) {
-    printf("Missing agent or session id from agent REST POST\n");
+    CAJ_ERROR("ERROR: Missing agent or session id from agent REST POST\n");
     goto out_fail;
   }
   if(uuid_parse(agent_id_st,u) || uuid_compare(u,agent_id) != 0) {
-    printf("Bad/mismatched agent id in agent REST POST\n");
+    CAJ_ERROR("ERROR: Bad/mismatched agent id in agent REST POST\n");
     goto out_fail;
   }
   
@@ -352,11 +353,11 @@ static void agent_PUT_handler(SoupServer *server,
   const char *msg_type, *callback_uri, *s, *s2, *s3;
   user_grid_glue *user_glue; simulator_ctx *sim;
   uuid_t user_id, session_id; uint64_t region_handle;
-  // GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF_SGRP(sgrp);
   int is_ok = 1;
 
   if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT) {
-    printf("Root JSON node not object?!\n");
+    CAJ_WARN("Root JSON node not object?!\n");
     goto out_fail;
   }
   object = json_node_get_object(node);
@@ -365,7 +366,7 @@ static void agent_PUT_handler(SoupServer *server,
   // struct sim_new_user uinfo;
  
   if(helper_json_get_uuid(object, "agent_uuid", user_id)) {
-    printf("DEBUG agent PUT: couldn't get agent_id\n");
+    CAJ_WARN("DEBUG agent PUT: couldn't get agent_id\n");
     is_ok = 0; goto out_fail;
   }
 
@@ -375,13 +376,13 @@ static void agent_PUT_handler(SoupServer *server,
     uint32_t region_x, region_y;
     s = helper_json_get_string(object, "destination_x");
     if(s == NULL) {
-      printf("DEBUG agent PUT: couldn't get region X pos\n");
+      CAJ_ERROR("ERROR: agent PUT: couldn't get region X pos\n");
       is_ok = 0; goto out;
     }
     region_x = atol(s);
     s = helper_json_get_string(object, "destination_y");
     if(s == NULL) {
-      printf("DEBUG agent PUT: couldn't get region Y pos\n");
+      CAJ_ERROR("ERROR: agent PUT: couldn't get region Y pos\n");
       is_ok = 0; goto out;
     }
     region_y = atol(s);
@@ -390,20 +391,20 @@ static void agent_PUT_handler(SoupServer *server,
     region_handle = atoll(s);
   }
   if(region_handle == 0) {
-    printf("DEBUG agent PUT: bogus region handle\n");
+    CAJ_ERROR("ERROR: agent PUT: bogus region handle\n");
     is_ok = 0; goto out;    
   }
 
   sim = caj_local_sim_by_region_handle(sgrp, region_handle);
   if(sim == NULL) {
-    printf("DEBUG agent PUT: not one of our regions\n");
+    CAJ_ERROR("ERROR: agent PUT: not one of our regions\n");
     is_ok = 0; goto out;
   }
 
 
 #if 0 /* not meaningful - just get zero UUID */
   if(helper_json_get_uuid(object, "session_uuid", session_id)) {
-    printf("DEBUG agent PUT: couldn't get session_id\n");
+    CAJ_ERROR("ERROR: agent PUT: couldn't get session_id\n");
     is_ok = 0; goto out_fail;
   }
 #endif
@@ -416,8 +417,8 @@ static void agent_PUT_handler(SoupServer *server,
     char agent_str[40], session_str[40]; // DEBUG
     uuid_unparse(user_id,agent_str);
     uuid_unparse(session_id,session_str);    
-    printf("ERROR: PUT for unknown agent, user_id=%s session_id=%s\n",
-	   agent_str, session_str);
+    CAJ_ERROR("ERROR: PUT for unknown agent, user_id=%s session_id=%s\n",
+	     agent_str, session_str);
     is_ok = 0; goto out;
   }
 
@@ -425,7 +426,7 @@ static void agent_PUT_handler(SoupServer *server,
   assert(user_glue != NULL);
   
   if(!(user_get_flags(user) & AGENT_FLAG_CHILD)) {
-    printf("ERROR: PUT for non-child agent\n");
+    CAJ_ERROR("ERROR: PUT for non-child agent\n");
     goto out_fail;
   }
 
@@ -446,7 +447,7 @@ static void agent_PUT_handler(SoupServer *server,
       int len; unsigned char* buf;
       buf = helper_json_get_bin(node, &len);
       if(buf == NULL) {
-	printf("DEBUG: agent PUT had bad throttle data");
+	CAJ_ERROR("ERROR: agent PUT had bad throttle data");
 	goto out_fail;
       }
       user_set_throttles_block(user, buf, len);
@@ -456,7 +457,7 @@ static void agent_PUT_handler(SoupServer *server,
     s = helper_json_get_string(object, "position");
     if(s == NULL || sscanf(s, "<%f, %f, %f>",&start_pos.x,
 			   &start_pos.y, &start_pos.z) != 3) {
-      printf("DEBUG: agent PUT - bad/missing position\n");
+      CAJ_ERROR("ERROR: agent PUT - bad/missing position\n");
       goto out_fail;
     }
     
@@ -468,7 +469,7 @@ static void agent_PUT_handler(SoupServer *server,
       struct caj_string buf;
       buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
-	printf("DEBUG: agent PUT had bad texture_entry data\n");
+	CAJ_ERROR("ERROR: agent PUT had bad texture_entry data\n");
 	goto out_fail;
       }
       // semantics of this are funny
@@ -480,7 +481,7 @@ static void agent_PUT_handler(SoupServer *server,
       struct caj_string buf;
       buf.data = helper_json_get_bin(node, &buf.len);
       if(buf.data == NULL) {
-	printf("DEBUG: agent PUT had bad visual_params data\n");
+	CAJ_ERROR("ERROR: agent PUT had bad visual_params data\n");
 	goto out_fail;
       }
       // semantics of this are funny
@@ -491,7 +492,7 @@ static void agent_PUT_handler(SoupServer *server,
 
     node = json_object_get_member(object,"wearables");
     if(node != NULL) {
-      set_wearables_from_json(user, node);
+      set_wearables_from_json(user, node, grid);
     }
 
     {
@@ -505,7 +506,7 @@ static void agent_PUT_handler(SoupServer *server,
     // FIXME - TODO: pos, etc...
     
   } else {
-    printf("DEBUG: agent PUT with unknown type %s\n",msg_type);
+    CAJ_WARN("WARNING: agent PUT with unknown type %s\n",msg_type);
     // but we return success anyway.
   }  
 
@@ -530,10 +531,11 @@ static void agent_DELETE_handler(SoupServer *server,
   JsonNode * node = json_parser_get_root(parser);
   JsonObject *object; user_ctx *user;
   user_grid_glue *user_glue;
+  GRID_PRIV_DEF(sim);
 
   user = user_find_ctx(sim, agent_id);
   if(user == NULL) {
-    printf("ERROR: DELETE for unknown agent\n");
+    CAJ_WARN("WARNING: DELETE for unknown agent\n");
     soup_message_set_status(msg, 404);
     is_ok = 0; goto out;
   }
@@ -559,6 +561,7 @@ static void agent_DELETE_release_handler(SoupServer *server,
 					 uuid_t agent_id,
 					 JsonParser *parser,
 					 struct simulator_ctx* sim) {
+  GRID_PRIV_DEF(sim);
   JsonNode * node = json_parser_get_root(parser); // FIXME - ???
   JsonObject *object; user_ctx *user;
   user_grid_glue *user_glue;
@@ -566,16 +569,16 @@ static void agent_DELETE_release_handler(SoupServer *server,
 
   user = user_find_ctx(sim, agent_id);
   if(user == NULL) {
-    printf("ERROR: DELETE release for unknown agent\n");
+    CAJ_WARN("WARNING: DELETE release for unknown agent\n");
     soup_message_set_status(msg, 404); // FIXME - wrong?
     is_ok = 0; return;
   }
 
   if(user_get_flags(user) & AGENT_FLAG_TELEPORT_COMPLETE) {
-    printf("DEBUG: releasing teleported user\n");
+    CAJ_INFO("DEBUG: releasing teleported user\n");
     user_session_close(user, true); // needs the delay...
   } else {
-    printf("ERROR: DELETE release for non-teleporting agent\n");
+    CAJ_WARN("WARNING: ignoring DELETE release for non-teleporting agent\n");
     is_ok = 0; goto out;
   }
 
@@ -599,6 +602,7 @@ void osglue_agent_rest_handler(SoupServer *server,
 			       SoupClientContext *client,
 			       gpointer user_data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
+  GRID_PRIV_DEF_SGRP(sgrp);
   const char *reqtype = "???";
   uuid_t agent_id; uint64_t region_handle = 0;
   const char *s; char buf[40]; const char* cmd = NULL;
@@ -611,11 +615,11 @@ void osglue_agent_rest_handler(SoupServer *server,
     reqtype = "PUT";
   else if(msg->method == SOUP_METHOD_DELETE)
     reqtype = "DELETE";
-  printf("DEBUG: agent_rest_handler %s %s\n",
+  CAJ_DEBUG("DEBUG: agent_rest_handler %s %s\n",
 	 reqtype, path);
   if(msg->method != SOUP_METHOD_GET)
-    printf("DEBUG: agent_rest_handler data ~%s~\n",
-	   msg->request_body->data);
+    CAJ_DEBUG("DEBUG: agent_rest_handler data ~%s~\n",
+	      msg->request_body->data);
 
   assert(strncmp(path,"/agent/",7) == 0);
   path += 7;
@@ -625,17 +629,17 @@ void osglue_agent_rest_handler(SoupServer *server,
   s = strchr(path, '/');
   if(s == NULL) {
     if(uuid_parse(path, agent_id)) {
-      printf("DEBUG: agent_rest_handler bad agent_id\n");
+      CAJ_ERROR("ERROR: agent_rest_handler bad agent_id\n");
       goto out_fail;
     }
   } else if(s - path != 36) {
-    printf("DEBUG: agent_rest_handler bad agent_id length %i\n",
-	   (int)(s - path));
+    CAJ_ERROR("ERROR: agent_rest_handler bad agent_id length %i\n",
+	      (int)(s - path));
       goto out_fail;    
   } else {
     memcpy(buf,path, 36); buf[36] = 0;
     if(uuid_parse(buf, agent_id)) {
-      printf("DEBUG: agent_rest_handler bad agent_id (2)\n");
+      CAJ_ERROR("ERROR: agent_rest_handler bad agent_id (2)\n");
       goto out_fail;
     }
     path = s + 1;
@@ -648,9 +652,9 @@ void osglue_agent_rest_handler(SoupServer *server,
 
   // DEBUG
   uuid_unparse(agent_id,buf);
-  printf("DEBUG: agent_rest_handler request split as %s %llu %s\n",
-	 buf, (long long unsigned int)region_handle, 
-	 cmd != NULL ? cmd : "(none)");
+  CAJ_DEBUG("DEBUG: agent_rest_handler request split as %s %llu %s\n",
+	    buf, (long long unsigned int)region_handle, 
+	    cmd != NULL ? cmd : "(none)");
 
   if(msg->method != SOUP_METHOD_POST ||
      msg->method != SOUP_METHOD_PUT) {
@@ -658,7 +662,7 @@ void osglue_agent_rest_handler(SoupServer *server,
     parser = json_parser_new();
     if(!json_parser_load_from_data(parser, msg->request_body->data,
 				   msg->request_body->length, NULL)) {
-      printf("Error in agent_rest_handler: json parse failed\n");
+      CAJ_ERROR("Error in agent_rest_handler: json parse failed\n");
       g_object_unref(parser); goto out_fail;
     }
   }
@@ -674,7 +678,7 @@ void osglue_agent_rest_handler(SoupServer *server,
 	    (strcmp(cmd,"release/") == 0 || strcmp(cmd,"release") == 0)) {
     simulator_ctx *sim = caj_local_sim_by_region_handle(sgrp, region_handle);
     if(sim == NULL) {
-      printf("ERROR: agent DELETE for unknown region\n"); goto out_fail;
+      CAJ_ERROR("ERROR: agent DELETE for unknown region\n"); goto out_fail;
     } else {
       agent_DELETE_release_handler(server, msg, agent_id, parser, sim);
     }
@@ -682,7 +686,7 @@ void osglue_agent_rest_handler(SoupServer *server,
      && cmd == NULL) {
     agent_DELETE_handler(server, msg, agent_id, sim);
     } */ else {
-    printf("DEBUG: agent_rest_handler unhandled request\n");
+    CAJ_WARN("WARNING: agent_rest_handler unhandled request\n");
     goto out_fail;
   }
   // TODO
@@ -763,16 +767,17 @@ int helper_parse_json_resp(JsonParser *parser, const char* data, gsize len, cons
 
 static void do_teleport_put_agent_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   os_teleport_desc *tp_priv = (os_teleport_desc*)user_data;
+  GRID_PRIV_DEF(tp_priv->our_sim);
   sim_shutdown_release(tp_priv->our_sim);
   if(tp_priv->tp->ctx == NULL) {
     // FIXME - delete child agent!!
     osglue_teleport_failed(tp_priv,"cancelled");
   } else if(msg->status_code != 200) {
-    printf("Agent PUT request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("WARNING: Agent PUT request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     // FIXME - the OpenSim code seems to think this should send a reason...
     osglue_teleport_failed(tp_priv, "Error. Agent PUT request failed");
   } else {
-    printf("DEBUG: Got agent PUT response: ~%s~", msg->response_body->data);
+    CAJ_DEBUG("DEBUG: Got agent PUT response: ~%s~", msg->response_body->data);
     if(strcasecmp(msg->response_body->data, "True") == 0) {
       // FIXME - this is where we should actually send the avatar across
       teleport_desc *tp = tp_priv->tp;
@@ -840,6 +845,7 @@ static JsonNode* jsonise_wearables(user_ctx* ctx) {
 
 static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 				  os_teleport_desc *tp_priv) {
+  GRID_PRIV_DEF(sim);
   JsonGenerator* gen;
   JsonObject *obj = json_object_new();
   JsonNode *node; uuid_t u, agent_id; 
@@ -932,7 +938,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
     snprintf(callback_uri, 256, "http://%s:%i/agent/%s/%llu/release/",
 	     my_ip_addr, (int)sim_get_http_port(sim), buf,
 	     (long long unsigned)our_region_handle);
-    printf("DEBUG: sending \"%s\" as callback URI\n", callback_uri);
+    CAJ_DEBUG("DEBUG: sending \"%s\" as callback URI\n", callback_uri);
     helper_json_add_string(obj,"callback_uri",callback_uri);
   }
 
@@ -944,7 +950,7 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
   json_node_free(node);
   g_object_unref(gen);
 
-  printf("DEBUG: sending agent PUT ~%s~\n", jbuf);
+  CAJ_DEBUG("DEBUG: sending agent PUT ~%s~\n", jbuf);
 
   uuid_unparse(agent_id,buf);
   snprintf(uri, 256, "http://%s:%i/agent/%s/",tp_priv->sim_ip,
@@ -961,16 +967,17 @@ static void do_teleport_put_agent(simulator_ctx* sim, teleport_desc *tp,
 
 static void do_teleport_send_agent_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   os_teleport_desc *tp_priv = (os_teleport_desc*)user_data;
+  GRID_PRIV_DEF(tp_priv->our_sim);
   sim_shutdown_release(tp_priv->our_sim);
   if(tp_priv->tp->ctx == NULL) {
     // FIXME - delete child agent!!
     osglue_teleport_failed(tp_priv,"cancelled");
   } else if(msg->status_code != 200) {
-    printf("Agent POST request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("WARNING: Agent POST request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     // FIXME - the OpenSim code seems to think this should send a reason...
     osglue_teleport_failed(tp_priv, "Error. Destination not accepting teleports?");
   } else {
-    printf("DEBUG: Got agent POST response: ~%s~\n", msg->response_body->data);
+    CAJ_DEBUG("DEBUG: Got agent POST response: ~%s~\n", msg->response_body->data);
     JsonParser *parser = json_parser_new();
     const char *reason = "[NO REASON - FIXME!]";
     int success = helper_parse_json_resp(parser, msg->response_body->data,

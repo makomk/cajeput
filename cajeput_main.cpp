@@ -23,6 +23,7 @@
 #include "cajeput_core.h"
 #include "cajeput_plugin.h"
 #include "cajeput_int.h"
+#include "caj_logging.h"
 #include "terrain_compress.h"
 #include "caj_parse_nini.h"
 #include <sys/types.h> 
@@ -37,6 +38,7 @@
 #include <fcntl.h>
 #include <cassert>
 
+#define CAJ_LOGGER (sgrp->log)
 
 struct simulator_ctx;
 struct avatar_obj;
@@ -91,6 +93,9 @@ uint16_t sim_get_http_port(struct simulator_ctx *sim) {
 }
 uint16_t sim_get_udp_port(struct simulator_ctx *sim) {
   return sim->udp_port;
+}
+struct caj_logger* caj_get_logger(struct simgroup_ctx *sgrp) {
+  return sgrp->log;
 }
 void* caj_get_grid_priv(struct simgroup_ctx *sgrp) {
   return sgrp->grid_priv;
@@ -305,7 +310,7 @@ static void shutdown_sim(simulator_ctx *sim) {
 static gboolean shutdown_timer(gpointer data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) data;
   if(sgrp->hold_off_shutdown) {
-    printf("Shutting down (%i items pending)\n", sgrp->hold_off_shutdown);
+    CAJ_PRINT("Shutting down (%i items pending)\n", sgrp->hold_off_shutdown);
     return TRUE;
   }
 
@@ -380,7 +385,7 @@ static gboolean cleanup_timer(gpointer data) {
   double time_now = g_timer_elapsed(sgrp->timer,NULL);
   
   if(shutting_down) {
-    printf("Shutting down...\n");
+    CAJ_PRINT("Shutting down...\n");
     sgrp->state_flags |= CAJEPUT_SGRP_SHUTTING_DOWN;
 
     for(std::map<uint64_t, simulator_ctx*>::iterator iter = sgrp->sims.begin();
@@ -488,7 +493,7 @@ static void load_inv_folders(struct simgroup_ctx *sgrp, const char* filename) {
 
  GKeyFile *config = caj_parse_nini_xml(path);
  if(config == NULL) {
-   printf("WARNING: couldn't load inventory file %s\n", filename);
+   CAJ_WARN("WARNING: couldn't load inventory file %s\n", filename);
    return;
  }
 
@@ -505,7 +510,7 @@ static void load_inv_folders(struct simgroup_ctx *sgrp, const char* filename) {
    if(folder_id == NULL || parent_id == NULL || name == NULL ||
       type_str == NULL || uuid_parse(folder_id,folder_uuid) || 
       uuid_parse(parent_id, parent_uuid)) {
-     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+     CAJ_ERROR("ERROR: bad section %s in %s", sect_list[i], filename);
    } else {
      // FIXME - this leaks memory if we have more than one folder with 
      // the same UUID
@@ -529,7 +534,7 @@ static void load_inv_folders2(struct simgroup_ctx *sgrp, const char* filename) {
 
  GKeyFile *config = caj_parse_nini_xml(path);
  if(config == NULL) {
-   printf("WARNING: couldn't load inventory file %s\n", filename);
+   CAJ_WARN("WARNING: couldn't load inventory file %s\n", filename);
    return;
  }
 
@@ -547,13 +552,13 @@ static void load_inv_folders2(struct simgroup_ctx *sgrp, const char* filename) {
    if(folder_id == NULL || parent_id == NULL || name == NULL ||
       type_str == NULL || uuid_parse(folder_id,folder_uuid) || 
       uuid_parse(parent_id, parent_uuid)) {
-     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+     CAJ_ERROR("ERROR: bad section %s in %s", sect_list[i], filename);
    } else {
      std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
        sgrp->inv_lib.find(parent_uuid);
      if(iter == sgrp->inv_lib.end()) {
-       printf("ERROR: library item %s without parent folder %s\n",
-	      name, folder_id);
+       CAJ_ERROR("ERROR: library item %s without parent folder %s\n",
+		 name, folder_id);
      } else {
        inventory_contents* parent = iter->second;       
        inventory_folder* folder = caj_inv_add_folder(parent, folder_uuid, inv_owner_uuid, name, 0);
@@ -573,7 +578,7 @@ static void load_inv_items(struct simgroup_ctx *sgrp, const char* filename) {
 
  GKeyFile *config = caj_parse_nini_xml(path);
  if(config == NULL) {
-   printf("WARNING: couldn't load inventory file %s\n", filename);
+   CAJ_ERROR("WARNING: couldn't load inventory file %s\n", filename);
    return;
  }
 
@@ -595,12 +600,12 @@ static void load_inv_items(struct simgroup_ctx *sgrp, const char* filename) {
       name == NULL || descr == NULL || asset_type == NULL ||
       inv_type == NULL || uuid_parse(folder_id,folder_uuid) || 
       uuid_parse(asset_id, asset_uuid) || uuid_parse(inv_id, inv_uuid)) {
-     printf("ERROR: bad section %s in %s", sect_list[i], filename);
+     CAJ_ERROR("ERROR: bad section %s in %s", sect_list[i], filename);
    } else {
      std::map<obj_uuid_t,inventory_contents*>::iterator iter = 
        sgrp->inv_lib.find(folder_uuid);
      if(iter == sgrp->inv_lib.end()) {
-       printf("ERROR: library item %s without parent folder %s\n",
+       CAJ_ERROR("ERROR: library item %s without parent folder %s\n",
 	      name, folder_id);
      } else {
        inventory_contents* folder = iter->second;
@@ -643,7 +648,7 @@ static void load_inv_library(struct simgroup_ctx *sgrp) {
 
   GKeyFile *lib = caj_parse_nini_xml("inventory/Libraries.xml");
   if(lib == NULL) {
-    printf("WARNING: couldn't load inventory library\n");
+    CAJ_ERROR("WARNING: couldn't load inventory library\n");
     return;
   }
   
@@ -659,7 +664,7 @@ static void load_inv_library(struct simgroup_ctx *sgrp) {
     gchar* items_file = g_key_file_get_value(lib, sect_list[i], "itemsFile", NULL);
 
     if(folders_file == NULL || items_file == NULL) {
-      printf("ERROR: bad section %s in inventory/Libraries.xml", sect_list[i]);
+      CAJ_ERROR("ERROR: bad section %s in inventory/Libraries.xml", sect_list[i]);
     } else {
       load_inv_folders(sgrp, folders_file);
       load_inv_items(sgrp, items_file);
@@ -760,13 +765,13 @@ void load_sim(simgroup_ctx *sgrp, char *shortname) {
 
   if(!cajeput_physics_init(CAJEPUT_API_VERSION, sim, 
 			     &sim->phys_priv, &sim->physh)) {
-    printf("Couldn't init physics engine!\n"); return;
+    CAJ_ERROR("Couldn't init physics engine!\n"); return;
   }
 
   memset(&sim->scripth, 0, sizeof(sim->scripth));
   if(!caj_scripting_init(CAJEPUT_API_VERSION, sim, &sim->script_priv,
 			 &sim->scripth)) {
-    printf("Couldn't init script engine!\n"); return;
+    CAJ_ERROR("Couldn't init script engine!\n"); return;
   }
 
   for(caj_callback<sim_generic_cb>::cb_set::iterator iter = 
@@ -861,13 +866,13 @@ int main(void) {
     void *sym;
     if(!g_module_symbol(module, "cajeput_plugin_init", &sym) ||
        sym == NULL) {
-      printf("ERROR: couldn't find cajeput_plugin_init in module %s\n", plugins[i]);
+      CAJ_ERROR("ERROR: couldn't find cajeput_plugin_init in module %s\n", plugins[i]);
       g_module_close(module); return 1;
     }
     plugin_init_func init_func = (plugin_init_func)sym;
     if(!init_func(CAJEPUT_API_VERSION_MAJOR, 
 		  CAJEPUT_API_VERSION_MINOR, sgrp)) {
-      printf("ERROR: failed to init plugin %s\n", plugins[i]);
+      CAJ_ERROR("ERROR: failed to init plugin %s\n", plugins[i]);
     }
   }
   g_strfreev(plugins);
@@ -884,7 +889,7 @@ int main(void) {
   sgrp->soup_session = soup_session_async_new();
   sgrp->soup = soup_server_new(SOUP_SERVER_PORT, (int)sgrp->http_port, NULL);
   if(sgrp->soup == NULL) {
-    printf("HTTP server init failed\n"); return 1;
+    CAJ_ERROR("HTTP server init failed\n"); return 1;
   }
   
   
@@ -894,13 +899,13 @@ int main(void) {
   sgrp->release_notes = read_text_file("sim-release-notes.html", 
 				      &sgrp->release_notes_len);
   if(sgrp->release_notes == NULL) {
-    printf("WARNING: Release notes load failed\n"); 
+    CAJ_WARN("WARNING: Release notes load failed\n"); 
   }
 
   memset(&sgrp->gridh, 0, sizeof(sgrp->gridh));
   if(!grid_glue_init(CAJEPUT_API_VERSION_MAJOR, CAJEPUT_API_VERSION_MINOR,
 		     sgrp, &sgrp->grid_priv, &sgrp->gridh)) {
-    printf("Couldn't init grid glue!\n"); return 1;
+    CAJ_ERROR("Couldn't init grid glue!\n"); return 1;
   }
 
   for(unsigned i = 0; i < len; i++) {

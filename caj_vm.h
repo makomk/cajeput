@@ -136,6 +136,7 @@ struct vm_function {
 struct script_state;
 struct vm_world;
 struct heap_header;
+struct caj_logger;
 
 typedef void(*vm_native_func_cb)(script_state *st, void *sc_priv, int func_id);
 
@@ -149,7 +150,7 @@ int vm_world_add_event(vm_world *w, const char* name, uint8_t ret_type,
 		       int event_id, int arg_count, ...);
 void vm_world_free(vm_world *w);
 
-script_state* vm_load_script(void* data, int data_len);
+script_state* vm_load_script(caj_logger *log, void* data, int data_len);
 unsigned char* vm_serialise_script(script_state *st, size_t *len);
 void vm_free_script(script_state * st);
 

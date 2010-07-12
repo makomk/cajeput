@@ -26,6 +26,7 @@
 #include "cajeput_plugin.h"
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
+#include "caj_logging.h"
 #include <libsoup/soup.h>
 #include "caj_types.h"
 #include <uuid/uuid.h>
@@ -48,39 +49,39 @@ static void got_grid_login_response_v1(SoupSession *session, SoupMessage *msg, g
   GHashTable *hash = NULL;
   char *s; uuid_t u;
   if(msg->status_code != 200) {
-    printf("Grid login failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_ERROR("Grid login failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     exit(1);
   }
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("Grid login failed: couldn't parse response\n");
+    CAJ_ERROR("Grid login failed: couldn't parse response\n");
     exit(1);    
   }
 
   if(soup_value_hash_lookup(hash,"restricted",G_TYPE_STRING,
 			    &s)) {
     // grid actually report it as an error, not as this
-    printf("Error - grid not accepting registrations: %s\n",s);
+    CAJ_ERROR("Error - grid not accepting registrations: %s\n",s);
     exit(1);
   } else if(soup_value_hash_lookup(hash,"error",G_TYPE_STRING,
 			    &s)) {
-    printf("Grid refused registration: %s\n",s);
+    CAJ_ERROR("Grid refused registration: %s\n",s);
     exit(1);
   }
 
   if(!soup_value_hash_lookup(hash,"authkey",G_TYPE_STRING,
 			     &s)) goto bad_resp;
   if(uuid_parse(s, u) || uuid_compare(u,grid->region_secret) != 0) {
-    printf("Unexpected authkey value!\n");
+    CAJ_ERROR("Unexpected authkey value!\n");
     goto bad_resp;
   }
   if(!soup_value_hash_lookup(hash,"regionname",G_TYPE_STRING,
 			     &s)) goto bad_resp;
   if(strcmp(s,sim_get_name(sim)) != 0) {
-    printf("DEBUG: simname mismatch; we're \"%s\", server says \"%s\"\n",
-	   sim_get_name(sim),s);
+    CAJ_WARN("DEBUG: simname mismatch; we're \"%s\", server says \"%s\"\n",
+	      sim_get_name(sim),s);
   }
 #if 0
   // FIXME - use user_recvkey, asset_recvkey, user_sendkey, asset_sendkey
@@ -94,14 +95,14 @@ static void got_grid_login_response_v1(SoupSession *session, SoupMessage *msg, g
 #endif
 
   //printf("DEBUG: login response ~%s~\n",msg->response_body->data);
-  printf("Grid login complete\n");
+  CAJ_PRINT("Grid login complete\n");
   g_hash_table_destroy(hash);
   
 
   return;
  bad_resp:
-  printf("Bad grid login response\n");
-  printf("DEBUG {{%s}}\n", msg->response_body->data);
+  CAJ_ERROR("Bad grid login response\n");
+  CAJ_ERROR("DEBUG {{%s}}\n", msg->response_body->data);
   g_hash_table_destroy(hash);
   exit(1);
   
@@ -121,7 +122,7 @@ static void do_grid_login_v1(struct simgroup_ctx *sgrp,
   char *ip_addr = sim_get_ip_addr(sim);
   GRID_PRIV_DEF(sim);
 
-  printf("Logging into grid...\n");
+  CAJ_INFO("Logging into grid...\n");
 
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
@@ -163,7 +164,7 @@ static void do_grid_login_v1(struct simgroup_ctx *sgrp,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!msg) {
-    fprintf(stderr, "Could not create xmlrpc login request\n");
+    CAJ_ERROR("Could not create xmlrpc login request\n");
     exit(1);
   }
 
@@ -175,7 +176,7 @@ static void do_grid_login_v1(struct simgroup_ctx *sgrp,
 }
 
 // FIXME - merge this to where it's actually used?
-static bool check_grid_success_response(SoupMessage *msg) {
+static bool check_grid_success_response(grid_glue_ctx *grid, SoupMessage *msg) {
   os_robust_xml *rxml, *node;
   
   if(msg->status_code != 200) return false;
@@ -183,7 +184,7 @@ static bool check_grid_success_response(SoupMessage *msg) {
   rxml = os_robust_xml_deserialise(msg->response_body->data,
 				   msg->response_body->length);
   if(rxml == NULL) {
-    printf("ERROR: couldn't parse gridserver XML response\n");
+    CAJ_ERROR("ERROR: couldn't parse gridserver XML response\n");
     return false;
   }
 
@@ -191,7 +192,7 @@ static bool check_grid_success_response(SoupMessage *msg) {
 
   node = os_robust_xml_lookup(rxml, "Result");
   if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
-    printf("ERROR: bad gridserver XML response, no Result\n");
+    CAJ_ERROR("ERROR: bad gridserver XML response, no Result\n");
     goto out;
   }
   if(strcasecmp(node->u.s, "Success") == 0) {
@@ -200,7 +201,7 @@ static bool check_grid_success_response(SoupMessage *msg) {
     retval = FALSE;
     node = os_robust_xml_lookup(rxml, "Message");
     if(node != NULL && node->node_type == OS_ROBUST_XML_STR) {
-      printf("ERROR from grid: %s\n", node->u.s);
+      CAJ_ERROR("ERROR from grid: %s\n", node->u.s);
     }
   }
 
@@ -214,12 +215,12 @@ static void got_grid_login_response_v2(SoupSession *session, SoupMessage *msg, g
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
   GRID_PRIV_DEF(sim);
   if(msg->status_code != 200) {
-    printf("Grid login failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_ERROR("Grid login failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     exit(1);
   }
-  printf("DEBUG: grid login response ~%s~\n", msg->response_body->data);
-  if(!check_grid_success_response(msg)) {
-    printf("ERROR: grid denied registration\n"); exit(1);
+  CAJ_DEBUG("DEBUG: grid login response ~%s~\n", msg->response_body->data);
+  if(!check_grid_success_response(grid, msg)) {
+    CAJ_ERROR("ERROR: grid denied registration\n"); exit(1);
   }
 }
 
@@ -239,7 +240,7 @@ static void do_grid_login_v2(struct simgroup_ctx *sgrp,
   uuid_clear(zero_uuid);
   uuid_unparse(zero_uuid, zero_uuid_str);
 
-  printf("Logging into grid...\n");
+  CAJ_INFO("Logging into grid...\n");
   sim_get_region_uuid(sim, u);
   uuid_unparse(u, region_id);
   snprintf(loc_x, 20, "%u", (unsigned)sim_get_region_x(sim)*256);
@@ -297,7 +298,8 @@ static int helper_soup_hash_get_uuid(GHashTable *hash, const char* name,
 }
 
 /* actually passed the "appearance" member of the request */
-static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
+static void expect_user_set_appearance(grid_glue_ctx *grid, user_ctx *user,
+				       GHashTable *hash) {
   GByteArray *data; char *s;
   if(soup_value_hash_lookup(hash,"visual_params",SOUP_TYPE_BYTE_ARRAY,
 			    &data)) {
@@ -305,7 +307,7 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
     caj_string_set_bin(&str,data->data,data->len);
     user_set_visual_params(user, &str);
   } else {
-    printf("WARNING: expect_user is missing visual_params\n");
+    CAJ_WARN("WARNING: expect_user is missing visual_params\n");
   }  
 
   if(soup_value_hash_lookup(hash,"texture",SOUP_TYPE_BYTE_ARRAY,
@@ -314,13 +316,13 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
     caj_string_set_bin(&str,data->data,data->len);
     user_set_texture_entry(user, &str);
   } else {
-    printf("WARNING: expect_user is missing texture data\n");
+    CAJ_WARN("WARNING: expect_user is missing texture data\n");
   }  
 
   if(soup_value_hash_lookup(hash, "serial", G_TYPE_STRING, &s)) {
     user_set_wearable_serial(user, atoi(s)); // FIXME - type correctness
   } else {
-    printf("WARNING: expect_user is missing serial\n");    
+    CAJ_WARN("WARNING: expect_user is missing serial\n");    
   }
 
 
@@ -331,8 +333,8 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
     sprintf(item_str,"%s_item",sl_wearable_names[i]);
     if(helper_soup_hash_get_uuid(hash, asset_str, asset_id) || 
        helper_soup_hash_get_uuid(hash, item_str, item_id)) {
-      printf("Error: couldn't find wearable %s in expect_user\n",
-	     sl_wearable_names[i]);
+      CAJ_WARN("Error: couldn't find wearable %s in expect_user\n",
+	       sl_wearable_names[i]);
     } else {
       user_set_wearable(user, i, item_id, asset_id);
     }
@@ -341,6 +343,7 @@ static void expect_user_set_appearance(user_ctx *user,  GHashTable *hash) {
 
 static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   struct expect_user_state *state = (struct expect_user_state*)priv;
+  GRID_PRIV_DEF(state->sim);
   GHashTable *args = state->args;
   GHashTable *hash; user_ctx *user;
   struct sim_new_user uinfo;
@@ -390,9 +393,9 @@ static void xmlrpc_expect_user_2(void* priv, int is_ok) {
   if(user == NULL) goto return_fail;
   if(soup_value_hash_lookup(args,"appearance",G_TYPE_HASH_TABLE,
 			    &hash)) {
-    expect_user_set_appearance(user, hash);
+    expect_user_set_appearance(grid, user, hash);
   } else {
-    printf("WARNING: expect_user is missing appearance data\n");
+    CAJ_WARN("WARNING: expect_user is missing appearance data\n");
   }
   user_set_start_pos(user, &start_pos, &start_pos); // FIXME - look_at?
  
@@ -419,6 +422,7 @@ struct validate_session_state {
   validate_session_cb callback;
   void *priv;
   simgroup_ctx *sgrp;
+  grid_glue_ctx *grid;
   char *agent_id;
 };
 
@@ -427,7 +431,8 @@ static void got_validate_session_resp_v1(SoupSession *session, SoupMessage *msg,
   GHashTable *hash; char *s;
   int is_ok = 0;
   validate_session_state* vs = (validate_session_state*) user_data;
-  printf("DEBUG: got check_auth_session response\n");
+  grid_glue_ctx* grid = vs->grid;
+  CAJ_DEBUG("DEBUG: got check_auth_session response\n");
   caj_shutdown_release(vs->sgrp);
   if(soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
@@ -436,11 +441,11 @@ static void got_validate_session_resp_v1(SoupSession *session, SoupMessage *msg,
     if(soup_value_hash_lookup(hash, "auth_session",
 			      G_TYPE_STRING, &s)) {
       is_ok = (strcasecmp(s,"TRUE") == 0);
-      printf("DEBUG: check_auth_session resp %s (%s)\n",
-	     is_ok?"TRUE":"FALSE",s);
-    } else printf("DEBUG: couldn't extract value from check_auth_session response\n");
+      CAJ_DEBUG("DEBUG: check_auth_session resp %s (%s)\n",
+		is_ok?"TRUE":"FALSE",s);
+    } else CAJ_DEBUG("DEBUG: couldn't extract value from check_auth_session response\n");
     g_hash_table_destroy(hash);
-  } else printf("DEBUG: couldn't extract check_auth_session response\n");
+  } else CAJ_ERROR("ERROR: couldn't extract check_auth_session response\n");
   vs->callback(vs->priv, is_ok);
   delete vs;
 }
@@ -451,7 +456,7 @@ void osglue_validate_session_v1(struct simgroup_ctx* sgrp, const char* agent_id,
   GHashTable *hash;
   SoupMessage *val_msg;
   
-  printf("Validating session for %s...\n", agent_id);
+  CAJ_INFO("Validating session for %s...\n", agent_id);
   
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash,"session_id",G_TYPE_STRING,session_id);
@@ -462,8 +467,9 @@ void osglue_validate_session_v1(struct simgroup_ctx* sgrp, const char* agent_id,
 				    G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!val_msg) {
-    fprintf(stderr, "Could not create check_auth_session request\n");
-    exit(1);
+    CAJ_ERROR("Could not create check_auth_session request\n");
+    callback(priv, FALSE);
+    return;
   }
 
   validate_session_state *vs_state = new validate_session_state();
@@ -471,6 +477,7 @@ void osglue_validate_session_v1(struct simgroup_ctx* sgrp, const char* agent_id,
   vs_state->priv = priv;
   vs_state->sgrp = sgrp;
   vs_state->agent_id = NULL;
+  vs_state->grid = grid;
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, val_msg,
@@ -482,21 +489,22 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
 				   gpointer user_data) {
   int is_ok = 0; int correct = 0;
   validate_session_state* vs = (validate_session_state*) user_data;
-  printf("DEBUG: got check_auth_session response from presence server\n");
+  grid_glue_ctx* grid = vs->grid;
+  CAJ_DEBUG("DEBUG: got check_auth_session response from presence server\n");
   caj_shutdown_release(vs->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Presence request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_ERROR("Presence request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     is_ok = FALSE;
   } else {
     os_robust_xml *rxml, *resnode, *node;
 
-    printf("DEBUG: response ~%s~\n", msg->response_body->data);
+    CAJ_DEBUG("DEBUG: response ~%s~\n", msg->response_body->data);
 
     rxml = os_robust_xml_deserialise(msg->response_body->data,
 				     msg->response_body->length);
     if(rxml == NULL) {
-      printf("ERROR: couldn't parse presence server XML response\n");
+      CAJ_ERROR("ERROR: couldn't parse presence server XML response\n");
       goto out;
     }
 
@@ -514,34 +522,34 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
     resnode = os_robust_xml_lookup(rxml, "result");
 
     if(resnode == NULL) {
-      printf("ERROR: bad response from presence server\n");
+      CAJ_ERROR("ERROR: bad response from presence server\n");
       goto out2;
     }
 
     if(resnode->node_type != OS_ROBUST_XML_LIST) {
-      printf("DEBUG: validate session: session does not exist\n");
+      CAJ_DEBUG("DEBUG: validate session: session does not exist\n");
       is_ok = FALSE; goto out2;
     }
 
     node = os_robust_xml_lookup(resnode, "online");
     if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
       // this is normal now. Sigh.
-      printf("DEBUG: response from presence server has no <online>\n");
+      CAJ_DEBUG("DEBUG: response from presence server has no <online>\n");
     } else if(strcasecmp(node->u.s, "True") != 0) {
-      printf("DEBUG: session invalid, user offline\n");
+      CAJ_DEBUG("DEBUG: session invalid, user offline\n");
       is_ok = FALSE; goto out2;
     }
 
     node = os_robust_xml_lookup(resnode, "UserID");
     if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
-      printf("ERROR: bad response from presence server (no <UserID>)\n");
+      CAJ_DEBUG("ERROR: bad response from presence server (no <UserID>)\n");
       goto out2;
     } else if(strcasecmp(node->u.s, vs->agent_id) != 0) {
-      printf("DEBUG: session invalid, agent ID mismatch\n");
+      CAJ_DEBUG("DEBUG: session invalid, agent ID mismatch\n");
       is_ok = FALSE; goto out2;
     }
 
-    printf("DEBUG: session validated OK\n");
+    CAJ_DEBUG("DEBUG: session validated OK\n");
     is_ok = TRUE;
 
     // FIXME - TODO    
@@ -551,7 +559,7 @@ static void got_validate_session_resp_v2(SoupSession *session, SoupMessage *msg,
   }
 
  out:
-  printf("DEBUG: session validation conclusion: %s\n", is_ok?"OK":"FAILED");
+  CAJ_INFO("DEBUG: session validation conclusion: %s\n", is_ok?"OK":"FAILED");
   vs->callback(vs->priv, is_ok);
   free(vs->agent_id);
   delete vs;
@@ -580,6 +588,7 @@ void osglue_validate_session_v2(struct simgroup_ctx* sgrp, const char* agent_id,
   vs_state->priv = priv;
   vs_state->sgrp = sgrp;
   vs_state->agent_id = strdup(agent_id);
+  vs_state->grid = grid;
 
   caj_shutdown_hold(sgrp);
   caj_queue_soup_message(sgrp, msg,
@@ -608,7 +617,7 @@ static void xmlrpc_expect_user(SoupServer *server,
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
-  printf("DEBUG: Got an expect_user call\n");
+  CAJ_INFO("DEBUG: Got an expect_user call\n");
   if(grid->userserver == NULL) goto return_fail; // not ready yet
   if(!soup_value_hash_lookup(args,"agent_id",G_TYPE_STRING,
 			     &agent_id)) goto bad_args;
@@ -621,7 +630,7 @@ static void xmlrpc_expect_user(SoupServer *server,
 
   sim = caj_local_sim_by_region_handle(sgrp, region_handle);
   if(sim == NULL) {
-    printf("Got expect_user for wrong region\n");
+    CAJ_WARN("Got expect_user for wrong region\n");
     goto return_fail;
   }
 
@@ -670,7 +679,7 @@ static void xmlrpc_logoff_user(SoupServer *server,
   GHashTable *hash;
   struct simulator_ctx *sim;
   // GError *error = NULL;
-  printf("DEBUG: Got a logoff_user call\n");
+  CAJ_INFO("DEBUG: Got a logoff_user call\n");
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
@@ -681,7 +690,7 @@ static void xmlrpc_logoff_user(SoupServer *server,
   if(region_handle == 0) goto bad_args;
   sim = caj_local_sim_by_region_handle(sgrp, region_handle);
   if(sim == NULL) {
-    printf("Got logoff_user for wrong region\n");
+    CAJ_WARN("Got logoff_user for wrong region\n");
     goto return_null;
   }
   if(!soup_value_hash_lookup(args,"agent_id",G_TYPE_STRING,
@@ -694,7 +703,7 @@ static void xmlrpc_logoff_user(SoupServer *server,
   if(uuid_compare(region_secret, grid->region_secret) != 0)
     secret_ok = 0;
 
-  printf("DEBUG: logoff_user call is valid, walking the user tree\n");
+  CAJ_DEBUG("DEBUG: logoff_user call is valid, walking the user tree\n");
 
   user_logoff_user_osglue(sim, agent_id, 
 			 secret_ok?NULL:region_secret);
@@ -724,15 +733,16 @@ static void xmlrpc_handler (SoupServer *server,
 				SoupClientContext *client,
 				gpointer user_data) {
   struct simgroup_ctx* sgrp = (struct simgroup_ctx*) user_data;
+  GRID_PRIV_DEF_SGRP(sgrp);
   char *method_name;
   GValueArray *params;
 
   if(strcmp(path,"/") != 0) {
-    printf("DEBUG: request for unhandled path %s\n",
+    CAJ_INFO("DEBUG: request for unhandled path %s\n",
 	   path);
     if (msg->method == SOUP_METHOD_POST) {
-      printf("DEBUG: POST data is ~%s~\n",
-	     msg->request_body->data);
+      CAJ_INFO("DEBUG: POST data is ~%s~\n",
+	       msg->request_body->data);
     }
     soup_message_set_status(msg,404);
     return;
@@ -746,8 +756,8 @@ static void xmlrpc_handler (SoupServer *server,
   if(!soup_xmlrpc_parse_method_call(msg->request_body->data,
 				    msg->request_body->length,
 				    &method_name, &params)) {
-    printf("Couldn't parse XMLRPC method call\n");
-    printf("DEBUG: ~%s~\n", msg->request_body->data);
+    CAJ_WARN("Couldn't parse XMLRPC method call\n");
+    CAJ_INFO("DEBUG: ~%s~\n", msg->request_body->data);
     soup_message_set_status(msg,500);
     return;
   }
@@ -756,10 +766,10 @@ static void xmlrpc_handler (SoupServer *server,
     xmlrpc_logoff_user(server, msg, params, sgrp);
     
   } else if(strcmp(method_name, "expect_user") == 0) {
-    printf("DEBUG: expect_user ~%s~\n", msg->request_body->data);
+    CAJ_DEBUG("DEBUG: expect_user ~%s~\n", msg->request_body->data);
     xmlrpc_expect_user(server, msg, params, sgrp);
   } else {
-    printf("DEBUG: unknown xmlrpc method %s called\n", method_name);
+    CAJ_INFO("DEBUG: unknown xmlrpc method %s called\n", method_name);
     g_value_array_free(params);
     soup_xmlrpc_set_fault(msg, SOUP_XMLRPC_FAULT_SERVER_ERROR_REQUESTED_METHOD_NOT_FOUND,
 			  "Method %s not found", method_name);
@@ -769,22 +779,22 @@ static void xmlrpc_handler (SoupServer *server,
 
 static void got_user_logoff_resp_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct simulator_ctx* sim = (struct simulator_ctx*)user_data;
-  // GRID_PRIV_DEF(sim);
+  GRID_PRIV_DEF(sim);
   GHashTable *hash = NULL;
   sim_shutdown_release(sim);
   if(msg->status_code != 200) {
-    printf("User logoff failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("User logoff failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     return;
   }
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("User logoff failed: couldn't parse response\n");
+    CAJ_WARN("User logoff failed: couldn't parse response\n");
     return;    
   }
 
-  printf("User logoff completed\n");
+  CAJ_INFO("User logoff completed\n");
   g_hash_table_destroy(hash);
 }
 
@@ -826,7 +836,7 @@ static void user_logoff_v1(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!msg) {
-    fprintf(stderr, "Could not create xmlrpc login request\n");
+    CAJ_ERROR("Could not create xmlrpc logout request\n");
     return;
   }
 
@@ -937,11 +947,12 @@ static void user_deleted(struct simgroup_ctx *sgrp,
 
 static void user_entered_callback_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   simulator_ctx *sim = (simulator_ctx*) user_data;
+  GRID_PRIV_DEF(sim);
   sim_shutdown_release(sim);
   // FIXME - should probably pay *some* attention to the response
   if(msg->status_code != 200) {
-    printf("User entry callback failed: got %i %s\n",
-	   (int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("User entry callback failed: got %i %s\n",
+	     (int)msg->status_code,msg->reason_phrase);
   }
 
 }
@@ -1003,8 +1014,8 @@ static void user_entered(struct simgroup_ctx *sgrp,
   GRID_PRIV_DEF(sim);
 
   if(user_glue->enter_callback_uri != NULL) {
-    printf("DEBUG: calling back to %s on avatar entry\n",
-	   user_glue->enter_callback_uri);
+    CAJ_DEBUG("DEBUG: calling back to %s on avatar entry\n",
+	      user_glue->enter_callback_uri);
 
     // FIXME - shouldn't we have to, y'know, identify ourselves somehow?
 
@@ -1060,7 +1071,7 @@ struct map_region_state {
 
 static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct map_block_state *st = (map_block_state*)user_data;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   struct map_block_info *blocks;
   int num_blocks = 0;
   GHashTable *hash = NULL;
@@ -1069,23 +1080,23 @@ static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpoint
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("Map block request failed: couldn't parse response\n");
+    CAJ_WARN("Map block request failed: couldn't parse response\n");
     goto out_fail;
   }
 
   //printf("DEBUG: map block response ~%s~\n", msg->response_body->data);
-  printf("DEBUG: got map block response\n");
+  CAJ_DEBUG("DEBUG: got map block response\n");
 
   if(!soup_value_hash_lookup(hash,"sim-profiles",G_TYPE_VALUE_ARRAY,&sims)
      || sims == NULL) {
-    printf("Map block request failed: no/bad sim-profiles member\n");
+    CAJ_WARN("Map block request failed: no/bad sim-profiles member\n");
     goto out_free_fail;
   }
 
@@ -1094,7 +1105,7 @@ static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpoint
     GHashTable *sim_info = NULL; char *s; int val;
     if(!soup_value_array_get_nth(sims, i, G_TYPE_HASH_TABLE, &sim_info) ||
        sim_info == NULL) {
-      printf("Map block request bad: expected hash table\n");
+      CAJ_WARN("Map block request bad: expected hash table\n");
       continue;
     }
     
@@ -1139,14 +1150,14 @@ static void got_map_block_resp_v1(SoupSession *session, SoupMessage *msg, gpoint
     
     // FIXME - do something with regionhandle, sim_uri?
 
-    printf("DEBUG: map block %i,%i is %s\n",
+    CAJ_DEBUG("DEBUG: map block %i,%i is %s\n",
 	   blocks[num_blocks].x, blocks[num_blocks].y, blocks[num_blocks].name);
 
     num_blocks++;
     
     continue;    
   bad_block:
-    printf("WARNING: Map block response has bad block, skipping\n");
+    CAJ_WARN("WARNING: Map block response has bad block, skipping\n");
   }
 
 
@@ -1173,8 +1184,8 @@ static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x
   SoupMessage *msg;
   GRID_PRIV_DEF_SGRP(sgrp);
 
-  printf("DEBUG: map block request (%i,%i)-(%i,%i)\n",
-	 min_x, min_y, max_x, max_y);
+  CAJ_DEBUG("DEBUG: map block request (%i,%i)-(%i,%i)\n",
+	    min_x, min_y, max_x, max_y);
 
   hash = soup_value_hash_new();
   soup_value_hash_insert(hash,"xmin",G_TYPE_INT,min_x);
@@ -1188,7 +1199,7 @@ static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!msg) {
-    fprintf(stderr, "Could not create xmlrpc map request\n");
+    CAJ_ERROR("Could not create xmlrpc map request\n");
     cb(cb_priv, NULL, 0);
     return;
   }
@@ -1198,7 +1209,8 @@ static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x
 			 got_map_block_resp_v1, new map_block_state(sgrp,cb,cb_priv));
 }
 
-static bool unpack_v2_region_entry(os_robust_xml *node, map_block_info *block) {
+static bool unpack_v2_region_entry(grid_glue_ctx *grid, os_robust_xml *node,
+				   map_block_info *block) {
   os_robust_xml* child;
   block->name = NULL; block->sim_ip = NULL;
 
@@ -1208,48 +1220,48 @@ static bool unpack_v2_region_entry(os_robust_xml *node, map_block_info *block) {
   child = os_robust_xml_lookup(node, "uuid");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR ||
      uuid_parse(child->u.s, block->region_id) != 0) {
-    printf("DEBUG: bad/missing uuid in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: bad/missing uuid in region entry from gridserver\n");
     return false;
   }
 
   child = os_robust_xml_lookup(node, "locX");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing locX in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing locX in region entry from gridserver\n");
     return false;
   }
   block->x = atoi(child->u.s)/256;
 
   child = os_robust_xml_lookup(node, "locY");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing locY in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing locY in region entry from gridserver\n");
     return false;
   }
   block->y = atoi(child->u.s)/256;
 
   child = os_robust_xml_lookup(node, "regionName");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing regionName in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing regionName in region entry from gridserver\n");
     return false;
   }
   block->name = child->u.s;
 
   child = os_robust_xml_lookup(node, "serverIP");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing serverIP in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing serverIP in region entry from gridserver\n");
     return false;
   }
   block->sim_ip = child->u.s;
 
   child = os_robust_xml_lookup(node, "serverHttpPort");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing serverHttpPort in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing serverHttpPort in region entry from gridserver\n");
     return false;
   }
   block->http_port = atoi(child->u.s);
 
   child = os_robust_xml_lookup(node, "serverPort");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing serverPort in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing serverPort in region entry from gridserver\n");
     return false;
   }
   block->sim_port = atoi(child->u.s);
@@ -1257,18 +1269,18 @@ static bool unpack_v2_region_entry(os_robust_xml *node, map_block_info *block) {
   child = os_robust_xml_lookup(node, "regionMapTexture");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR ||
      uuid_parse(child->u.s, block->map_image) != 0) {
-    printf("DEBUG: bad/missing regionMapTexture in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: bad/missing regionMapTexture in region entry from gridserver\n");
     return false;
   }
  
   child = os_robust_xml_lookup(node, "access");
   if(child == NULL || child->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: missing access in region entry from gridserver\n");
+    CAJ_WARN("DEBUG: missing access in region entry from gridserver\n");
     return false;
   }
   block->access = atoi(child->u.s);
 
-  printf("DEBUG: processed map block data\n");
+  CAJ_INFO("DEBUG: processed map block data\n");
   // not sent, legacy info
   block->water_height = 20; block->num_agents = 0;
   block->flags = 0; // should this be sent?
@@ -1279,23 +1291,23 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
   os_robust_xml *rxml, *node;
   GHashTableIter iter;
   struct map_block_state *st = (map_block_state*)user_data;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   struct map_block_info *blocks;
   size_t num_blocks = 0, alloc_blocks = 4;
 
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("Map block request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
 
-  printf("DEBUG: got map block response: ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: got map block response: ~%s~\n", msg->response_body->data);
   
   rxml = os_robust_xml_deserialise(msg->response_body->data,
 				   msg->response_body->length);
   if(rxml == NULL) {
-    printf("ERROR: couldn't parse gridserver XML response\n");
+    CAJ_ERROR("ERROR: couldn't parse gridserver XML response\n");
     goto out_fail;
   }
 
@@ -1303,7 +1315,7 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
   os_robust_xml_iter_begin(&iter, rxml);
   while(os_robust_xml_iter_next(&iter, NULL, &node)) {
 
-    printf("DEBUG: processing map block data\n");
+    CAJ_DEBUG("DEBUG: processing map block data\n");
 
     if(num_blocks >= alloc_blocks) {
       size_t new_alloc_blocks = alloc_blocks * 2;
@@ -1314,20 +1326,16 @@ static void got_map_multi_resp_v2(SoupSession *session, SoupMessage *msg, gpoint
       alloc_blocks = new_alloc_blocks; blocks = (map_block_info*)new_blocks;
     }
 
-    printf("DEBUG: still processing map block data\n");
+    CAJ_DEBUG("DEBUG: still processing map block data\n");
 
     map_block_info *block = &blocks[num_blocks]; 
-    if(unpack_v2_region_entry(node, block)) num_blocks++;
+    if(unpack_v2_region_entry(grid, node, block)) num_blocks++;
      
   }
 
-  printf("DEBUG: got %i map blocks\n", (int)num_blocks);
+  CAJ_DEBUG("DEBUG: got %i map blocks\n", (int)num_blocks);
   st->cb(st->cb_priv, blocks, num_blocks);
-#if 0 // no longer wanted due to code changes
-  for(size_t i = 0; i < num_blocks; i++) {
-    free(blocks[i].name); free(blocks[i].sim_ip);
-  }
-#endif
+
   os_robust_xml_free(rxml);
   free(blocks); delete st; 
   return;
@@ -1351,8 +1359,8 @@ static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x
 
   uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
 
-  printf("DEBUG: map block request (%i,%i)-(%i,%i)\n",
-	 min_x, min_y, max_x, max_y);
+  CAJ_DEBUG("DEBUG: map block request (%i,%i)-(%i,%i)\n",
+	    min_x, min_y, max_x, max_y);
 
   snprintf(xmin_s, 20, "%i", min_x*256);
   snprintf(xmax_s, 20, "%i", max_x*256);
@@ -1381,25 +1389,25 @@ static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x
 static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   GHashTable *hash = NULL;
   char *s; //uuid_t u;
 
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("Region info request failed: couldn't parse response\n");
+    CAJ_ERROR("Region info request failed: couldn't parse response\n");
     goto out_fail;
   }
 
-  printf("DEBUG: region info response ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: region info response ~%s~\n", msg->response_body->data);
   //printf("DEBUG: got map block response\n");
    
   if(!soup_value_hash_lookup(hash, "region_locx", G_TYPE_STRING, &s))
@@ -1436,7 +1444,7 @@ static void got_region_info_v1(SoupSession *session, SoupMessage *msg, gpointer 
   return;
 
  bad_block:
-  printf("ERROR: couldn't lookup expected values in region info reply\n");
+  CAJ_ERROR("ERROR: couldn't lookup expected values in region info reply\n");
   //out_free_fail:
   g_hash_table_destroy(hash);
  out_fail:
@@ -1466,7 +1474,7 @@ static void req_region_info_v1(struct simgroup_ctx* sgrp, uint64_t handle,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!msg) {
-    fprintf(stderr, "Could not create region_info request\n");
+    CAJ_ERROR("Could not create region_info request\n");
     cb(cb_priv, NULL);
     return;
   }
@@ -1484,33 +1492,33 @@ static void got_map_single_resp_v2(SoupSession *session, SoupMessage *msg, gpoin
   os_robust_xml *rxml, *node;
   struct map_region_state *st = (map_region_state*)user_data;
   struct map_block_info info;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
 
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
 
   // FIXME - TODO
-  printf("DEBUG: got region info response ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: got region info response ~%s~\n", msg->response_body->data);
 
   rxml = os_robust_xml_deserialise(msg->response_body->data,
 				   msg->response_body->length);
   if(rxml == NULL) {
-    printf("ERROR: couldn't parse gridserver XML response\n");
+    CAJ_ERROR("ERROR: couldn't parse gridserver XML response\n");
     goto out_fail;
   }
 
   
   node = os_robust_xml_lookup(rxml, "result");
   if(node == NULL || node->node_type != OS_ROBUST_XML_LIST) {
-    printf("ERROR: bad get_region_by_position XML response\n");
+    CAJ_ERROR("ERROR: bad get_region_by_position XML response\n");
     goto out_xmlfree_fail;
   }
 
-  if(unpack_v2_region_entry(node, &info)) {
+  if(unpack_v2_region_entry(grid, node, &info)) {
     st->cb(st->cb_priv, &info);
     os_robust_xml_free(rxml); delete st; return;
   }
@@ -1536,7 +1544,7 @@ static void req_region_info_v2(struct simgroup_ctx* sgrp, uint64_t handle,
   snprintf(x_s, 20, "%i", (unsigned)(handle>>32));
   snprintf(y_s, 20, "%i", (unsigned)(handle & 0xffffffff));
 
-  printf("DEBUG: region info request (%s,%s)\n",
+  CAJ_INFO("DEBUG: region info request (%s,%s)\n",
 	 x_s, y_s);
 
   snprintf(grid_uri,256, "%sgrid", grid->gridserver);
@@ -1575,29 +1583,29 @@ struct regions_by_name_state {
 static void got_regions_by_name_v1(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct regions_by_name_state *st = (regions_by_name_state*)user_data;
   struct map_block_info *info; int count;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   GHashTable *hash = NULL;
   char *s; //uuid_t u;
 
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("Region info request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("Region info request failed: couldn't parse response\n");
+    CAJ_ERROR("Region info request failed: couldn't parse response\n");
     goto out_fail;
   }
 
-  printf("DEBUG: region by name response ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: region by name response ~%s~\n", msg->response_body->data);
 
   if(!soup_value_hash_lookup(hash, "numFound", G_TYPE_INT, &count))
     goto bad_resp;
-  printf("DEBUG: region by name lookup returned %i items\n", count);
+  CAJ_DEBUG("DEBUG: region by name lookup returned %i items\n", count);
   
   if(count < 0) count = 0; 
   if(count > 100) count = 100;
@@ -1662,7 +1670,7 @@ static void got_regions_by_name_v1(SoupSession *session, SoupMessage *msg, gpoin
  bad_block:
   delete[] info;
  bad_resp:
-  printf("ERROR: couldn't lookup expected values in region by name reply\n");
+  CAJ_ERROR("ERROR: couldn't lookup expected values in region by name reply\n");
   //out_free_fail:
   g_hash_table_destroy(hash);
  out_fail:
@@ -1713,7 +1721,7 @@ static void map_name_request_v2(struct simgroup_ctx* sgrp, const char* name,
 
   uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
 
-  printf("DEBUG: map name request %s\n", name);
+  CAJ_DEBUG("DEBUG: map name request %s\n", name);
 
   snprintf(max_results, 20, "%i", 20); // FIXME!
 
@@ -1748,7 +1756,7 @@ void map_region_by_name_v2(struct simgroup_ctx* sgrp, const char* name,
 
   uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
 
-  printf("DEBUG: map name request %s\n", name);
+  CAJ_DEBUG("DEBUG: map name request %s\n", name);
 
   snprintf(max_results, 20, "%i", 20); // FIXME!
 
@@ -1846,7 +1854,7 @@ struct user_by_id_state {
 
 static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer user_data) {
   struct user_by_id_state *st = (user_by_id_state*)user_data;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
   caj_user_profile profile;
   GHashTable *hash = NULL;
   char *s;
@@ -1854,17 +1862,17 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("User by ID req failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("User by ID req failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
 
-  printf("DEBUG: user by ID response ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: user by ID response ~%s~\n", msg->response_body->data);
 
   if(!soup_xmlrpc_extract_method_response(msg->response_body->data,
 					 msg->response_body->length,
 					 NULL,
 					 G_TYPE_HASH_TABLE, &hash)) {
-    printf("User by ID req failed: couldn't parse response\n");
+    CAJ_ERROR("User by ID req failed: couldn't parse response\n");
     goto out_fail;
   }
 
@@ -1921,7 +1929,7 @@ static void got_user_by_id_resp(SoupSession *session, SoupMessage *msg, gpointer
   return;
 
  bad_data:
-  printf("ERROR: bad/missing data in user by ID response\n");
+  CAJ_ERROR("ERROR: bad/missing data in user by ID response\n");
   g_hash_table_destroy(hash);
  out_fail:
   st->cb(NULL, st->cb_priv);
@@ -1946,7 +1954,7 @@ static void user_profile_by_id_v1(struct simgroup_ctx *sgrp, uuid_t id,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
   if (!msg) {
-    fprintf(stderr, "Could not create get_user_by_uuid request\n");
+    CAJ_ERROR("Could not create get_user_by_uuid request\n");
     cb(NULL, cb_priv);
     return;
   }
@@ -2018,35 +2026,35 @@ static void uuid_to_name_cb_v2(SoupSession *session, SoupMessage *msg, gpointer 
   os_robust_xml *rxml, *resnode, *node;
   struct uuid_to_name_state_v2 *st = (uuid_to_name_state_v2*)user_data;
   struct map_block_info info;
-  //GRID_PRIV_DEF(st->sim);
+  GRID_PRIV_DEF_SGRP(st->sgrp);
 
   caj_shutdown_release(st->sgrp);
 
   if(msg->status_code != 200) {
-    printf("UUID to name failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    CAJ_WARN("UUID to name failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
     goto out_fail;
   }
 
   // FIXME - TODO
-  printf("DEBUG: got UUID to name response ~%s~\n", msg->response_body->data);
+  CAJ_DEBUG("DEBUG: got UUID to name response ~%s~\n", msg->response_body->data);
 
   rxml = os_robust_xml_deserialise(msg->response_body->data,
 				   msg->response_body->length);
   if(rxml == NULL) {
-    printf("ERROR: couldn't parse account server XML response\n");
+    CAJ_ERROR("ERROR: couldn't parse account server XML response\n");
     goto out_fail;
   }
 
   
   resnode = os_robust_xml_lookup(rxml, "result");
   if(resnode == NULL) {
-    printf("ERROR: bad getaccount XML response\n");
+    CAJ_ERROR("ERROR: bad getaccount XML response\n");
     goto out_xmlfree_fail;
   }
 
   if(resnode->node_type != OS_ROBUST_XML_LIST) {
     // indicates the UUID doesn't exist
-    printf("DEBUG: UUID to name lookup failed\n");
+    CAJ_DEBUG("DEBUG: UUID to name lookup failed\n");
     goto out_xmlfree_fail;
   }
 
@@ -2054,14 +2062,14 @@ static void uuid_to_name_cb_v2(SoupSession *session, SoupMessage *msg, gpointer 
 
   node = os_robust_xml_lookup(resnode, "FirstName");
   if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: UUID to name lookup failed, bad/missing FirstName\n");
+    CAJ_DEBUG("DEBUG: UUID to name lookup failed, bad/missing FirstName\n");
     goto out_xmlfree_fail;    
   }
   first_name = node->u.s;
 
   node = os_robust_xml_lookup(resnode, "LastName");
   if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
-    printf("DEBUG: UUID to name lookup failed, bad/missing LastName\n");
+    CAJ_DEBUG("DEBUG: UUID to name lookup failed, bad/missing LastName\n");
     goto out_xmlfree_fail;    
   }
   last_name = node->u.s;
@@ -2135,7 +2143,7 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     return false;
 
   struct grid_glue_ctx *grid = new grid_glue_ctx;
-  grid->sgrp = sgrp;
+  grid->sgrp = sgrp; grid->log = caj_get_logger(sgrp);
   grid->old_xmlrpc_grid_proto = 
     sgrp_config_get_bool(grid->sgrp,"grid","grid_server_is_xmlrpc",NULL);
   grid->new_userserver = 
@@ -2197,7 +2205,7 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
 
   if(grid->gridserver == NULL || grid->inventoryserver == NULL ||
      grid->userserver == NULL || grid->assetserver == NULL) {
-    printf("ERROR: grid not configured properly\n"); exit(1);
+    CAJ_ERROR("ERROR: grid not configured properly\n"); exit(1);
   }
 
   caj_http_add_handler(sgrp, "/", xmlrpc_handler, 

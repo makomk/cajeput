@@ -23,6 +23,7 @@
 #include "caj_vm.h"
 #include "caj_vm_internal.h"
 #include "caj_types.h"
+#include "caj_logging.h"
 #include <cassert>
 #include <stdarg.h>
 #include <math.h>
@@ -34,6 +35,8 @@ typedef std::vector<uint8_t> traceval_stack;
 
 #define TRACEVAL_COUNT(v) ( ((v) >> 24) & 0xff)
 #define TRACEVAL_IP(v) ( (v) & 0xffffff)
+
+#define CAJ_LOGGER (st->log)
 
 struct heap_header {
   uint32_t refcnt;
@@ -86,6 +89,7 @@ struct script_state {
   uint16_t *cur_state; // event functions for current state
   vm_world *world;
   void *priv; // for the user of the VM
+  caj_logger *log;
   int32_t state_id;
   int scram_flag;
 };
@@ -105,8 +109,9 @@ static inline int ptr_stack_sz(void) {
   else assert(0);
 }
 
-static script_state *new_script(void) {
+static script_state *new_script(caj_logger *log) {
   script_state *st = new script_state();
+  st->log = log;
   st->ip = 0;  st->mem_use = 0; st->scram_flag = 0;
   st->bytecode_len = 0; 
   st->num_gvals = st->num_gptrs = st->num_funcs = 0;
@@ -124,8 +129,8 @@ static script_state *new_script(void) {
 static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) {
   uint32_t hlen = len + sizeof(heap_header);
   if(len > VM_LIMIT_HEAP || (st->mem_use+hlen) > VM_LIMIT_HEAP) {
-    printf("DEBUG: exceeded mem limit of %i allocating %i with %i in use\n",
-	   VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
+    CAJ_WARN("DEBUG: exceeded mem limit of %i allocating %i with %i in use\n",
+	     VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
     st->scram_flag = VM_SCRAM_MEM_LIMIT; return NULL;
   }
   heap_header* p = (heap_header*)malloc(hlen);
@@ -138,8 +143,8 @@ static heap_header *script_alloc(script_state *st, uint32_t len, uint8_t vtype) 
 static heap_header *script_alloc_list(script_state *st, uint32_t len) {
   uint32_t fakelen = len*4 + sizeof(heap_header);
   if(len > VM_LIMIT_HEAP || (st->mem_use+fakelen) > VM_LIMIT_HEAP) {
-    printf("DEBUG: exceeded mem limit of %i allocating %i-item list with %i in use\n",
-	   VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
+    CAJ_WARN("DEBUG: exceeded mem limit of %i allocating %i-item list with %i in use\n",
+	     VM_LIMIT_HEAP, (int)len, (int)st->mem_use);
     st->scram_flag = VM_SCRAM_MEM_LIMIT; return NULL;
   }
   heap_header* p = (heap_header*)malloc(len*sizeof(heap_header*) + 
@@ -263,6 +268,7 @@ static int vm_vtype_size(uint8_t vtype) { // not same as vm_asm equivalent
 class script_loader {
 private:
   script_state *st;
+  caj_logger *log;
   unsigned char *data; int data_len, pos;
   int has_failed;
   uint32_t heap_count;
@@ -270,7 +276,7 @@ private:
 
   uint32_t read_u32() {
     if(pos+4 > data_len) { 
-      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: overran buffer end\n"); 
       has_failed = 1; return 0;
     }
     uint32_t ret = ((uint32_t)data[pos] << 24) | ((uint32_t)data[pos+1] << 16) |
@@ -280,7 +286,7 @@ private:
 
   uint16_t read_u16() {
     if(pos+2 > data_len) { 
-      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: overran buffer end\n"); 
       has_failed = 1; return 0;
     }
     uint32_t ret =  ((uint16_t)data[pos] << 8) | (uint16_t)data[pos+1];
@@ -289,7 +295,7 @@ private:
 
   uint16_t read_u8() {
     if(pos+1 > data_len) { 
-      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: overran buffer end\n"); 
       has_failed = 1; return 0;
     }
     return data[pos++];
@@ -297,7 +303,7 @@ private:
 
   void read_data(void* buf, int len) {
     if(pos+len > data_len) { 
-      printf("SCRIPT LOAD ERR: overran buffer end\n"); 
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: overran buffer end\n"); 
       has_failed = 1; return;
     }
     memcpy(buf,data+pos,len); pos += len;
@@ -315,7 +321,7 @@ private:
   }
 
 public:
-  script_loader() : st(NULL), heap(NULL) {
+  script_loader(caj_logger *log) : st(NULL), heap(NULL), log(log) {
     
   }
   
@@ -328,18 +334,18 @@ public:
     data = dat; data_len = len; pos = 0; has_failed = false;
 
     if(read_u32() != VM_MAGIC || has_failed) {
-      printf("SCRIPT LOAD ERR: bad magic\n"); return NULL;
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: bad magic\n"); return NULL;
     }
 
     free_our_heap();
     if(st != NULL) vm_free_script(st);
-    st = new_script();
+    st = new_script(log);
 
     int is_end = 0;
     while(!is_end) {
       uint32_t sect = read_u32();
       if(has_failed) {
-	printf("SCRIPT LOAD ERROR: unexpected EOF reading section\n");
+	CAJ_WARN_L(log, "SCRIPT LOAD ERROR: unexpected EOF reading section\n");
 	return NULL;
       } else if(sect == VM_MAGIC_END) {
 	is_end = 1; break;
@@ -347,10 +353,10 @@ public:
 
       uint32_t sect_len = read_u32(); int sect_end = pos + sect_len;
       if(has_failed || (uint32_t)(data_len - pos) < sect_len) {
-	printf("SCRIPT LOAD ERROR: unexpected EOF reading section\n");
+	CAJ_WARN_L(log, "SCRIPT LOAD ERROR: unexpected EOF reading section\n");
 	return NULL;
       } else if(!VM_VALID_SECT_ID(sect)) {
-	printf("SCRIPT LOAD ERROR: invalid section ID 0x%x\n", (unsigned)sect);
+	CAJ_WARN_L(log, "SCRIPT LOAD ERROR: invalid section ID 0x%x\n", (unsigned)sect);
 	return NULL;
       }
   
@@ -358,16 +364,16 @@ public:
       case VM_SECT_HEAP:
 	{
 	  if(heap != NULL) {
-	    printf("SCRIPT LOAD ERROR: duplicate heap section\n");
+	    CAJ_WARN_L(log, "SCRIPT LOAD ERROR: duplicate heap section\n");
 	    return NULL;
 	  }
 
 	  uint32_t hcount = read_u32();
 	  if(has_failed) return NULL;
 	  if(hcount > VM_LIMIT_HEAP_ENTRIES)  {
-	    printf("SCRIPT LOAD ERR: too many heap entries\n"); return NULL;
+	    CAJ_WARN_L(log, "SCRIPT LOAD ERR: too many heap entries\n"); return NULL;
 	  }
-	  printf("DEBUG: %u heap entries\n", (unsigned)hcount);
+	  CAJ_DEBUG_L(log, "DEBUG: %u heap entries\n", (unsigned)hcount);
 	  
 	  heap = new vm_heap_entry[hcount];
 	  
@@ -375,8 +381,8 @@ public:
 	  for(heap_count = 0; heap_count < hcount;) {
 	    heap[heap_count].vtype = read_u8();
 	    if(heap[heap_count].vtype > VM_TYPE_MAX) { 
-	      printf("SCRIPT LOAD ERR: bad vtype %i on heap\n",
-		     (int)heap[heap_count].vtype); return NULL;
+	      CAJ_WARN_L(log, "SCRIPT LOAD ERR: bad vtype %i on heap\n",
+			 (int)heap[heap_count].vtype); return NULL;
 	    }
 	    uint32_t it_len = heap[heap_count].len = read_u32();
 	    heap_header *p;
@@ -385,16 +391,16 @@ public:
 	       heap[heap_count].vtype == VM_TYPE_KEY) { 
 	      p = script_alloc(st, it_len, heap[heap_count].vtype);
 	      if(p == NULL) { 
-		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: memory limit\n"); return NULL;
 	      }
 	      read_data(script_getptr(p), it_len);
 	    } else if(heap[heap_count].vtype == VM_TYPE_LIST) {
 	      it_len /= 4;
 	      p = script_alloc_list(st, it_len);
 	      if(p == NULL) { 
-		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL; 
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: memory limit\n"); return NULL; 
 	      }
-	      printf("DEBUG: created a list at %p\n", p);
+	      CAJ_DEBUG_L(log, "DEBUG: created a list at %p\n", p);
 	      p->len = 0; // HACK!!!!
 	      heap_header **list = (heap_header**)script_getptr(p);
 	      memset(list, 0, it_len*sizeof(heap_header*));
@@ -402,7 +408,7 @@ public:
 		uint32_t gptr = read_u32();
 		if(has_failed) return NULL;
 		if(gptr >= heap_count) {
-		  printf("SCRIPT LOAD ERR: invalid gptr\n"); 
+		  CAJ_WARN_L(log, "SCRIPT LOAD ERR: invalid gptr\n"); 
 		  has_failed = 1; break;
 		}
 		heap_header *itemp = (heap_header*)heap[gptr].data; // FIXME
@@ -411,7 +417,7 @@ public:
 		  // impossible to load or create a circularly-linked data
 		  // structure anyway (immutable data + ordering restrictions 
 		  // within the file format). LSL doesn't allow it, though.
-		  printf("SCRIPT LOAD ERR: list within a list\n"); 
+		  CAJ_WARN_L(log, "SCRIPT LOAD ERR: list within a list\n"); 
 		  has_failed = 1; break;
 		}
 		heap_ref_incr(itemp); list[i] = itemp;
@@ -420,31 +426,31 @@ public:
 	    } else if(heap[heap_count].vtype == VM_TYPE_INT || 
 		      heap[heap_count].vtype == VM_TYPE_FLOAT) { 
 	      if(it_len != 4) {
-		printf("SCRIPT LOAD ERR: heap int/float not 4 bytes\n");
+		CAJ_ERROR_L(log, "SCRIPT LOAD ERR: heap int/float not 4 bytes\n");
 		return NULL;
 	      }
 	      p = script_alloc(st, 4, heap[heap_count].vtype);
 	      if(p == NULL) { 
-		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: memory limit\n"); return NULL;
 	      }
 	      *(int32_t*)script_getptr(p) = read_u32();
 	    } else if(heap[heap_count].vtype == VM_TYPE_VECT || 
 		      heap[heap_count].vtype == VM_TYPE_ROT) {
 	      int count = heap[heap_count].vtype == VM_TYPE_VECT ? 3 : 4;
 	      if(it_len != 4*count) {
-		printf("SCRIPT LOAD ERR: heap vect/rot wrong size\n");
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: heap vect/rot wrong size\n");
 		return NULL;
 	      }
 	      p = script_alloc(st, 4*count, heap[heap_count].vtype);
 	      if(p == NULL) { 
-		printf("SCRIPT LOAD ERR: memory limit\n"); return NULL;
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: memory limit\n"); return NULL;
 	      }
 	      int32_t *v = (int32_t*)script_getptr(p);
 	      for(int i = 0; i < count; i++, v++) {
 		*v = read_u32();
 	      }
 	    } else {
-	      printf("SCRIPT LOAD ERR: unhandled heap entry vtype\n"); return NULL;
+	      CAJ_WARN_L(log, "SCRIPT LOAD ERR: unhandled heap entry vtype\n"); return NULL;
 	    }
 	    heap[heap_count].data = (unsigned char*)p; // FIXME - bad types!
 	    heap_count++; // placement important for proper mem freeing later
@@ -452,15 +458,15 @@ public:
 	  }
 	}
 	if(pos != sect_end) {
-	  printf("ERROR: bad length of section\n"); return NULL;
+	  CAJ_WARN_L(log, "ERROR: bad length of section\n"); return NULL;
 	}
 	break;
       case VM_SECT_GLOBALS:
 	if(st->gvals != NULL) {
-	  printf("SCRIPT LOAD ERROR: duplicate globals section\n");
+	  CAJ_WARN_L(log, "SCRIPT LOAD ERROR: duplicate globals section\n");
 	  return NULL;
 	} else if(heap == NULL) {
-	  printf("SCRIPT LOAD ERROR: heap section must precede globals\n");
+	  CAJ_WARN_L(log, "SCRIPT LOAD ERROR: heap section must precede globals\n");
 	  return NULL;
 	}
 	{ 
@@ -468,9 +474,9 @@ public:
 	  if(has_failed) return NULL;
       
 	  if(gcnt > VM_MAX_GVALS) {
-	    printf("SCRIPT LOAD ERR: excess gvals\n"); return NULL;
+	    CAJ_WARN_L(log, "SCRIPT LOAD ERR: excess gvals\n"); return NULL;
 	  }
-	  printf("DEBUG: %i gvals\n", (int)gcnt);
+	  CAJ_DEBUG_L(log, "DEBUG: %i gvals\n", (int)gcnt);
 
 	  st->gvals = new int32_t[gcnt];
 	  for(unsigned int i = 0; i < gcnt; i++) {
@@ -484,18 +490,18 @@ public:
 	  uint16_t gcnt = read_u16();
 	  if(has_failed) return NULL;
 	  if(gcnt > VM_MAX_GPTRS) {
-	    printf("SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
+	    CAJ_WARN_L(log, "SCRIPT LOAD ERR: excess gptrs\n"); return NULL;
 	  }
 
 	  st->gptrs = new heap_header*[gcnt]; st->num_gptrs = 0;
 	  st->gptr_types = new uint8_t[gcnt];
-	  printf("DEBUG: %i gptrs\n", (int)gcnt);
+	  CAJ_DEBUG_L(log, "DEBUG: %i gptrs\n", (int)gcnt);
 
 	  for(unsigned int i = 0; i < gcnt; i++) {
 	    uint32_t gptr = read_u32();
 	    if(has_failed) return NULL;
 	    if(gptr >= heap_count) {
-	      printf("SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
+	      CAJ_WARN_L(log, "SCRIPT LOAD ERR: invalid gptr\n"); return NULL;
 	    }
 	    heap_header *p = (heap_header*)heap[gptr].data; // FIXME
 	    heap_ref_incr(p);
@@ -505,28 +511,28 @@ public:
 	  if(has_failed) return NULL;
 	}
 	if(pos != sect_end) {
-	  printf("ERROR: bad length of section\n"); return NULL;
+	  CAJ_WARN_L(log, "ERROR: bad length of section\n"); return NULL;
 	}
 	break;
       case VM_SECT_FUNCS:
 	if(st->funcs != NULL) {
-	  printf("SCRIPT LOAD ERROR: duplicate functions section\n");
+	  CAJ_WARN_L(log, "SCRIPT LOAD ERROR: duplicate functions section\n");
 	  return NULL;
 	}
 	{
 	  uint16_t gcnt = read_u16();
 	  if(has_failed) return NULL;
 	  if(gcnt > VM_MAX_FUNCS) {
-	    printf("SCRIPT LOAD ERR: excess funcs\n"); return NULL;
+	    CAJ_WARN_L(log, "SCRIPT LOAD ERR: excess funcs\n"); return NULL;
 	  }
-	  printf("DEBUG: %i funcs\n", (int)gcnt);
+	  CAJ_DEBUG_L(log, "DEBUG: %i funcs\n", (int)gcnt);
 	  st->funcs = new vm_function[gcnt]; st->num_funcs = 0;
 	  
 	  for(unsigned int i = 0; i < gcnt; i++) {
 	    st->funcs[i].ret_type = read_u8(); //(funcs[i].ret_type);
 	    if(st->funcs[i].ret_type > VM_TYPE_MAX) { 
-	      printf("SCRIPT LOAD ERR: bad vtype %i as ret type\n",
-		     (int)st->funcs[i].ret_type); return NULL;
+	      CAJ_WARN_L(log, "SCRIPT LOAD ERR: bad vtype %i as ret type\n",
+			 (int)st->funcs[i].ret_type); return NULL;
 	    }
 
 	    int arg_count = st->funcs[i].arg_count = read_u8();
@@ -537,8 +543,8 @@ public:
 	    for(int j = 0; j < arg_count; j++) {
 	      uint8_t arg_type = st->funcs[i].arg_types[j] = read_u8();
 	      if(arg_type > VM_TYPE_MAX) { 
-		printf("SCRIPT LOAD ERR: bad vtyp %i of argument\n",
-		       (int)arg_type); return NULL;
+		CAJ_WARN_L(log, "SCRIPT LOAD ERR: bad vtyp %i of argument\n",
+			   (int)arg_type); return NULL;
 	      }
 	      st->funcs[i].frame_sz += vm_vtype_size(arg_type);
 	    }
@@ -554,18 +560,19 @@ public:
 	  }
 	}
 	if(pos != sect_end) {
-	  printf("ERROR: bad length of section\n"); return NULL;
+	  CAJ_WARN_L(log, "ERROR: bad length of section\n"); return NULL;
 	}
 	break;
       case VM_SECT_BYTECODE:
 	if(st->bytecode != NULL) {
-	  printf("SCRIPT LOAD ERROR: duplicate bytecode section\n");
+	  CAJ_WARN_L(log, "SCRIPT LOAD ERROR: duplicate bytecode section\n");
 	  return NULL;
 	}
 
 	st->bytecode_len = sect_len/2;
 	if(st->bytecode_len > VM_LIMIT_INSNS) { 
-	  printf("SCRIPT LOAD ERR: too much bytecode\n"); return NULL;
+	  CAJ_WARN_L(log, "SCRIPT LOAD ERR: too much bytecode\n");
+	  return NULL;
 	}
 	st->bytecode = new uint16_t[st->bytecode_len];
 	for(unsigned int i = 0; i < st->bytecode_len; i++) {
@@ -573,14 +580,14 @@ public:
 	  if(has_failed) return NULL;
 	}
 	if(pos != sect_end) {
-	  printf("ERROR: bad length of section\n"); return NULL;
+	  CAJ_WARN_L(log, "ERROR: bad length of section\n"); return NULL;
 	}
 	break;	
       case VM_SECT_STATE_ID: // optional
 	st->state_id = read_u32();
 	if(has_failed) return NULL;
 	if(pos != sect_end) {
-	  printf("ERROR: bad length of section\n"); return NULL;
+	  CAJ_WARN_L(log, "ERROR: bad length of section\n"); return NULL;
 	}
 	break;
       default:
@@ -592,11 +599,11 @@ public:
 
     if(heap == NULL || st->gvals == NULL || st->gptrs == NULL ||
        st->funcs == NULL || st->bytecode == NULL) {
-      printf("SCRIPT LOAD ERR: missing required section\n"); return NULL;
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: missing required section\n"); return NULL;
     }
 
     if(!verify_code(st)) {
-      printf("SCRIPT LOAD ERR: didn't verify\n"); return NULL;
+      CAJ_WARN_L(log, "SCRIPT LOAD ERR: didn't verify\n"); return NULL;
     };
     
     { // final return
@@ -606,8 +613,8 @@ public:
   }
 };
 
-script_state* vm_load_script(void* data, int data_len) {
-  script_loader loader;
+script_state* vm_load_script(caj_logger *log, void* data, int data_len) {
+  script_loader loader(log);
   return loader.load((unsigned char*)data, data_len);
 }
 
@@ -691,7 +698,8 @@ unsigned char* vm_serialise_script(script_state *st, size_t *len) {
   delete[] gptrs; return ret;
 }
 
-static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function *func) {
+static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function *func,
+			caj_logger *log) {
   std::vector<uint32_t> pending;
   pending.push_back(func->insn_ptr);
  next_chunk:
@@ -699,7 +707,7 @@ static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function
     uint32_t ip = pending.back(); pending.pop_back();
     for(;;) {
       if(ip < func->insn_ptr || ip >= func->insn_end) {
-	printf("SCRIPT VERIFY ERR: IP out of bounds\n"); return 0;
+	CAJ_WARN_L(log, "SCRIPT VERIFY ERR: IP out of bounds\n"); return 0;
       }
       if(visited[ip] != 0) { 
 	visited[ip] = 2; goto next_chunk;
@@ -712,11 +720,11 @@ static int verify_pass1(unsigned char * visited, uint16_t *bytecode, vm_function
 	{
 	  uint16_t ival = GET_IVAL(insn);
 	  if(ival >= NUM_INSNS) { 
-	    printf("SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
+	    CAJ_WARN_L(log, "SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
 	  }
 	  switch(vm_insns[ival].special) {
 	  case IVERIFY_INVALID: 
-	    printf("SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
+	    CAJ_WARN_L(log, "SCRIPT VERIFY ERR: invalid instruction\n"); return 0; 
 	  case IVERIFY_RET:
 	    goto next_chunk;
 	  case IVERIFY_COND:
@@ -1004,8 +1012,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
 
       uint16_t insn = bytecode[vs.ip];
 #ifdef DEBUG_TRACEVALS
-      printf("DEBUG: verifying 0x%04x @ %i, trace=0x%lx\n",
-	     (unsigned)insn, (int)vs.ip, (unsigned long)vs.trace);
+      CAJ_DEBUG("DEBUG: verifying 0x%04x @ %i, trace=0x%lx\n",
+		(unsigned)insn, (int)vs.ip, (unsigned long)vs.trace);
 #endif
       uint32_t next_ip = vs.ip+1;
       
@@ -1023,13 +1031,13 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
 
 	  vs.trace = traceval_pop(vs.trace, info.arg2, st);
 #ifdef DEBUG_TRACEVALS
-	  printf("DEBUG: popped type %i, new trace 0x%lx\n",
-		 info.arg2, (unsigned long)vs.trace);
+	  CAJ_DEBUG("DEBUG: popped type %i, new trace 0x%lx\n",
+		    info.arg2, (unsigned long)vs.trace);
 #endif
 	  vs.trace = traceval_pop(vs.trace, info.arg1, st);
 #ifdef DEBUG_TRACEVALS
-	  printf("DEBUG: popped type %i, new trace 0x%lx\n",
-		 info.arg1, (unsigned long)vs.trace);
+	  CAJ_DEBUG("DEBUG: popped type %i, new trace 0x%lx\n",
+		    info.arg1, (unsigned long)vs.trace);
 #endif
 	  st->tracevals[vs.ip] = vs.trace;
 	  if(info.ret != VM_TYPE_NONE) {
@@ -1057,8 +1065,8 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
 	      assert(vs_iter != vs.verify->stack_types.begin());
 	      vs_iter--;
 	      if(caj_vm_check_types(*tv_iter, *vs_iter)) {
-		printf("INTERNAL ERROR: traceval/verify stack mismatch %i %i\n",
-		       (int)*tv_iter, (int)*vs_iter);
+		CAJ_ERROR("INTERNAL ERROR: traceval/verify stack mismatch %i %i\n",
+			  (int)*tv_iter, (int)*vs_iter);
 		vs.verify->dump_stack("verify ");
 		fflush(stdout); abort();
 	      }
@@ -1258,7 +1266,7 @@ static int verify_pass2(unsigned char * visited, uint16_t *bytecode,
     delete iter->second;
   }
 
-  if(err != NULL) { printf("SCRIPT VERIFY ERR: %s\n", err); return 0; }
+  if(err != NULL) { CAJ_WARN("SCRIPT VERIFY ERR: %s\n", err); return 0; }
   return 1;
 }
 
@@ -1269,10 +1277,10 @@ static int verify_code(script_state *st) {
     for(int i = 0; i < st->num_funcs; i++) {
       if(st->funcs[i].insn_ptr == 0) continue;
       if(st->funcs[i].insn_ptr <= last_ip) {
-	printf("SCRIPT VERIFY ERR: functions in wrong order\n");
+	CAJ_WARN("SCRIPT VERIFY ERR: functions in wrong order\n");
 	return 0;
       } else if(st->funcs[i].insn_ptr >= st->bytecode_len) {
-	printf("SCRIPT VERIFY ERR: function has invalid bytecode ptr\n");
+	CAJ_WARN("SCRIPT VERIFY ERR: function has invalid bytecode ptr\n");
 	return 0;
       }
       if(last_func >= 0) st->funcs[last_func].insn_end = st->funcs[i].insn_ptr;
@@ -1282,7 +1290,7 @@ static int verify_code(script_state *st) {
   }
 
   if(st->bytecode_len <= 0 || st->bytecode[0] != INSN_QUIT) {
-    printf("SCRIPT VERIFY ERR: bytecode at 0 must be QUIT\n");
+    CAJ_WARN("SCRIPT VERIFY ERR: bytecode at 0 must be QUIT\n");
     return 0;
   }
 
@@ -1298,7 +1306,7 @@ static int verify_code(script_state *st) {
   memset(visited, 0, st->bytecode_len);
   for(int i = 0; i < st->num_funcs; i++) {
     if(st->funcs[i].insn_ptr == 0) continue;
-    if(!verify_pass1(visited, st->bytecode, &st->funcs[i])) goto out_fail;
+    if(!verify_pass1(visited, st->bytecode, &st->funcs[i], st->log)) goto out_fail;
     if(!verify_pass2(visited, st->bytecode, &st->funcs[i], st)) goto out_fail;
   }
 
@@ -1360,13 +1368,13 @@ static void unwind_stack(script_state * st) {
 	  break;
 	}
       default:
-	printf("FATAL: unhandled type %i in unwind_stack\n", (int)*iter);
+	CAJ_ERROR("FATAL: unhandled type %i in unwind_stack\n", (int)*iter);
 	fflush(stdout); abort(); return;
       }
     }
 
     st->ip = *(++st->stack_top); 
-    printf("DEBUG: unwind_stack: new ip = 0x%x\n", (unsigned)st->ip);
+    CAJ_DEBUG("DEBUG: unwind_stack: new ip = 0x%x\n", (unsigned)st->ip);
   }
 }
 
@@ -1583,10 +1591,10 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_QUIT: // dirty dirty hack... that isn't actually used?
 	ip = 0; goto out;
       case INSN_PRINT_I:
-	printf("DEBUG: int %i\n", (int)*(++stack_top));
+	CAJ_INFO("DEBUG: int %i\n", (int)*(++stack_top));
 	break;
       case INSN_PRINT_F:
-	printf("DEBUG: float %f\n", (double)*(float*)(++stack_top));
+	CAJ_INFO("DEBUG: float %f\n", (double)*(float*)(++stack_top));
 	break;
       case INSN_PRINT_STR:
 	{
@@ -1595,7 +1603,7 @@ static void step_script(script_state* st, int num_steps) {
 	  char buf[len+1];  // HACK!
 	  memcpy(buf, script_getptr(p), len);
 	  buf[len] = 0;
-	  printf("DEBUG: string '%s'\n", buf);
+	  CAJ_INFO("DEBUG: string '%s'\n", buf);
 	  heap_ref_decr(p, st); stack_top += ptr_stack_sz();
 	  break;
 	}
@@ -2086,7 +2094,7 @@ static void step_script(script_state* st, int num_steps) {
       case INSN_SET_STATE:
 	{ 
 	  int new_state = *(++stack_top);
-	  printf("DEBUG: setting state %i\n", new_state);
+	  CAJ_DEBUG("DEBUG: setting state %i\n", new_state);
 	  st->state_id = new_state; 
 	  vm_bind_events(st); // FIXME - this is excessively inefficient.
 	  if(st->scram_flag) goto abort_exec;
@@ -2119,7 +2127,7 @@ static void step_script(script_state* st, int num_steps) {
 	  break;
 	}
       default:
-	 printf("ERROR: unhandled opcode; insn %i\n",(int)insn);
+	 CAJ_WARN("ERROR: unhandled opcode; insn %i\n",(int)insn);
 	 ip--; st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
       }
       break;
@@ -2140,7 +2148,7 @@ static void step_script(script_state* st, int num_steps) {
 	stack_top[st->funcs[ival].frame_sz] = ip;
 	ip = st->funcs[ival].insn_ptr;
 	if(ip == 0) {
-	  printf("SCRIPT ERROR: unbound native function %s\n", st->funcs[ival].name);
+	  CAJ_WARN("SCRIPT ERROR: unbound native function %s\n", st->funcs[ival].name);
 	  ip = stack_top[st->funcs[ival].frame_sz] - 1;
 	  st->scram_flag = VM_SCRAM_MISSING_FUNC; goto abort_exec;
 	} else if(ip & 0x80000000) {
@@ -2149,7 +2157,7 @@ static void step_script(script_state* st, int num_steps) {
 	  st->world->nfuncs[func_no].cb(st, st->priv, func_no);
 	  return;
 	} else if(st->funcs[ival].max_stack_use > (stack_top - st->stack_start)) { 
-	  printf("ERROR: potential stack overflow, aborting\n");
+	  CAJ_ERROR("ERROR: potential stack overflow, aborting\n");
 	  ip = stack_top[st->funcs[ival].frame_sz] - 1;
 	  st->scram_flag = VM_SCRAM_STACK_OVERFLOW; goto abort_exec;
 	}
@@ -2201,7 +2209,7 @@ static void step_script(script_state* st, int num_steps) {
 	break;
       }
     default:
-      printf("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
+      CAJ_WARN("ERROR: unhandled insn class; insn 0x%04x\n",(int)insn);
       ip--; st->scram_flag = VM_SCRAM_BAD_OPCODE; goto abort_exec;
     }
   }
@@ -2212,7 +2220,7 @@ static void step_script(script_state* st, int num_steps) {
   return; // FIXME;
  abort_exec:
   st->stack_top = stack_top; st->ip = ip;
-  printf("DEBUG: aborting code execution\n");
+  CAJ_INFO("DEBUG: aborting code execution\n");
   if(st->scram_flag == 0) st->scram_flag = VM_SCRAM_ERR;
 }
 
@@ -2280,7 +2288,7 @@ static void vm_bind_events(script_state *st) {
 	w->nfunc_map.find(st->funcs[i].name);
       if(iter != w->nfunc_map.end()) {
 	if(check_ncall_args(w->nfuncs[iter->second], st->funcs[i])){
-	  printf("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
+	  CAJ_WARN("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
 	  st->scram_flag = 1; return;
 	}
 	st->funcs[i].insn_ptr = 0x80000000 | iter->second;
@@ -2292,12 +2300,12 @@ static void vm_bind_events(script_state *st) {
 	w->event_map.find((st->funcs[i].name+2));
       if(iter != w->event_map.end()) {
 	if(check_ncall_args(iter->second, st->funcs[i])){
-	  printf("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
+	  CAJ_WARN("ERROR: prototype mismatch binding %s\n",st->funcs[i].name);
 	  st->scram_flag = 1; return;
 	}
 	st->cur_state[iter->second.number] = i;
       } else {
-	printf("WARNING: failed to bind event function %s\n", st->funcs[i].name);
+	CAJ_WARN("WARNING: failed to bind event function %s\n", st->funcs[i].name);
       }
     }
   }  
@@ -2323,7 +2331,7 @@ void vm_call_event(script_state *st, int event_id, ...) {
 
   uint16_t func_no = st->cur_state[event_id];
   if(func_no == 0xffff) {
-    printf("DEBUG: no handler for event %i\n", event_id);
+    CAJ_DEBUG("DEBUG: no handler for event %i\n", event_id);
     return; // no handler for event
   }
 
@@ -2362,7 +2370,7 @@ void vm_call_event(script_state *st, int event_id, ...) {
 	break;
       }
     default:
-      printf("ERROR: unhandled arg type in vm_call_event\n"); 
+      CAJ_ERROR("ERROR: unhandled arg type in vm_call_event\n"); 
       va_end(args); assert(0); abort(); return;
     }
   }
@@ -2794,7 +2802,7 @@ void vm_func_get_args(script_state *st, int func_no, ...) {
 	break;
       }      
     default:
-      printf("ERROR: unhandled arg type in vm_func_get_args\n"); 
+      CAJ_ERROR("ERROR: unhandled arg type in vm_func_get_args\n"); 
       va_end(args); return;
     }
   }
@@ -2933,7 +2941,7 @@ void vm_func_return(script_state *st, int func_no) {
 	break;
       }
     default:
-      printf("ERROR: unhandled arg type in vm_func_return\n"); 
+      CAJ_ERROR("ERROR: unhandled arg type in vm_func_return\n"); 
       st->scram_flag = 1; return;
     }
   }

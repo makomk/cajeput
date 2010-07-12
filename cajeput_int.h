@@ -39,6 +39,7 @@
 #include "cajeput_user.h"
 #include "cajeput_grid_glue.h"
 #include "cajeput_user_glue.h"
+#include "caj_logging.h"
 
 #define USER_CONNECTION_TIMEOUT 15
 #define USER_CONNECTION_TIMEOUT_PAUSED 90
@@ -209,6 +210,7 @@ struct simgroup_ctx {
   std::map<obj_uuid_t,texture_desc*> textures;
   std::map<obj_uuid_t,asset_desc*> assets;
   GTimer *timer;
+  caj_logger *log;
 
   char *release_notes;
   int release_notes_len;
