@@ -2566,6 +2566,8 @@ static void llListFindList_cb(script_state *st, void *sc_priv, int func_id) {
   
 }
 
+// TODO: support UTF-8 properly!
+
 static void llGetSubString_cb(script_state *st, void *sc_priv, int func_id) {
   char *src; int len, begin, end;
   vm_func_get_args(st, func_id, &src, &begin, &end);
@@ -2618,7 +2620,18 @@ static void llDeleteSubString_cb(script_state *st, void *sc_priv, int func_id) {
   vm_func_return(st, func_id);  
 }
 
-
+static void llSubStringIndex_cb(script_state *st, void *sc_priv, int func_id) {
+  char *src, *pattern, *found;
+  vm_func_get_args(st, func_id, &src, &pattern);
+  found = strstr(src, pattern);
+  if(found == NULL) {
+    vm_func_set_int_ret(st, func_id, -1);
+  } else {
+    vm_func_set_int_ret(st, func_id, found - src);
+  }
+   free(src);  free(pattern);
+  vm_func_return(st, func_id);  
+}
 
 struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
   vm_world *w = new vm_world;
@@ -2640,6 +2653,8 @@ struct vm_world* vm_world_new(vm_state_change_cb state_change_cb) {
 		    3, VM_TYPE_STR, VM_TYPE_INT, VM_TYPE_INT); 
   vm_world_add_func(w, "llDeleteSubString", VM_TYPE_STR, llDeleteSubString_cb, 
 		    3, VM_TYPE_STR, VM_TYPE_INT, VM_TYPE_INT); 
+  vm_world_add_func(w, "llSubStringIndex", VM_TYPE_INT, llSubStringIndex_cb, 
+		    2, VM_TYPE_STR, VM_TYPE_STR); 
   return w;
 }
 
