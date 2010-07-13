@@ -2311,30 +2311,65 @@ static asset_xfer* init_asset_upload(struct omuser_ctx* lctx, int is_local,
   return xfer;
 }
 
+static void asset_upload_complete(omuser_ctx* lctx, uuid_t asset_id, 
+				  int8_t asset_type, int success) {
+  SL_DECLMSG(AssetUploadComplete, complete);
+  SL_DECLBLK(AssetUploadComplete, AssetBlock, blk, &complete);
+  blk->Type = asset_type;
+  blk->Success = !!success;
+  uuid_copy(blk->UUID, asset_id);
+  complete.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &complete);  
+}
+
+struct asset_save_via_xfer_st {
+  user_ctx *ctx;
+  uuid_t asset_id;
+  int8_t asset_type;
+
+  asset_save_via_xfer_st(user_ctx *ctx, uuid_t asset_id, int8_t asset_type) : 
+    ctx(ctx), asset_type(asset_type) {
+    uuid_copy(this->asset_id, asset_id);
+    user_add_self_pointer(&this->ctx);
+  }
+
+  ~asset_save_via_xfer_st() {
+    if(ctx != NULL) user_del_self_pointer(&ctx);
+  }
+};
+
 static void asset_save_cb(uuid_t asset_id, void *user_data) {
+  bool success = true;
+  asset_save_via_xfer_st *st = (asset_save_via_xfer_st*)user_data;
+
   // FIXME - handle this right, etc. Horribly broken.
   if(uuid_is_null(asset_id)) {
     printf("ERROR: asset uploaded failed\n");
+    success = false;
+  } else if(uuid_compare(asset_id, st->asset_id) != 0) {
+    printf("ERROR: asset uploaded didn't give wanted asset_id!\n");
+    success = false;
   }
+
+  if(st->ctx) {
+    omuser_ctx *lctx = (omuser_ctx*)user_get_priv(st->ctx);
+    asset_upload_complete(lctx, st->asset_id, st->asset_type, success);
+  }
+
+  delete st;
 }
+
 
 static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
 				  int success) {
   lctx->xfers.erase(xfer->id);
-  SL_DECLMSG(AssetUploadComplete, complete);
-  SL_DECLBLK(AssetUploadComplete, AssetBlock, blk, &complete);
-  blk->Type = xfer->asset_type;
-  blk->Success = !!success;
-  uuid_copy(blk->UUID, xfer->asset_id);
-  complete.flags |= MSG_RELIABLE;
-  sl_send_udp(lctx, &complete);
-
+  
   if(success) {
     if(xfer->asset_type == ASSET_TEXTURE) {
       sim_add_local_texture(user_get_sim(lctx->u), xfer->asset_id, xfer->data,
 			    xfer->len, true);
+      asset_upload_complete(lctx, xfer->asset_id, xfer->asset_type, TRUE);
     } else {
-      user_send_message(lctx->u, "FIXME: support for asset uploads not finished yet");
       struct simple_asset asset;
       asset.data.data = xfer->data;
       asset.data.len = xfer->len;
@@ -2342,10 +2377,15 @@ static void complete_asset_upload(omuser_ctx* lctx, asset_xfer *xfer,
       uuid_copy(asset.id, xfer->asset_id);
       asset.name = const_cast<char*>("no name"); // can't see *any* way to fill these out
       asset.description = const_cast<char*>("no description");
+
+      asset_save_via_xfer_st *st = 
+	new asset_save_via_xfer_st(lctx->u, xfer->asset_id, xfer->asset_type);
       caj_put_asset(user_get_sgrp(lctx->u), &asset, 
-		    asset_save_cb, NULL);
+		    asset_save_cb, st);
+      free(xfer->data);
     }
   } else {
+    asset_upload_complete(lctx, xfer->asset_id, xfer->asset_type, FALSE);
     free(xfer->data); // note: sim_add_local_texture take ownership of buffer
   }
 
@@ -2464,6 +2504,16 @@ static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_mes
     xferreq.flags |= MSG_RELIABLE;
     sl_send_udp(lctx, &xferreq);
   }
+}
+
+static void handle_CreateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  asset_xfer *xfer;
+  SL_DECLBLK_GET1(CreateInventoryItem,AgentData,ad,msg);
+  SL_DECLBLK_GET1(CreateInventoryItem,InventoryBlock,invinfo,msg);
+  if(ad == NULL || invinfo == NULL || VALIDATE_SESSION(ad)) return;
+
+  // FIXME - TODO
+  user_send_message(lctx->u, "FIXME: CreateInventoryItem not implemented.");
 }
 
 struct xfer_send {
@@ -3314,6 +3364,7 @@ static void sim_int_init_udp(struct simulator_ctx *sim, void *priv)  {
   ADD_HANDLER(AgentWearablesRequest);
   ADD_HANDLER(AgentIsNowWearing);
   ADD_HANDLER(AssetUploadRequest);
+  ADD_HANDLER(CreateInventoryItem);
   ADD_HANDLER(SendXferPacket);
   ADD_HANDLER(RequestXfer);
   ADD_HANDLER(ConfirmXferPacket);
