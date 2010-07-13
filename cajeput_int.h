@@ -135,8 +135,8 @@ struct user_ctx {
   uuid_t user_id;
 
   int flags; // AGENT_FLAG_*
-  double last_activity;
   float draw_dist;
+  double last_activity;
   struct simulator_ctx* sim;
   struct simgroup_ctx* sgrp;
   struct avatar_obj* av;
@@ -144,6 +144,7 @@ struct user_ctx {
   caj_callback<user_generic_cb> delete_hook; // notifies when this user removed
 
   uint32_t wearable_serial;
+  int pending_wearable_lookups;
   struct caj_string texture_entry, visual_params;
   struct animation_desc default_anim;
   std::vector<animation_desc> anims;
@@ -169,6 +170,7 @@ struct user_ctx {
   caj_vector3 start_pos, start_look_at;
 
   struct obj_chat_listener listen;
+
 
   user_ctx(simulator_ctx* our_sim) : sim(our_sim), av(NULL) {
   }

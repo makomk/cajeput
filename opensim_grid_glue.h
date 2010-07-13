@@ -70,13 +70,13 @@ void user_grid_glue_deref(user_grid_glue *user_glue);
 #define USER_PRIV_DEF2(user) struct user_grid_glue* user_glue = (struct user_grid_glue*) user_get_grid_priv(user);
 
 void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
-			    void *user_priv, uuid_t folder_id,
+			    void *user_priv, const uuid_t folder_id,
 			    void(*cb)(struct inventory_contents* inv, 
 				      void* priv),
 			    void *cb_priv);
 
 void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
-			  void *user_priv, uuid_t item_id,
+			  void *user_priv, const uuid_t item_id,
 			  void(*cb)(struct inventory_item* item, 
 				    void* priv),
 			  void *cb_priv);
@@ -88,12 +88,12 @@ void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 			void *cb_priv);
 
 void fetch_inventory_folder_x(simgroup_ctx *sgrp, user_ctx *user,
-			      void *user_priv, uuid_t folder_id,
+			      void *user_priv, const uuid_t folder_id,
 			      void(*cb)(struct inventory_contents* inv, 
 					void* priv),
 			      void *cb_priv);
 void fetch_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
-			    void *user_priv, uuid_t item_id,
+			    void *user_priv, const uuid_t item_id,
 			    void(*cb)(struct inventory_item* item, 
 				      void* priv),
 			    void *cb_priv);

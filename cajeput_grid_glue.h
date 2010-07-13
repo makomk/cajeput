@@ -76,12 +76,12 @@ struct cajeput_grid_hooks {
 
   // interesting interesting function...
   void(*fetch_inventory_folder)(simgroup_ctx *sgrp, user_ctx *user,
-				void *user_priv, uuid_t folder_id,
+				void *user_priv, const uuid_t folder_id,
 				void(*cb)(struct inventory_contents* inv, 
 					  void* priv),
 				void *cb_priv);
   void (*fetch_inventory_item)(simgroup_ctx *sgrp, user_ctx *user,
-			       void *user_priv, uuid_t item_id,
+			       void *user_priv, const uuid_t item_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);

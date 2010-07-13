@@ -64,8 +64,10 @@ extern const char *sl_throttle_names[]; // don't forget to update this!
 #define SL_WEARABLE_UNDERSHIRT 10
 #define SL_WEARABLE_UNDERPANTS 11
 #define SL_WEARABLE_SKIRT 12
+#define SL_WEARABLE_ALPHA 13
+#define SL_WEARABLE_TATTOO 14
 
-#define SL_NUM_WEARABLES 13 // WARNING: changing this would break ABI compat
+#define SL_NUM_WEARABLES 15 // WARNING: changing this would break ABI compat
 extern const char *sl_wearable_names[]; // don't forget to update this!
 
 // various internal flags
@@ -133,6 +135,9 @@ struct wearable_desc {
 // again, you don't free or modify this
 const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 
+void user_set_wearable_item_id(struct user_ctx *ctx, int id,
+			       const uuid_t item_id);
+
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       const uuid_t item_id, const uuid_t asset_id);
@@ -179,12 +184,13 @@ void caj_uuid_to_name(struct simgroup_ctx *sgrp, uuid_t id,
 				const char* last, void *priv),
 		      void *cb_priv);
 
-void user_fetch_inventory_folder(user_ctx *user,
-				 uuid_t folder_id, uuid_t owner_id,
+void user_fetch_inventory_folder(user_ctx *user, const uuid_t folder_id, 
+				 const uuid_t owner_id,
 				 void(*cb)(struct inventory_contents* inv, 
 					   void* priv),
 				 void *cb_priv);
-void user_fetch_inventory_item(user_ctx *user, uuid_t item_id, uuid_t owner_id,
+void user_fetch_inventory_item(user_ctx *user, const uuid_t item_id, 
+			       const uuid_t owner_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv);
@@ -341,7 +347,7 @@ struct inventory_contents {
   struct inventory_item* items;
 };
 
-struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id);
+struct inventory_contents* caj_inv_new_contents_desc(const uuid_t folder_id);
 struct inventory_folder* caj_inv_add_folder(struct inventory_contents* inv,
 					    uuid_t folder_id, uuid_t owner_id,
 					    const char* name, 

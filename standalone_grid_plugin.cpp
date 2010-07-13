@@ -592,7 +592,7 @@ static bool inv_item_from_sqlite(standalone_grid_ctx *grid,
 }
 
 static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
-				   void *user_priv, uuid_t folder_id,
+				   void *user_priv, const uuid_t folder_id,
 				   void(*cb)(struct inventory_contents* inv, 
 					     void* priv),
 				   void *cb_priv) {
@@ -696,7 +696,7 @@ static void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
 }
 
 static void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
-				 void *user_priv, uuid_t item_id,
+				 void *user_priv, const uuid_t item_id,
 				 void(*cb)(struct inventory_item* item, 
 					   void* priv),
 				 void *cb_priv) {

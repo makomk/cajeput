@@ -611,11 +611,32 @@ static void send_agent_wearables(struct omuser_ctx* lctx) {
   sl_send_udp(lctx, &upd);
 }
 
+static void handle_wearables_changed(void *user_priv) {
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
+  // FIXME - should only send wearables update when all asset IDS have been
+  // found!
+  send_agent_wearables(lctx);
+}
+
 static void handle_AgentWearablesRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(AgentWearablesRequest, AgentData, ad, msg);
   if(ad == NULL || VALIDATE_SESSION(ad)) 
     return;
   send_agent_wearables(lctx);
+}
+
+static void handle_AgentIsNowWearing_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
+  SL_DECLBLK_GET1(AgentIsNowWearing, AgentData, ad, msg);
+  if(ad == NULL || VALIDATE_SESSION(ad)) 
+    return;
+
+  int count = SL_GETBLK(AgentIsNowWearing, WearableData, msg).count;
+
+  for(int i = 0; i < count; i++) {
+    SL_DECLBLK_ONLY(AgentIsNowWearing, WearableData, wd) =
+      SL_GETBLKI(AgentIsNowWearing, WearableData, msg, i);
+    user_set_wearable_item_id(lctx->u, wd->WearableType, wd->ItemID);
+  }
 }
 
 static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -3291,6 +3312,7 @@ static void sim_int_init_udp(struct simulator_ctx *sim, void *priv)  {
   ADD_HANDLER(AgentThrottle);
   ADD_HANDLER(RegionHandshakeReply);
   ADD_HANDLER(AgentWearablesRequest);
+  ADD_HANDLER(AgentIsNowWearing);
   ADD_HANDLER(AssetUploadRequest);
   ADD_HANDLER(SendXferPacket);
   ADD_HANDLER(RequestXfer);
@@ -3375,6 +3397,7 @@ int cajeput_plugin_init(int api_major, int api_minor,
   hooks->send_av_appearance = send_av_appearance; 
   hooks->send_av_animations = send_av_animations;
   hooks->script_dialog = send_script_dialog;
+  hooks->wearables_changed = handle_wearables_changed;
 
   cajeput_add_sim_added_hook(sgrp, sim_int_init_udp, hooks);
 

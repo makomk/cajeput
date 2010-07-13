@@ -32,9 +32,9 @@
 
 const char *sl_throttle_names[] = { "resend","land","wind","cloud","task","texture","asset" };
 const char *sl_wearable_names[] = {"body","skin","hair","eyes","shirt",
-					  "pants","shoes","socks","jacket",
-					  "gloves","undershirt","underpants",
-					  "skirt"};
+				   "pants","shoes","socks","jacket",
+				   "gloves","undershirt","underpants",
+				   "skirt", "alpha", "tattoo"};
 
 // possible states of sys_folders requests:
 #define SYS_FOLDERS_NOT_REQUESTED 0
@@ -227,12 +227,65 @@ void user_set_wearable_serial(struct user_ctx *ctx, uint32_t serial) {
 
 void user_set_wearable(struct user_ctx *ctx, int id,
 		       const uuid_t item_id, const uuid_t asset_id) {
-  if(id >= SL_NUM_WEARABLES) {
+  if(id >= SL_NUM_WEARABLES || id < 0) {
     printf("ERROR: user_set_wearable bad id %i\n",id);
     return;
   }
   uuid_copy(ctx->wearables[id].item_id, item_id);
   uuid_copy(ctx->wearables[id].asset_id, asset_id);
+}
+
+struct wearable_item_query_st {
+  user_ctx *ctx;
+  int id;
+  wearable_item_query_st(user_ctx *ctx, int id) : ctx(ctx), id(id) {
+    user_add_self_pointer(&this->ctx);
+  }
+  ~wearable_item_query_st() {
+    if(ctx != NULL) user_del_self_pointer(&ctx);
+  }
+};
+
+void wearable_item_cb(struct inventory_item* item, void* priv) {
+  wearable_item_query_st *st = (wearable_item_query_st*)priv;
+  if(st->ctx != NULL) {
+    if(item != NULL && 
+       uuid_compare(item->item_id, st->ctx->wearables[st->id].item_id) == 0) {
+      uuid_copy(st->ctx->wearables[st->id].asset_id, item->asset_id);
+    }
+    st->ctx->pending_wearable_lookups--;
+    st->ctx->wearable_serial++;
+    if(st->ctx->userh->wearables_changed != NULL && 
+       st->ctx->pending_wearable_lookups == 0) {
+      st->ctx->userh->wearables_changed(st->ctx->user_priv);
+    }
+  }
+  delete st;
+}
+
+void user_set_wearable_item_id(struct user_ctx *ctx, int id,
+			       const uuid_t item_id) {
+  if(id >= SL_NUM_WEARABLES || id < 0) {
+    printf("ERROR: user_set_wearable_item_id bad id %i\n",id);
+    return;
+  }
+  if(uuid_is_null(item_id)) {
+    uuid_clear(ctx->wearables[id].item_id);
+    uuid_clear(ctx->wearables[id].asset_id);
+
+    ctx->wearable_serial++;
+    if(ctx->userh->wearables_changed != NULL && 
+       ctx->pending_wearable_lookups == 0)
+      ctx->userh->wearables_changed(ctx->user_priv);
+  } else if(uuid_compare(item_id, ctx->wearables[id].item_id) != 0) {
+    uuid_copy(ctx->wearables[id].item_id, item_id);
+    uuid_clear(ctx->wearables[id].asset_id);
+
+    wearable_item_query_st *st = new wearable_item_query_st(ctx, id);
+    ctx->pending_wearable_lookups++;
+    user_fetch_inventory_item(ctx, item_id, ctx->user_id, wearable_item_cb,
+			      st);
+  }
 }
 
 uint32_t user_get_wearable_serial(struct user_ctx *ctx) {
@@ -519,11 +572,11 @@ void user_relinquish_god_powers(user_ctx *ctx) {
 }
 
 
-void user_fetch_inventory_folder(user_ctx *user, 
-				 uuid_t folder_id, uuid_t owner_id,
-				  void(*cb)(struct inventory_contents* inv, 
-					    void* priv),
-				  void *cb_priv) {
+void user_fetch_inventory_folder(user_ctx *user, const uuid_t folder_id, 
+				 const uuid_t owner_id,
+				 void(*cb)(struct inventory_contents* inv, 
+					   void* priv),
+				 void *cb_priv) {
   simgroup_ctx *sgrp = user->sgrp;
   if(uuid_compare(owner_id, user->user_id) == 0) {
     printf("DEBUG: fetching from inventory\n");
@@ -543,7 +596,8 @@ void user_fetch_inventory_folder(user_ctx *user,
   }
 }
 
-void user_fetch_inventory_item(user_ctx *user, uuid_t item_id, uuid_t owner_id,
+void user_fetch_inventory_item(user_ctx *user, const uuid_t item_id, 
+			       const uuid_t owner_id,
 			       void(*cb)(struct inventory_item* item, 
 					 void* priv),
 			       void *cb_priv) {
@@ -845,6 +899,7 @@ struct user_ctx* sim_prepare_new_user(struct simulator_ctx *sim,
   ctx->visual_params.data = NULL;
   ctx->wearable_serial = 0;
   memset(ctx->wearables, 0, sizeof(ctx->wearables));
+  ctx->pending_wearable_lookups = 0;
 
   uuid_copy(ctx->default_anim.anim, stand_anim);
   ctx->default_anim.sequence = 1;

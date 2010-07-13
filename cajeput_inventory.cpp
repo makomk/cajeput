@@ -42,7 +42,7 @@ static void grow_array(unsigned int *num_items, unsigned int* alloc_items,
   if(*items == NULL) abort();
 }
 
-struct inventory_contents* caj_inv_new_contents_desc(uuid_t folder_id) {
+struct inventory_contents* caj_inv_new_contents_desc(const uuid_t folder_id) {
   struct inventory_contents* inv = new inventory_contents();
   uuid_copy(inv->folder_id, folder_id);
   inv->num_subfolder = inv->num_items = 0;

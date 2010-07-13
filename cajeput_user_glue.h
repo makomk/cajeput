@@ -56,6 +56,8 @@ struct user_hooks {
   void(*script_dialog)(void *user_priv, primitive_obj* prim,
 		       char *msg, int num_buttons, char** buttons,
 		       int32_t channel);
+
+  void(*wearables_changed)(void *user_priv);
 };
 
 struct user_hooks *cajeput_alloc_user_hooks(void);
