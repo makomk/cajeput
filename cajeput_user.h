@@ -236,6 +236,10 @@ int user_can_access_asset_direct(user_ctx *user, simple_asset *asset);
 int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 				   inventory_item *inv);
 
+  // check whether the asset can be retrieved from user inventory/library
+int user_can_access_asset_from_inv(user_ctx *user, inventory_item *inv);
+
+
 // calculate the permissions part of the ObjectUpdate UpdateFlags
 uint32_t user_calc_prim_flags(struct user_ctx* ctx, struct primitive_obj *prim);
 

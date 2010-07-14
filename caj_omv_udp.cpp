@@ -967,6 +967,23 @@ static void do_send_asset(asset_request *req) {
 		do_send_asset_cb, req);
 }
 
+static void transfer_check_inv_cb(struct inventory_item* item, void* priv) {
+  asset_request *req = (asset_request*)priv;
+  if(req->ctx != NULL) {
+    if(item == NULL) {
+      // FIXME - send the right sort of error
+      printf("ERROR: couldn't find inventory item for asset.\n");
+    } else if(!user_can_access_asset_from_inv(req->ctx, item)) {
+      // FIXME - send the right sort of error
+      printf("ERROR: insufficient perms accessing asset from inventory.\n");
+    } else {
+      do_send_asset(req); return;
+    }
+  }
+  caj_string_free(&req->params);
+  delete req;
+}
+
 static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   SL_DECLBLK_GET1(TransferRequest, TransferInfo, tinfo, msg);
   if(tinfo == NULL) return;
@@ -1026,8 +1043,16 @@ static void handle_TransferRequest_msg(struct omuser_ctx* lctx, struct sl_messag
     }
     
     if(uuid_is_null(task_id)) {
-      printf("FIXME: TransferRequest for item in user's inventory\n");
-      // non-prim inventory items - TODO
+      asset_request *req = new asset_request();
+      req->ctx = lctx->u; user_add_self_pointer(&req->ctx);
+      req->lctx = lctx; req->is_direct = 0;
+      uuid_copy(req->asset_id, asset_id);
+      uuid_copy(req->transfer_id, tinfo->TransferID);
+      req->channel_type = tinfo->ChannelType;
+      caj_string_copy(&req->params, &tinfo->Params);
+
+      user_fetch_inventory_item(lctx->u, item_id, owner_id, 
+				transfer_check_inv_cb, req);
     } else {
       struct world_obj* obj = world_object_by_id(user_get_sim(lctx->u), task_id);
       if(obj == NULL) {
@@ -2583,47 +2608,82 @@ static void create_inv_item_cb(void *cb_priv, int success,
   delete st;
 }
 
+static void create_inv_upload_cb(uuid_t asset_id, void *user_data) {
+  create_inv_st *st = (create_inv_st*)user_data;
+
+  if(st->ctx != NULL) {
+    omuser_ctx *lctx = (omuser_ctx*)user_get_priv(st->ctx);
+    if(uuid_is_null(asset_id)) {
+      // FIXME - send correct type of error
+      user_send_message(lctx->u, "ERROR: failed to create asset for new inventory item");
+      delete st;
+    } else {
+      uuid_copy(st->inv.asset_id, asset_id);
+      user_add_inventory_item(lctx->u, &st->inv, create_inv_item_cb, st);
+    }
+  } else {
+    delete st;
+  }
+}
+
 static void handle_CreateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
   create_inv_st *st; char creator_id[40];
   SL_DECLBLK_GET1(CreateInventoryItem,AgentData,ad,msg);
   SL_DECLBLK_GET1(CreateInventoryItem,InventoryBlock,invinfo,msg);
   if(ad == NULL || invinfo == NULL || VALIDATE_SESSION(ad)) return;
 
-  if( uuid_is_null(invinfo->TransactionID) ) {
-    user_send_message(lctx->u, "FIXME: CreateInventoryItem with zero UUID not yet implemented");
-  } else {
-  st = new create_inv_st(lctx->u, invinfo->CallbackID);
+    st = new create_inv_st(lctx->u, invinfo->CallbackID);
 
-  st->inv.perms.base = st->inv.perms.current = PERM_FULL_PERMS;
-  st->inv.perms.group = st->inv.perms.everyone = 0;
-  st->inv.perms.next = invinfo->NextOwnerMask;
+    st->inv.perms.base = st->inv.perms.current = PERM_FULL_PERMS;
+    st->inv.perms.group = st->inv.perms.everyone = 0;
+    st->inv.perms.next = invinfo->NextOwnerMask;
 			  
-  uuid_generate(st->inv.item_id);
-  uuid_copy(st->inv.folder_id, invinfo->FolderID);
-  user_get_uuid(lctx->u, st->inv.owner_id);
-  uuid_copy(st->inv.creator_as_uuid, st->inv.owner_id);
-  uuid_unparse(st->inv.owner_id, creator_id);
-  st->inv.creator_id = strdup(creator_id);
+    uuid_generate(st->inv.item_id);
+    uuid_copy(st->inv.folder_id, invinfo->FolderID);
+    user_get_uuid(lctx->u, st->inv.owner_id);
+    uuid_copy(st->inv.creator_as_uuid, st->inv.owner_id);
+    uuid_unparse(st->inv.owner_id, creator_id);
+    st->inv.creator_id = strdup(creator_id);
 
-  uuid_t secure_session_id;
-  user_get_secure_session_id(lctx->u, secure_session_id);
-  helper_combine_uuids(st->inv.asset_id, invinfo->TransactionID,
-		       secure_session_id);
-
-  st->inv.name = strdup((char*)invinfo->Name.data);
-  st->inv.description = strdup((char*)invinfo->Description.data);
+    st->inv.name = strdup((char*)invinfo->Name.data);
+    st->inv.description = strdup((char*)invinfo->Description.data);
   
-  st->inv.asset_type = invinfo->Type;
-  st->inv.inv_type = invinfo->InvType;
-  st->inv.flags = invinfo->WearableType & 0xff;
+    st->inv.asset_type = invinfo->Type;
+    st->inv.inv_type = invinfo->InvType;
+    st->inv.flags = invinfo->WearableType & 0xff;
 
-  st->inv.group_owned = FALSE;
-  uuid_clear(st->inv.group_id);
-  st->inv.sale_type = 0; // FIXME - named constant?
-  st->inv.sale_price = 0;
-  st->inv.creation_date = time(NULL);
+    st->inv.group_owned = FALSE;
+    uuid_clear(st->inv.group_id);
+    st->inv.sale_type = 0; // FIXME - named constant?
+    st->inv.sale_price = 0;
+    st->inv.creation_date = time(NULL);
+
+  if( uuid_is_null(invinfo->TransactionID) ) {
+    if(invinfo->Type == ASSET_NOTECARD && invinfo->InvType == INV_TYPE_NOTECARD) {
+      simple_asset asset;
+      asset.name = st->inv.name;
+      asset.description = st->inv.description;
+      asset.type = invinfo->Type;
+      caj_string_set(&asset.data, "");
+      uuid_generate(asset.id);
+      caj_put_asset(user_get_sgrp(lctx->u), &asset, create_inv_upload_cb, st);
+    } else {
+      user_send_message(lctx->u, 
+			"FIXME: CreateInventoryItem with no TransactionID not yet implemented for this type");
+      delete st;
+    }
+  } else {
+    // FIXME - we should store the TransactionID from uploads and verify them
+    // for security reasons. This may also allow us to handle the asset server
+    // not giving us the asset ID we asked for, though CreateInventoryItem 
+    // seems to often be sent before the upload to the asset server finishes.
   
-  user_add_inventory_item(lctx->u, &st->inv, create_inv_item_cb, st);
+    uuid_t secure_session_id;
+    user_get_secure_session_id(lctx->u, secure_session_id);
+    helper_combine_uuids(st->inv.asset_id, invinfo->TransactionID,
+			 secure_session_id);
+
+    user_add_inventory_item(lctx->u, &st->inv, create_inv_item_cb, st);
   }
 }
 

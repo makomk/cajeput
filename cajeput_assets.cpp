@@ -181,12 +181,17 @@ void caj_request_texture(struct simgroup_ctx *sgrp, struct texture_desc *desc) {
 // ------------- asset-related fun --------------------------
 
 int user_can_access_asset_direct(user_ctx *user, simple_asset *asset) {
-  return asset->type != ASSET_NOTECARD && asset->type != ASSET_LSL_TEXT;
+  return asset->type != ASSET_NOTECARD && asset->type != ASSET_LSL_TEXT &&
+    asset->type != ASSET_OBJECT;
 }
 
 int user_can_access_asset_task_inv(user_ctx *user, primitive_obj *prim,
 				   inventory_item *inv) {
-  return TRUE; // FIXME - need actual permission checks
+  return inv->asset_type != ASSET_OBJECT; // FIXME - need actual permission checks
+}
+
+int user_can_access_asset_from_inv(user_ctx *user, inventory_item *inv) {
+  return inv->asset_type != ASSET_OBJECT; // FIXME - need actual permission checks
 }
 
 void caj_asset_finished_load(struct simgroup_ctx *sgrp, 
