@@ -1050,13 +1050,119 @@ void fetch_system_folders_x(simgroup_ctx *sgrp, user_ctx *user,
   // FIXME - how the hell can we do this with XInventory?
 }
 
+static void got_add_inventory_resp_x(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  //USER_PRIV_DEF(user_data);
+  //GRID_PRIV_DEF(sim);
+  add_inv_item_req *req = (add_inv_item_req*)user_data;
+  user_grid_glue* user_glue = req->user_glue;
+  os_robust_xml *rxml, *node; uuid_t u;
+  user_grid_glue_deref(user_glue);
+  if(msg->status_code != 200) {
+    printf("XInventory request failed: got %i %s\n",(int)msg->status_code,msg->reason_phrase);
+    goto fail;
+  }
+
+  printf("DEBUG: XInventory add item resp {{%s}}\n",
+	 msg->response_body->data);
+
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
+    printf("ERROR: couldn't parse XInventory item contents\n");
+    goto fail;
+  }
+
+  node = os_robust_xml_lookup(rxml, "RESULT");
+  if(node == NULL || node->node_type != OS_ROBUST_XML_STR) {
+    // this is normal if the item doesn't exist.
+    printf("ERROR: bad XInventory response, missing/bad RESULT node\n");
+    goto free_fail;
+  }
+
+  if(strcasecmp(node->u.s, "True") != 0) goto free_fail;
+    
+  os_robust_xml_free(rxml);
+  req->cb(req->cb_priv, TRUE, req->item_id);
+  delete req;
+  return;
+
+ free_fail:
+  os_robust_xml_free(rxml);
+ fail:
+  printf("ERROR: failed to add inventory item\n");
+  uuid_clear(u); req->cb(req->cb_priv, FALSE, u);
+  delete req;
+  return;
+}
 
 void add_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
 			void *user_priv, inventory_item *inv,
 			void(*cb)(void* priv, int success, uuid_t item_id),
 			void *cb_priv) {
-  uuid_t u;
-  uuid_clear(u); cb(cb_priv, FALSE, u); 
+  uuid_t u; 
+  char item_id_str[40], asset_id_str[40], owner_str[40], folder_id_str[40]; 
+  char inv_type[16], asset_type[16], sale_type[16], sale_price[16], flags[16];
+  char creation_date[16], base_perms[16], cur_perms[16], group_perms[16];
+  char next_perms[16], everyone_perms[16], group_id_str[40];
+  char uri[256];
+  add_inv_item_req *req; char *req_body; SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+  USER_PRIV_DEF(user_priv);
 
-  // FIXME - TODO!
+  uuid_unparse(inv->item_id, item_id_str);
+  user_get_uuid(user, u);
+  uuid_unparse(u, owner_str);
+  uuid_unparse(inv->folder_id, folder_id_str);
+  uuid_unparse(inv->asset_id, asset_id_str);
+  uuid_unparse(inv->group_id, group_id_str);
+
+  snprintf(inv_type, 16, "%i", (int)inv->inv_type);
+  snprintf(asset_type, 16, "%i", (int)inv->asset_type);
+  snprintf(sale_type, 16, "%i", (int)inv->sale_type);
+  snprintf(sale_price, 16, "%i", (int)inv->sale_price);
+  snprintf(flags, 16, "%i", (int)inv->flags);
+  snprintf(creation_date, 16, "%i", (int)inv->creation_date);
+
+  snprintf(base_perms, 16, "%i", (int)inv->perms.base);
+  snprintf(cur_perms, 16, "%i", (int)inv->perms.current);
+  snprintf(group_perms, 16, "%i", (int)inv->perms.group);
+  snprintf(everyone_perms, 16, "%i", (int)inv->perms.everyone);
+  snprintf(next_perms, 16, "%i", (int)inv->perms.next);
+  
+  // FIXME - don't use fixed-size buffer 
+  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("METHOD", "ADDITEM",
+			      "Owner", owner_str,
+			      "ID", item_id_str,
+			      "Folder", folder_id_str,
+			      "CreatorId", inv->creator_id,
+			      "AssetID", asset_id_str,
+			      "AssetType", asset_type,
+			      "InvType", inv_type,
+			      "Name", inv->name,
+			      "Description", inv->description,
+			      "SaleType", sale_type,
+			      "SalePrice", sale_price,
+			      "Flags", flags,
+			      "CreationDate", creation_date,
+			      "BasePermissions", base_perms,
+			      "CurrentPermissions", cur_perms,
+			      "GroupPermissions", group_perms,
+			      "EveryOnePermissions", everyone_perms,
+			      "NextPermissions", next_perms,
+			      "GroupID", group_id_str,
+			      "GroupOwned", inv->group_owned?"True":"False",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  req = new add_inv_item_req();
+  req->user_glue = user_glue; req->cb = cb;
+  req->cb_priv = cb_priv;
+  uuid_copy(req->item_id, inv->item_id);
+  user_grid_glue_ref(user_glue);
+  caj_queue_soup_message(sgrp, msg,
+			 got_add_inventory_resp_x, req);
 }
