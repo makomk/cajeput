@@ -608,6 +608,7 @@ static void send_agent_wearables(struct omuser_ctx* lctx) {
   }
 
   upd.flags |= MSG_RELIABLE;
+  sl_dump_packet(&upd);
   sl_send_udp(lctx, &upd);
 }
 
@@ -632,11 +633,13 @@ static void handle_AgentIsNowWearing_msg(struct omuser_ctx* lctx, struct sl_mess
 
   int count = SL_GETBLK(AgentIsNowWearing, WearableData, msg).count;
 
+  user_incr_pending_wearables(lctx->u);
   for(int i = 0; i < count; i++) {
     SL_DECLBLK_ONLY(AgentIsNowWearing, WearableData, wd) =
       SL_GETBLKI(AgentIsNowWearing, WearableData, msg, i);
     user_set_wearable_item_id(lctx->u, wd->WearableType, wd->ItemID);
   }
+  user_decr_pending_wearables(lctx->u);
 }
 
 static void handle_AgentSetAppearance_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
@@ -2506,14 +2509,122 @@ static void handle_AssetUploadRequest_msg(struct omuser_ctx* lctx, struct sl_mes
   }
 }
 
+struct create_inv_st {
+  user_ctx *ctx;
+  uint32_t callback_id;
+  inventory_item inv;
+
+  create_inv_st(user_ctx *ctx, uint32_t callback_id) : 
+    ctx(ctx), callback_id(callback_id) {
+    inv.name = NULL; inv.description = NULL; inv.creator_id = NULL;
+    user_add_self_pointer(&this->ctx);
+  }
+
+  ~create_inv_st() {
+    free(inv.name); free(inv.description); free(inv.creator_id);
+    if(ctx != NULL) user_del_self_pointer(&ctx);
+  }
+};
+
+static void send_inv_create_update(struct omuser_ctx* lctx, inventory_item *inv,
+				   uint32_t callback_id) {
+  SL_DECLMSG(UpdateCreateInventoryItem, msg);
+  SL_DECLBLK(UpdateCreateInventoryItem, AgentData, ad, &msg);
+  user_get_uuid(lctx->u, ad->AgentID);
+  uuid_clear(ad->TransactionID); // FIXME - should we fill this in?
+  ad->SimApproved = TRUE;
+
+  SL_DECLBLK(UpdateCreateInventoryItem, InventoryData, invd, &msg);
+  uuid_copy(invd->ItemID, inv->item_id);
+  uuid_copy(invd->FolderID, inv->folder_id);
+  invd->CallbackID = callback_id;
+
+  uuid_copy(invd->CreatorID, inv->creator_as_uuid);
+  uuid_copy(invd->OwnerID, inv->owner_id);
+  uuid_copy(invd->GroupID, inv->group_id);
+  invd->BaseMask = inv->perms.base;
+  invd->OwnerMask = inv->perms.current;
+  invd->GroupMask = inv->perms.group;
+  invd->EveryoneMask = inv->perms.everyone;
+  invd->NextOwnerMask = inv->perms.next;
+  invd->GroupOwned = !!inv->group_owned;
+  
+  uuid_copy(invd->AssetID, inv->asset_id);
+  invd->Type = inv->asset_type;
+  invd->InvType = inv->inv_type;
+  invd->Flags = inv->flags;
+  invd->SaleType = inv->sale_type;
+  invd->SalePrice = inv->sale_price;
+  caj_string_set(&invd->Name, inv->name);
+  caj_string_set(&invd->Description, inv->description);
+  invd->CreationDate = inv->creation_date;
+  invd->CRC = caj_calc_inventory_crc(inv);
+  
+  msg.flags |= MSG_RELIABLE;
+  //sl_dump_packet(&msg);
+  sl_send_udp(lctx, &msg);
+}
+
+static void create_inv_item_cb(void *cb_priv, int success, 
+			       uuid_t item_id) {
+  create_inv_st *st = (create_inv_st*)cb_priv;
+
+  if(st->ctx != NULL) {
+    omuser_ctx *lctx = (omuser_ctx*)user_get_priv(st->ctx);
+    if(success) {
+      uuid_copy(st->inv.item_id, item_id);
+      send_inv_create_update(lctx, &st->inv, st->callback_id);
+    } else {
+      // FIXME - send correct type of error
+      user_send_message(lctx->u, "ERROR: failed to create inventory item");
+    }
+  }
+
+  delete st;
+}
+
 static void handle_CreateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_message* msg) {
-  asset_xfer *xfer;
+  create_inv_st *st; char creator_id[40];
   SL_DECLBLK_GET1(CreateInventoryItem,AgentData,ad,msg);
   SL_DECLBLK_GET1(CreateInventoryItem,InventoryBlock,invinfo,msg);
   if(ad == NULL || invinfo == NULL || VALIDATE_SESSION(ad)) return;
 
-  // FIXME - TODO
-  user_send_message(lctx->u, "FIXME: CreateInventoryItem not implemented.");
+  if( uuid_is_null(invinfo->TransactionID) ) {
+    user_send_message(lctx->u, "FIXME: CreateInventoryItem with zero UUID not yet implemented");
+  } else {
+  st = new create_inv_st(lctx->u, invinfo->CallbackID);
+
+  st->inv.perms.base = st->inv.perms.current = PERM_FULL_PERMS;
+  st->inv.perms.group = st->inv.perms.everyone = 0;
+  st->inv.perms.next = invinfo->NextOwnerMask;
+			  
+  uuid_generate(st->inv.item_id);
+  uuid_copy(st->inv.folder_id, invinfo->FolderID);
+  user_get_uuid(lctx->u, st->inv.owner_id);
+  uuid_copy(st->inv.creator_as_uuid, st->inv.owner_id);
+  uuid_unparse(st->inv.owner_id, creator_id);
+  st->inv.creator_id = strdup(creator_id);
+
+  uuid_t secure_session_id;
+  user_get_secure_session_id(lctx->u, secure_session_id);
+  helper_combine_uuids(st->inv.asset_id, invinfo->TransactionID,
+		       secure_session_id);
+
+  st->inv.name = strdup((char*)invinfo->Name.data);
+  st->inv.description = strdup((char*)invinfo->Description.data);
+  
+  st->inv.asset_type = invinfo->Type;
+  st->inv.inv_type = invinfo->InvType;
+  st->inv.flags = invinfo->WearableType & 0xff;
+
+  st->inv.group_owned = FALSE;
+  uuid_clear(st->inv.group_id);
+  st->inv.sale_type = 0; // FIXME - named constant?
+  st->inv.sale_price = 0;
+  st->inv.creation_date = time(NULL);
+  
+  user_add_inventory_item(lctx->u, &st->inv, create_inv_item_cb, st);
+  }
 }
 
 struct xfer_send {

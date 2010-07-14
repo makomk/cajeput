@@ -246,19 +246,28 @@ struct wearable_item_query_st {
   }
 };
 
-void wearable_item_cb(struct inventory_item* item, void* priv) {
+void user_incr_pending_wearables(struct user_ctx *ctx) {
+  ctx->pending_wearable_lookups++;
+}
+
+void user_decr_pending_wearables(struct user_ctx *ctx) {
+  ctx->pending_wearable_lookups--;
+  if(ctx->userh->wearables_changed != NULL && 
+     ctx->pending_wearable_lookups == 0)
+    ctx->userh->wearables_changed(ctx->user_priv);
+}
+
+
+static void wearable_item_cb(struct inventory_item* item, void* priv) {
   wearable_item_query_st *st = (wearable_item_query_st*)priv;
   if(st->ctx != NULL) {
     if(item != NULL && 
        uuid_compare(item->item_id, st->ctx->wearables[st->id].item_id) == 0) {
       uuid_copy(st->ctx->wearables[st->id].asset_id, item->asset_id);
     }
-    st->ctx->pending_wearable_lookups--;
+    
     st->ctx->wearable_serial++;
-    if(st->ctx->userh->wearables_changed != NULL && 
-       st->ctx->pending_wearable_lookups == 0) {
-      st->ctx->userh->wearables_changed(st->ctx->user_priv);
-    }
+    user_decr_pending_wearables(st->ctx);
   }
   delete st;
 }
@@ -272,17 +281,15 @@ void user_set_wearable_item_id(struct user_ctx *ctx, int id,
   if(uuid_is_null(item_id)) {
     uuid_clear(ctx->wearables[id].item_id);
     uuid_clear(ctx->wearables[id].asset_id);
-
+    user_incr_pending_wearables(ctx);
     ctx->wearable_serial++;
-    if(ctx->userh->wearables_changed != NULL && 
-       ctx->pending_wearable_lookups == 0)
-      ctx->userh->wearables_changed(ctx->user_priv);
+    user_decr_pending_wearables(ctx);
   } else if(uuid_compare(item_id, ctx->wearables[id].item_id) != 0) {
     uuid_copy(ctx->wearables[id].item_id, item_id);
     uuid_clear(ctx->wearables[id].asset_id);
 
     wearable_item_query_st *st = new wearable_item_query_st(ctx, id);
-    ctx->pending_wearable_lookups++;
+    user_incr_pending_wearables(ctx);
     user_fetch_inventory_item(ctx, item_id, ctx->user_id, wearable_item_cb,
 			      st);
   }

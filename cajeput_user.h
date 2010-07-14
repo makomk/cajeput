@@ -137,6 +137,9 @@ const wearable_desc* user_get_wearables(struct user_ctx* ctx);
 
 void user_set_wearable_item_id(struct user_ctx *ctx, int id,
 			       const uuid_t item_id);
+void user_incr_pending_wearables(struct user_ctx *ctx);
+void user_decr_pending_wearables(struct user_ctx *ctx);
+  
 
 // Shouldn't really be used by most stuff
 void user_set_wearable(struct user_ctx *ctx, int id,
