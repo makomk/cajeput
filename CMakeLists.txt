@@ -24,7 +24,7 @@ add_dependencies(cajeput_sim make_caj_version)
 
 target_link_libraries(cajeput_sim ${GLIB2_LIBRARIES} ${LIBXML2_LIBRARIES} ${LIBSOUP_LIBRARIES} ${BULLET_LIBRARIES} uuid openjpeg)
 
-add_library(grid_opensim MODULE opensim_grid_glue.cpp opensim_robust_xml.cpp opensim_inventory_glue.cpp opensim_asset_glue.cpp opensim_intersim.cpp)
+add_library(grid_opensim MODULE opensim_grid_glue.cpp opensim_robust_xml.cpp opensim_inventory_glue.cpp opensim_xinventory_glue.cpp opensim_asset_glue.cpp opensim_intersim.cpp)
 target_link_libraries(grid_opensim ${JSONGLIB_LIBRARIES})
 add_library(grid_standalone MODULE standalone_grid_plugin.cpp)
 target_link_libraries(grid_standalone ${SQLITE3_LIBRARIES})
