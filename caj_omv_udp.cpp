@@ -2659,7 +2659,8 @@ static void handle_CreateInventoryItem_msg(struct omuser_ctx* lctx, struct sl_me
     st->inv.creation_date = time(NULL);
 
   if( uuid_is_null(invinfo->TransactionID) ) {
-    if(invinfo->Type == ASSET_NOTECARD && invinfo->InvType == INV_TYPE_NOTECARD) {
+    if((invinfo->Type == ASSET_NOTECARD && invinfo->InvType == INV_TYPE_NOTECARD) ||
+       (invinfo->Type == ASSET_LSL_TEXT && invinfo->InvType == INV_TYPE_LSL)) {
       simple_asset asset;
       asset.name = st->inv.name;
       asset.description = st->inv.description;

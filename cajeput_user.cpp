@@ -635,6 +635,87 @@ void user_add_inventory_item(user_ctx *ctx, struct inventory_item* item,
 				      item, cb, cb_priv);
 }
 
+struct update_inv_asset_st {
+  user_ctx *ctx;
+  void(*cb)(void *priv, int success, uuid_t new_asset_id);
+  void *cb_priv;
+  int asset_type;
+  uuid_t item_id, asset_id;
+  
+  update_inv_asset_st(user_ctx *ctx, void(*cb)(void *priv, int success, 
+					       uuid_t new_asset_id),
+		      void *cb_priv, int asset_type) 
+  : ctx(ctx), cb(cb), cb_priv(cb_priv), asset_type(asset_type) {
+    user_add_self_pointer(&this->ctx);
+  }
+  ~update_inv_asset_st() {
+    if(ctx) user_del_self_pointer(&ctx);
+  }
+};
+
+static void update_inv_asset_invmod_cb(void* priv, int success) { 
+   update_inv_asset_st *st = (update_inv_asset_st*)priv;
+  if(st->ctx == NULL || !success) {
+    printf("DEBUG: user_update_inventory_asset: bailing after inv modify\n");
+    uuid_t u; uuid_clear(u);
+    st->cb(st->cb_priv, FALSE, u);
+  } else {
+    st->cb(st->cb_priv, TRUE, st->asset_id);
+  }
+  delete st; 
+}
+
+static void update_inv_asset_invf_cb(struct inventory_item* item, 
+				     void* priv) { 
+  update_inv_asset_st *st = (update_inv_asset_st*)priv;
+  if(st->ctx == NULL || item == NULL || item->asset_type != st->asset_type ||
+     st->ctx->sgrp->gridh.update_inventory_item == NULL) {
+    if(item != NULL && item->asset_type != st->asset_type) {
+      printf("DEBUG: user_update_inventory_asset: mismatched asset type\n");
+      printf("DEBUG: upload is %i, inventory has %i\n", (int)st->asset_type,
+	     (int)item->asset_type);
+    }
+    printf("DEBUG: user_update_inventory_asset: bailing after inv load\n");
+    uuid_t u; uuid_clear(u);
+    st->cb(st->cb_priv, FALSE, u);
+    delete st; return;
+  }
+
+  uuid_copy(item->asset_id, st->asset_id);
+  st->ctx->sgrp->gridh.update_inventory_item(st->ctx->sgrp, st->ctx, 
+					     st->ctx->grid_priv,
+					     item, update_inv_asset_invmod_cb, st);
+}
+
+static void update_inv_asset_cb(uuid_t asset_id, void* priv) {
+  update_inv_asset_st *st = (update_inv_asset_st*)priv;
+  if(st->ctx == NULL || uuid_is_null(asset_id)) {
+    uuid_t u; uuid_clear(u);
+    st->cb(st->cb_priv, FALSE, u);
+    delete st; return;
+  }
+
+  uuid_copy(st->asset_id, asset_id);
+  user_fetch_inventory_item(st->ctx, st->item_id, st->ctx->user_id, 
+			    update_inv_asset_invf_cb, st);
+}
+
+void user_update_inventory_asset(user_ctx *ctx, uuid_t item_id, int asset_type,
+				 caj_string *data, void(*cb)(void *priv, int success, 
+							     uuid_t new_asset_id),
+				 void *cb_priv) {
+  // FIXME - re-order this to check inventory first at some point
+  update_inv_asset_st *st = new update_inv_asset_st(ctx, cb, cb_priv, asset_type);
+  uuid_copy(st->item_id, item_id);
+  struct simple_asset asset;
+  asset.name = const_cast<char*>("");
+  asset.description = const_cast<char*>("");
+  asset.type = asset_type;
+  uuid_generate(asset.id);
+  asset.data = *data;
+  caj_put_asset(ctx->sgrp, &asset, update_inv_asset_cb, st);
+}
+
 void user_set_system_folders(struct user_ctx *ctx, 
 			     struct inventory_contents* inv) {
   if(ctx->sys_folders != NULL) 

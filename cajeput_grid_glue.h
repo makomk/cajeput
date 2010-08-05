@@ -99,6 +99,11 @@ struct cajeput_grid_hooks {
 		      void *cb_priv);
   void (*user_profile_by_id)(struct simgroup_ctx *sgrp, uuid_t id, 
 			     caj_user_profile_cb cb, void *cb_priv);
+
+  void(*update_inventory_item)(simgroup_ctx *sgrp, user_ctx *user,
+			       void *user_priv, inventory_item *inv,
+			       void(*cb)(void* priv, int success),
+			       void *cb_priv);
 };
 
 int cajeput_grid_glue_init(int api_major, int api_minor,

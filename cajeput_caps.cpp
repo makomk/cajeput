@@ -253,7 +253,7 @@ static void update_script_compiled_cb(void *priv, int success,
 
 }
 
-static void update_script_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+static void update_script_task_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
   update_script_desc *upd = (update_script_desc*)user_data;
   primitive_obj * prim; inventory_item *inv;
   simulator_ctx *sim = ctx->sim;
@@ -330,7 +330,108 @@ static void update_script_task(SoupMessage *msg, user_ctx* ctx, void *user_data)
   uuid_copy(upd->task_id, task_id->t.uuid);
   uuid_copy(upd->item_id, item_id->t.uuid);
   upd->script_running = script_running->t.i;
-  upd->cap = caps_new_capability(ctx->sim, update_script_stage2, ctx, upd);
+  upd->cap = caps_new_capability(ctx->sim, update_script_task_stage2, ctx, upd);
+  user_add_delete_hook(ctx, free_update_script_desc, upd);
+  
+  resp = llsd_new_map();
+  llsd_map_append(resp,"state",llsd_new_string("upload"));
+  llsd_map_append(resp,"uploader",llsd_new_string_take(caps_get_uri(upd->cap)));
+
+  llsd_free(llsd);
+  llsd_soup_set_response(msg, resp);
+  llsd_free(resp);
+  return;
+
+ free_fail:
+  llsd_free(llsd);
+ fail:
+  soup_message_set_status(msg,400);
+}
+
+
+static void update_script_agent_cb(void *priv, int success, uuid_t asset_id) {
+  update_script_desc *upd = (update_script_desc*)priv;
+  soup_server_unpause_message(upd->sim->sgrp->soup, upd->msg);
+  sim_shutdown_release(upd->sim);
+  if(upd->ctx != NULL) {
+    if(success) {
+      caj_llsd *resp; caj_llsd *errors;
+      resp = llsd_new_map();
+      llsd_map_append(resp,"state",llsd_new_string("complete"));
+      llsd_map_append(resp,"new_asset",llsd_new_uuid(asset_id));
+      llsd_map_append(resp,"new_inventory_item",llsd_new_uuid(upd->item_id));
+      llsd_soup_set_response(upd->msg, resp);
+      llsd_free(resp);
+    } else {
+      printf("ERROR: script upload to agent inventory failed\n");
+      soup_message_set_status(upd->msg,500);
+    }
+    user_del_self_pointer(&upd->ctx);
+  } else {
+    soup_message_set_status(upd->msg,500);
+  }
+  delete upd;
+
+}
+
+static void update_script_agent_stage2(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  update_script_desc *upd = (update_script_desc*)user_data;
+  primitive_obj * prim; inventory_item *inv;
+  simulator_ctx *sim = ctx->sim;
+  
+  if (msg->method != SOUP_METHOD_POST) {
+    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    return;
+  }
+
+  // now we've got the upload, the capability isn't needed anymore, and we
+  // delete the user removal hook because our lifetime rules change!
+  caps_remove(upd->cap);
+  user_remove_delete_hook(ctx, free_update_script_desc, upd);
+
+  {
+    caj_string data;
+    data.data = (unsigned char*)msg->request_body->data;
+    data.len = msg->request_body->length;
+
+    upd->ctx = ctx; user_add_self_pointer(&upd->ctx);
+    upd->sim = ctx->sim; sim_shutdown_hold(ctx->sim);
+    upd->msg = msg; soup_server_pause_message(ctx->sgrp->soup, msg);
+
+    user_update_inventory_asset(ctx, upd->item_id, ASSET_LSL_TEXT, &data,
+				update_script_agent_cb, upd);
+    return;
+  }
+
+ out_fail: // FIXME - not really the right way to fail
+  delete upd;
+  soup_message_set_status(msg,400);
+}
+
+static void update_script_agent(SoupMessage *msg, user_ctx* ctx, void *user_data) {
+  if (msg->method != SOUP_METHOD_POST) {
+    soup_message_set_status (msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    return;
+  }
+
+  caj_llsd *llsd, *resp; 
+  caj_llsd *item_id, *task_id, *script_running;
+  update_script_desc *upd;
+  if(msg->request_body->length > 65536) goto fail;
+  llsd = llsd_parse_xml(msg->request_body->data, msg->request_body->length);
+  if(llsd == NULL) goto fail;
+  if(!LLSD_IS(llsd, LLSD_MAP)) goto free_fail;
+
+  printf("Got UpdateScriptAgent:\n");
+  llsd_pretty_print(llsd, 1);
+  item_id = llsd_map_lookup(llsd, "item_id");
+  if(!LLSD_IS(item_id, LLSD_UUID)) goto free_fail;
+  
+  upd = new update_script_desc();
+  uuid_clear(upd->task_id);
+  uuid_copy(upd->item_id, item_id->t.uuid);
+  upd->script_running = FALSE;
+  upd->cap = caps_new_capability(ctx->sim, update_script_agent_stage2, ctx, upd);
   user_add_delete_hook(ctx, free_update_script_desc, upd);
   
   resp = llsd_new_map();
@@ -586,6 +687,7 @@ void user_int_caps_init(simulator_ctx *sim, user_ctx *ctx,
 
   user_add_named_cap(sim,"ServerReleaseNotes",send_release_notes,ctx,NULL);
   user_add_named_cap(sim,"UpdateScriptTask",update_script_task,ctx,NULL);  
+  user_add_named_cap(sim,"UpdateScriptAgent",update_script_agent,ctx,NULL); 
   user_add_named_cap(sim,"NewFileAgentInventory",new_file_agent_inventory,ctx,NULL);  
 }
 

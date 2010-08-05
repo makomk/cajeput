@@ -103,6 +103,10 @@ void add_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
 			  void *user_priv, inventory_item *inv,
 			  void(*cb)(void* priv, int success, uuid_t item_id),
 			  void *cb_priv);
+void update_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
+			     void *user_priv, inventory_item *inv,
+			     void(*cb)(void* priv, int success),
+			     void *cb_priv);
 
 void osglue_agent_rest_handler(SoupServer *server,
 			       SoupMessage *msg,

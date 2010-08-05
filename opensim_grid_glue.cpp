@@ -2173,11 +2173,13 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     hooks->fetch_inventory_item = fetch_inventory_item_x;
     hooks->fetch_system_folders = fetch_system_folders_x;
     hooks->add_inventory_item = add_inventory_item_x;
+    hooks->update_inventory_item = update_inventory_item_x;
   } else {
     hooks->fetch_inventory_folder = fetch_inventory_folder;
     hooks->fetch_inventory_item = fetch_inventory_item;
     hooks->fetch_system_folders = fetch_system_folders;
     hooks->add_inventory_item = add_inventory_item;
+    hooks->update_inventory_item = NULL; // FIXME!
   }
 
   if(grid->new_userserver) {

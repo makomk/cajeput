@@ -204,6 +204,11 @@ void user_add_inventory_item(user_ctx *ctx, struct inventory_item* item,
 			     void(*cb)(void* priv, int success, uuid_t item_id), 
 			     void *cb_priv);
 
+void user_update_inventory_asset(user_ctx *ctx, uuid_t item_id, int asset_type,
+				 caj_string *data, void(*cb)(void *priv, int success, 
+							     uuid_t new_asset_id),
+				 void *cb_priv);
+
 typedef void (*system_folders_cb)(user_ctx *user, void *priv);
 
 void user_fetch_system_folders(user_ctx *ctx, user_generic_cb cb,
