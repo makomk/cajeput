@@ -1919,3 +1919,24 @@ static void prim_to_osxml(primitive_obj *prim, caj_string *out) {
   return;
 }
 #endif
+
+int cajeput_incoming_im(struct simgroup_ctx *sgrp, 
+			struct caj_instant_message *im) {
+  // FIXME - this is all wrong and needs rewriting.
+  for(std::map<uint64_t, simulator_ctx*>::iterator iter = sgrp->sims.begin();
+      iter != sgrp->sims.end(); iter++) {
+    struct simulator_ctx *sim = iter->second;
+    for(struct user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
+      if(uuid_compare(ctx->user_id, im->to_agent_id) == 0 && 
+	 ctx->userh != NULL) {
+	printf("DEBUG: found destination for incoming IM");
+	if(ctx->userh->instant_message != NULL)
+	  ctx->userh->instant_message(ctx->user_priv, im);
+	return TRUE;
+      }
+    }
+  }
+  
+	printf("DEBUG: no destination for incoming IM");
+  return FALSE;
+}

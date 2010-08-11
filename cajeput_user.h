@@ -380,6 +380,33 @@ struct inventory_folder* caj_inv_make_folder(uuid_t parent_id, uuid_t folder_id,
 void caj_inv_copy_item(struct inventory_item *dest,
 		       const struct inventory_item *src);
 
+// Instant messaging
+
+#define IM_TYPE_NORMAL 0
+#define IM_TYPE_MESSAGEBOX 1
+#define IM_TYPE_GROUP_INVITE 3
+#define IM_TYPE_INVENTORY_OFFER 4
+#define IM_TYPE_INVENTORY_ACCEPTED 5
+#define IM_TYPE_INVENTORY_DECLINED 6
+
+struct caj_instant_message {
+  uuid_t from_agent_id;
+  int from_group;
+  uuid_t to_agent_id;
+  uint32_t parent_estate_id;
+  uuid_t region_id;
+  caj_vector3 position;
+  int offline;
+  uint8_t im_type;
+  uuid_t id;
+  uint32_t timestamp;
+  char *from_agent_name;
+  char *message;
+  caj_string bucket;
+};
+
+
+
 #ifdef __cplusplus
 }
 #endif

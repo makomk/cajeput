@@ -392,6 +392,32 @@ static void chat_callback(void *user_priv, const struct chat_message *msg) {
   sl_send_udp(lctx, &chat);
 }
 
+static void handle_instant_message(void *user_priv, const struct caj_instant_message *im) {
+  omuser_ctx* lctx = (omuser_ctx*)user_priv;
+  SL_DECLMSG(ImprovedInstantMessage, iim);
+  SL_DECLBLK(ImprovedInstantMessage, AgentData, ad, &iim);
+  uuid_copy(ad->AgentID, im->from_agent_id);
+  uuid_clear(ad->SessionID);
+
+  SL_DECLBLK(ImprovedInstantMessage, MessageBlock, mblk, &iim);
+  mblk->FromGroup = im->from_group;
+  uuid_copy(mblk->ToAgentID, im->to_agent_id);
+  mblk->ParentEstateID = im->parent_estate_id;
+  uuid_copy(mblk->RegionID, im->region_id);
+  mblk->Position = im->position;
+  mblk->Offline = im->offline;
+  mblk->Dialog = im->im_type;
+  uuid_copy(mblk->ID, im->id);
+  mblk->Timestamp = im->timestamp;
+  caj_string_set(&mblk->FromAgentName, im->from_agent_name);
+  caj_string_set(&mblk->Message, im->message);
+  caj_string_copy(&mblk->BinaryBucket, &im->bucket);
+
+  // FIXME - send via caps
+  iim.flags |= MSG_RELIABLE;
+  sl_send_udp(lctx, &iim);
+}
+
 static void send_alert_message(void *user_priv, const char* msg, int is_modal) {
   omuser_ctx* lctx = (omuser_ctx*)user_priv;
   SL_DECLMSG(AgentAlertMessage, alert);
@@ -2951,6 +2977,41 @@ static void handle_RequestImage_msg(struct omuser_ctx* lctx, struct sl_message* 
   }
 }
 
+static void handle_ImprovedInstantMessage_msg(struct omuser_ctx* lctx, 
+					      struct sl_message* msg) {
+  SL_DECLBLK_GET1(ImprovedInstantMessage, AgentData, ad, msg);
+  SL_DECLBLK_GET1(ImprovedInstantMessage, MessageBlock, msgblk, msg);
+  if(ad == NULL || msgblk == NULL || VALIDATE_SESSION(ad))
+    return;
+
+  sl_dump_packet(msg);
+  caj_instant_message im;
+
+  user_get_uuid(lctx->u, im.from_agent_id);
+  im.from_group = msgblk->FromGroup != 0;
+  uuid_copy(im.to_agent_id, msgblk->ToAgentID);
+  im.parent_estate_id = msgblk->ParentEstateID;
+  uuid_copy(im.region_id, msgblk->RegionID);
+  im.position = msgblk->Position;
+  im.offline = msgblk->Offline;
+  im.im_type = msgblk->Dialog;
+  uuid_copy(im.id, msgblk->ID);
+  im.timestamp = msgblk->Timestamp;
+  im.from_agent_name = (char*)msgblk->FromAgentName.data;
+  im.message = (char*)msgblk->Message.data;
+  im.bucket = msgblk->BinaryBucket;
+
+  switch(im.im_type) {
+  case IM_TYPE_NORMAL:
+    
+  default:
+    {
+      char buf[128];
+      snprintf(buf, 128, "Unhandled IM type %i!", (int)im.im_type);
+      user_send_message(lctx->u, buf);
+    }
+  }
+}
 
 // FIXME - incomplete
 static void send_av_full_update(user_ctx* ctx, user_ctx* av_user) {
@@ -3529,6 +3590,7 @@ static void sim_int_init_udp(struct simulator_ctx *sim, void *priv)  {
   ADD_HANDLER(MoneyBalanceRequest);
   ADD_HANDLER(LogoutRequest);
   ADD_HANDLER(ChatFromViewer);
+  ADD_HANDLER(ImprovedInstantMessage);
   ADD_HANDLER(ScriptDialogReply);
   ADD_HANDLER(RequestGodlikePowers);
   ADD_HANDLER(AgentThrottle);
@@ -3621,6 +3683,7 @@ int cajeput_plugin_init(int api_major, int api_minor,
   hooks->send_av_animations = send_av_animations;
   hooks->script_dialog = send_script_dialog;
   hooks->wearables_changed = handle_wearables_changed;
+  hooks->instant_message = handle_instant_message;
 
   cajeput_add_sim_added_hook(sgrp, sim_int_init_udp, hooks);
 

@@ -58,6 +58,8 @@ struct user_hooks {
 		       int32_t channel);
 
   void(*wearables_changed)(void *user_priv);
+  
+  void(*instant_message)(void *user_priv, const struct caj_instant_message *im);
 };
 
 struct user_hooks *cajeput_alloc_user_hooks(void);

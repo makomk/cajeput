@@ -723,6 +723,120 @@ static void xmlrpc_logoff_user(SoupServer *server,
   return;
 }
 
+static void xmlrpc_instant_message(SoupServer *server,
+			       SoupMessage *msg,
+			       GValueArray *params,
+			       struct simgroup_ctx* sgrp) {
+  GRID_PRIV_DEF_SGRP(sgrp);
+  GHashTable *args = NULL; GHashTable *hash; int success = false;
+  char *s; int i; guchar *us; gsize sz; caj_instant_message im;
+  im.bucket.data = NULL;
+  if(params->n_values != 1 || 
+     !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
+    goto bad_args;
+  // TODO
+
+  if(!soup_value_hash_lookup(args,"region_handle",G_TYPE_INT,
+			     &i)) goto bad_args;
+  // region_handle doesn't appear to be meaningful - was 0 in the message I saw.
+  // Are we sending bad info to the presence server or something?
+  if(!soup_value_hash_lookup(args,"im_session_id",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // FIXME - where does im_session_id go?
+  if(uuid_parse(s, im.id)) goto bad_args;
+
+  if(!soup_value_hash_lookup(args,"position_x",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.position.x = atof(s);
+  if(!soup_value_hash_lookup(args,"position_y",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.position.y = atof(s);
+  if(!soup_value_hash_lookup(args,"position_z",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.position.z = atof(s);
+
+  if(!soup_value_hash_lookup(args,"to_agent_id",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  if(uuid_parse(s, im.to_agent_id)) goto bad_args;
+  if(!soup_value_hash_lookup(args,"from_agent_session",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // from_agent_session is ignored.
+
+  if(!soup_value_hash_lookup(args,"offline",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  us = g_base64_decode(s, &sz); // offline is base64 encoded
+  if(sz != 1) {
+    g_free(us); goto bad_args;
+  }
+  im.offline = us[0]; g_free(us);
+
+  if(!soup_value_hash_lookup(args,"message",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.message = s;
+
+  if(!soup_value_hash_lookup(args,"binary_bucket",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // binary_bucket is base64 encoded
+  im.bucket.data = g_base64_decode(s, &sz); im.bucket.len = sz;
+
+  if(!soup_value_hash_lookup(args,"dialog",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // for some odd reason, dialog is base64 encoded. Mutter mutter.
+  us = g_base64_decode(s, &sz);
+  if(sz != 1) {
+    g_free(us); goto bad_args;
+  }
+  im.im_type = us[0]; g_free(us);
+
+  if(!soup_value_hash_lookup(args,"from_agent_name",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.from_agent_name = s;
+  if(!soup_value_hash_lookup(args,"from_agent_id",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  if(uuid_parse(s, im.from_agent_id)) goto bad_args;
+
+  if(!soup_value_hash_lookup(args,"region_id",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // region_id is filled out - it's the UUID of the source region
+  if(uuid_parse(s, im.region_id)) goto bad_args;
+
+  if(!soup_value_hash_lookup(args,"timestamp",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  im.timestamp = (unsigned long)atol(s); // Unix format
+  if(!soup_value_hash_lookup(args,"parent_estate_id",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  // parent_estate_id is 1 in the case of the message I saw
+  im.parent_estate_id = (unsigned long)atol(s);
+
+  if(!soup_value_hash_lookup(args,"from_group",G_TYPE_STRING,
+			     &s)) goto bad_args;
+  if(strcasecmp(s, "TRUE") == 0)
+    im.from_group = TRUE;
+  else if(strcasecmp(s, "FALSE") == 0)
+    im.from_group = FALSE;
+  else goto bad_args;
+
+  success = cajeput_incoming_im(sgrp, &im);
+
+  hash = soup_value_hash_new();
+  soup_value_hash_insert(hash, "success", G_TYPE_STRING, 
+			 success?"TRUE":"FALSE");
+  soup_xmlrpc_set_response(msg, G_TYPE_HASH_TABLE, hash);
+  g_hash_table_destroy(hash);
+
+  g_free(im.bucket.data);
+  g_value_array_free(params);
+  return;
+  
+
+ bad_args:
+  g_free(im.bucket.data);
+  soup_xmlrpc_set_fault(msg, SOUP_XMLRPC_FAULT_SERVER_ERROR_INVALID_METHOD_PARAMETERS,
+			"Bad arguments");  
+  g_value_array_free(params);
+  return;
+}
+
 // ---- End login-related glue -----
 
 // FIXME - move this to core?
@@ -768,6 +882,9 @@ static void xmlrpc_handler (SoupServer *server,
   } else if(strcmp(method_name, "expect_user") == 0) {
     CAJ_DEBUG("DEBUG: expect_user ~%s~\n", msg->request_body->data);
     xmlrpc_expect_user(server, msg, params, sgrp);
+  } else if(strcmp(method_name, "grid_instant_message") == 0) {
+    CAJ_DEBUG("DEBUG: grid_instant_message ~%s~\n", msg->request_body->data);
+    xmlrpc_instant_message(server, msg, params, sgrp);
   } else {
     CAJ_INFO("DEBUG: unknown xmlrpc method %s called\n", method_name);
     g_value_array_free(params);

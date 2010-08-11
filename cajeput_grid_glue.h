@@ -33,6 +33,8 @@
 extern "C" {
 #endif
 
+  struct caj_instant_message;
+
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simgroup_ctx *sgrp, 
 		       struct simulator_ctx* sim);
@@ -142,6 +144,9 @@ void caj_asset_finished_load(struct simgroup_ctx *sgrp,
 // inventory stuff doesn't work this way.
 void user_set_system_folders(struct user_ctx *ctx, 
 			     struct inventory_contents* inv);
+
+int cajeput_incoming_im(struct simgroup_ctx *sgrp, 
+			struct caj_instant_message *im);
 
 #ifdef __cplusplus
 }
