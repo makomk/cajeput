@@ -1920,6 +1920,22 @@ static void prim_to_osxml(primitive_obj *prim, caj_string *out) {
 }
 #endif
 
+void caj_free_instant_message(struct caj_instant_message *im) {
+  free(im->from_agent_name); free(im->message);
+  caj_string_free(&im->bucket);
+  delete im;
+}
+
+struct caj_instant_message* caj_dup_instant_message(const struct 
+						    caj_instant_message *im) {
+  caj_instant_message* ret = new caj_instant_message();
+  *ret = *im;
+  ret->from_agent_name = strdup(im->from_agent_name);
+  ret->message = strdup(im->message);
+  caj_string_copy(&ret->bucket, &im->bucket);
+  return ret;
+}
+
 int cajeput_incoming_im(struct simgroup_ctx *sgrp, 
 			struct caj_instant_message *im) {
   // FIXME - this is all wrong and needs rewriting.
@@ -1929,7 +1945,7 @@ int cajeput_incoming_im(struct simgroup_ctx *sgrp,
     for(struct user_ctx* ctx = sim->ctxts; ctx != NULL; ctx = ctx->next) {
       if(uuid_compare(ctx->user_id, im->to_agent_id) == 0 && 
 	 ctx->userh != NULL) {
-	printf("DEBUG: found destination for incoming IM");
+	printf("DEBUG: found destination for incoming IM\n");
 	if(ctx->userh->instant_message != NULL)
 	  ctx->userh->instant_message(ctx->user_priv, im);
 	return TRUE;
@@ -1937,6 +1953,57 @@ int cajeput_incoming_im(struct simgroup_ctx *sgrp,
     }
   }
   
-	printf("DEBUG: no destination for incoming IM");
+  printf("DEBUG: no destination for incoming IM\n");
   return FALSE;
+}
+
+static void im_sent_cb_null(void *priv, int success) {
+  // do nothing.
+}
+
+struct im_send_state {
+  user_ctx *ctx;
+  uuid_t to_agent_id; 
+};
+
+static void im_sent_cb_user(void *priv, int success) {
+  im_send_state *st = (im_send_state*)priv;
+  if(st->ctx != NULL) {
+    // TODO - send suitable messsage to user on failure.
+
+    user_del_self_pointer(&st->ctx);
+  }
+  delete st;
+}
+
+
+void user_send_im(struct user_ctx *ctx, struct caj_instant_message *im) {
+  im->timestamp = time(NULL);
+  im->offline = FALSE; // HACK!
+  switch(im->im_type) {
+  case IM_TYPE_NORMAL:
+    //uuid_copy(im->region_id, ctx->sim->region_uuid); // HACK!
+    if(ctx->sgrp->gridh.send_im != NULL) {
+      im_send_state *st = new im_send_state();
+      st->ctx = ctx; user_add_self_pointer(&st->ctx);
+      uuid_copy(st->to_agent_id, im->to_agent_id);
+      ctx->sgrp->gridh.send_im(ctx->sgrp, im, im_sent_cb_user, st);
+    }
+    break;
+  case IM_TYPE_TYPING_START:
+  case IM_TYPE_TYPING_STOP:
+  case IM_TYPE_BUSY_AUTORESPONSE:
+    //uuid_copy(im->region_id, ctx->sim->region_uuid); // HACK!
+    if(ctx->sgrp->gridh.send_im != NULL) 
+      ctx->sgrp->gridh.send_im(ctx->sgrp, im, im_sent_cb_null, NULL);
+    break;    
+  default:
+    {
+      char buf[128];
+      snprintf(buf, 128, "Unhandled IM type %i!", (int)im->im_type);
+      user_send_message(ctx, buf);
+    }
+  }
+
+  // TODO
 }

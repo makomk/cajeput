@@ -131,6 +131,8 @@ void caj_map_name_request(struct simgroup_ctx* sgrp, const char* name,
 			  caj_find_regions_cb cb, void *cb_priv);
 void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
 			    caj_find_region_cb cb, void *cb_priv);
+void caj_map_region_by_uuid(struct simgroup_ctx* sgrp, const uuid_t id,
+			    caj_find_region_cb cb, void *cb_priv);
 
 
 // ----- MISC STUFF ---------

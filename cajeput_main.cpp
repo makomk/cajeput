@@ -200,6 +200,13 @@ void caj_map_region_by_name(struct simgroup_ctx* sgrp, const char* name,
   sgrp->gridh.map_region_by_name(sgrp, name, cb, cb_priv);
 }
 
+void caj_map_region_by_uuid(struct simgroup_ctx* sgrp, const uuid_t id,
+			    caj_find_region_cb cb, void *cb_priv) {
+  if(sgrp->gridh.map_region_by_uuid == NULL) 
+    cb(cb_priv, NULL);
+  else sgrp->gridh.map_region_by_uuid(sgrp, id, cb, cb_priv);
+}
+
 struct user_hooks *cajeput_alloc_user_hooks(void) {
   struct user_hooks *hooks = new user_hooks();
   memset(hooks, 0, sizeof(user_hooks));

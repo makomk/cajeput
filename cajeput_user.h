@@ -388,7 +388,14 @@ void caj_inv_copy_item(struct inventory_item *dest,
 #define IM_TYPE_INVENTORY_OFFER 4
 #define IM_TYPE_INVENTORY_ACCEPTED 5
 #define IM_TYPE_INVENTORY_DECLINED 6
+#define IM_TYPE_FROM_SCRIPT 19
+#define IM_TYPE_BUSY_AUTORESPONSE 20
+#define IM_TYPE_URL 28 // message in message, URL in bucket with trailing 0
+#define IM_TYPE_TYPING_START 41
+#define IM_TYPE_TYPING_STOP 42
+#define IM_TYPES_COUNT 43
 
+// Don't forget to update caj_{dup,free}_instant_message if you change this.
 struct caj_instant_message {
   uuid_t from_agent_id;
   int from_group;
@@ -405,7 +412,9 @@ struct caj_instant_message {
   caj_string bucket;
 };
 
-
+void caj_free_instant_message(struct caj_instant_message *im);
+struct caj_instant_message* caj_dup_instant_message(const struct 
+						    caj_instant_message *im);  
 
 #ifdef __cplusplus
 }

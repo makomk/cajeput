@@ -1155,6 +1155,112 @@ static void user_entered(struct simgroup_ctx *sgrp,
   }
 }
 
+struct presence_for_im_state {
+  simgroup_ctx *sgrp;
+  void(*cb)(void *cb_priv, const uuid_t region);
+  void *cb_priv;
+};
+
+static void got_presence_for_im_v2(SoupSession *session, SoupMessage *msg, gpointer user_data) {
+  uuid_t region_id; os_robust_xml *rxml, *node; char *s;
+  presence_for_im_state *st = (presence_for_im_state*)user_data;
+  GHashTableIter iter;
+  GRID_PRIV_DEF_SGRP(st->sgrp);
+  caj_shutdown_release(st->sgrp);
+  uuid_clear(region_id);
+
+  if(msg->status_code != 200) {
+    CAJ_ERROR("ERROR: presence query failed: got %i %s\n", 
+	      (int)msg->status_code,msg->reason_phrase);
+    goto out;
+  }
+
+  rxml = os_robust_xml_deserialise(msg->response_body->data,
+				   msg->response_body->length);
+  if(rxml == NULL) {
+    CAJ_ERROR("ERROR: couldn't parse presence server XML response\n");
+    goto out;
+  }
+
+  s = os_robust_xml_lookup_str(rxml, "result");
+  if(s != NULL && (strcmp(s, "Failure") == 0)) {
+    CAJ_WARN("WARNING: failed to find presence for IM\n");
+    goto out_xmlfree;
+  }
+
+  os_robust_xml_iter_begin(&iter, rxml);
+  while(os_robust_xml_iter_next(&iter, NULL, &node)) {
+    if(node->node_type != OS_ROBUST_XML_LIST) {
+      CAJ_WARN("ERROR: bad presence response, items should be list nodes\n");
+      continue;
+    }
+    char *user_id_str = os_robust_xml_lookup_str(node, "UserID");
+    char *region_id_str = os_robust_xml_lookup_str(node, "RegionID");
+    uuid_t u;
+    if(user_id_str == NULL || region_id_str == NULL || 
+       uuid_parse(user_id_str, u)) {
+      CAJ_WARN("ERROR: bad presence info in presence response\n");
+      continue;
+    }
+    // FIXME - should check user ID is correct.
+    if(uuid_parse(region_id_str, u)) {
+      CAJ_WARN("ERROR: bad region ID in presence response\n");
+      continue;      
+    }
+    uuid_copy(region_id, u); break;
+  }
+
+ out_xmlfree:
+  os_robust_xml_free(rxml);
+ out:
+  st->cb(st->cb_priv, region_id);
+  delete st;
+}
+
+static void get_presence_for_im_v2(struct simgroup_ctx *sgrp, uuid_t user_id,
+				   void(*cb)(void *cb_priv, const uuid_t region),
+				   void *cb_priv) {
+  char presence_uri[256]; char *req_body;
+  char user_id_str[40];
+  // GError *error = NULL;
+  SoupMessage *msg; presence_for_im_state *st;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_unparse(user_id, user_id_str);
+
+  // FIXME - don't use fixed-size buffer 
+  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  // I would use soup_message_set_request, but it has a memory leak...
+  req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
+			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
+			      "METHOD", "getagents",
+			      "uuids[]", user_id_str, /* fun... */
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, presence_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  st = new presence_for_im_state();
+  st->sgrp = sgrp; st->cb = cb; st->cb_priv = cb_priv;
+  caj_queue_soup_message(sgrp, msg,
+			 got_presence_for_im_v2, st);
+  caj_shutdown_hold(sgrp);  
+}
+
+static void get_presence_for_im(struct simgroup_ctx *sgrp, uuid_t user_id,
+				void(*cb)(void *cb_priv, const uuid_t region),
+				void *cb_priv) {
+  GRID_PRIV_DEF_SGRP(sgrp);
+  if(grid->new_userserver) {
+    get_presence_for_im_v2(sgrp, user_id, cb, cb_priv);
+  } else {
+    // FIXME - TODO!
+    uuid_t u; uuid_clear(u);
+    cb(cb_priv, u);
+  }
+}
+				
+
 void user_grid_glue_ref(user_grid_glue *user_glue) {
   user_glue->refcnt++;
 }
@@ -1165,6 +1271,174 @@ void user_grid_glue_deref(user_grid_glue *user_glue) {
     assert(user_glue->ctx == NULL);
     free(user_glue->enter_callback_uri);
     delete user_glue;
+  }
+}
+
+struct im_sender_state {
+  simgroup_ctx *sgrp;
+  struct caj_instant_message *im;
+  int tries_remaining;
+  uuid_t last_region;
+  void(*cb)(void *priv, int success);
+  void *cb_priv;
+};
+
+static void done_sending_im(struct im_sender_state *st, bool success) {
+  caj_shutdown_release(st->sgrp);
+  caj_free_instant_message(st->im);
+  st->cb(st->cb_priv, success);
+  delete st; 
+}
+
+static void send_im_via_grid(struct im_sender_state *st);
+static void send_im_got_presence(void *priv, const uuid_t region_id);
+static void send_im_got_region(void* cb_priv, struct map_block_info* block);
+static void send_im_got_response(SoupSession *session, SoupMessage *msg, 
+				 gpointer user_data);
+
+// FIXME - the entire IM code needs redesigning to ensure in-order delivery
+// and to use proper caching of presence and region info.
+static void send_im(simgroup_ctx *sgrp, const struct caj_instant_message *im,
+		    void(*cb)(void *priv, int success), void *cb_priv) {
+  im_sender_state *st = new im_sender_state();
+  st->sgrp = sgrp; caj_shutdown_hold(sgrp);
+  st->im = caj_dup_instant_message(im);
+  st->tries_remaining = 5; st->cb = cb; st->cb_priv = cb_priv;
+  uuid_clear(st->last_region);
+  send_im_via_grid(st);
+}
+
+static void send_im_via_grid(struct im_sender_state *st) {
+  if(st->tries_remaining-- <= 0) {
+    printf("WARNING: max tries reached when trying to send IM\n");
+    done_sending_im(st, false);
+    return;
+  }
+
+  get_presence_for_im(st->sgrp, st->im->to_agent_id,
+		      send_im_got_presence, st);
+}
+
+static void send_im_got_presence(void *priv, const uuid_t region_id) {
+  im_sender_state *st = (im_sender_state*)priv;
+  if(uuid_is_null(region_id)) {
+    printf("WARNING: couldn't send IM - user offline\n");
+    done_sending_im(st, false);
+    return;    
+  } else if(uuid_compare(region_id, st->last_region) == 0) {
+    printf("WARNING: couldn't send IM - error sending and no new region\n");
+    done_sending_im(st, false);
+    return;        
+  }
+  uuid_copy(st->last_region, region_id);
+  caj_map_region_by_uuid(st->sgrp, region_id, send_im_got_region, st);
+}
+
+static void send_im_got_region(void* cb_priv, struct map_block_info* block) {
+  im_sender_state *st = (im_sender_state*)cb_priv;
+  GRID_PRIV_DEF_SGRP(st->sgrp);
+  if(block == NULL) {
+    printf("WARNING: couldn't find region user is in when sending IM, retrying\n");
+    send_im_via_grid(st);
+  } else {
+    char uri[256]; guchar uc;
+    char buf[40]; uuid_t u; gchar *s;
+    GHashTable *hash; SoupMessage *msg;
+    hash = soup_value_hash_new();    
+    soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,"0"); // unused
+    uuid_unparse(st->im->id, buf);
+    soup_value_hash_insert(hash,"im_session_id",G_TYPE_STRING,buf);
+    snprintf(buf,40,"%f",(double)st->im->position.x);
+    soup_value_hash_insert(hash,"position_x",G_TYPE_STRING,buf);
+    snprintf(buf,40,"%f",(double)st->im->position.y);
+    soup_value_hash_insert(hash,"position_y",G_TYPE_STRING,buf);
+    snprintf(buf,40,"%f",(double)st->im->position.z);
+    soup_value_hash_insert(hash,"position_z",G_TYPE_STRING,buf);
+
+    uuid_unparse(st->im->to_agent_id, buf);
+    soup_value_hash_insert(hash,"to_agent_id",G_TYPE_STRING,buf);
+    soup_value_hash_insert(hash,"from_agent_session",G_TYPE_STRING,
+			   "00000000-0000-0000-0000-000000000000");
+    
+    uc = (unsigned)st->im->offline;
+    s = g_base64_encode(&uc, 1);
+    soup_value_hash_insert(hash,"offline",G_TYPE_STRING,s);
+    g_free(s);
+    
+    soup_value_hash_insert(hash,"message",G_TYPE_STRING,st->im->message);
+
+    s = g_base64_encode(st->im->bucket.data, st->im->bucket.len);
+    soup_value_hash_insert(hash,"binary_bucket",G_TYPE_STRING,s);
+    g_free(s);
+
+    s = g_base64_encode(&st->im->im_type, 1);
+    soup_value_hash_insert(hash,"dialog",G_TYPE_STRING,s);
+    g_free(s);
+
+    soup_value_hash_insert(hash,"from_agent_name",G_TYPE_STRING,
+			   st->im->from_agent_name);
+    uuid_unparse(st->im->from_agent_id, buf);
+    soup_value_hash_insert(hash,"from_agent_id",G_TYPE_STRING,buf);
+    uuid_unparse(st->im->region_id, buf);
+    soup_value_hash_insert(hash,"region_id",G_TYPE_STRING,buf);
+
+    snprintf(buf,40,"%lu",(unsigned long)st->im->timestamp);
+    soup_value_hash_insert(hash,"timestamp",G_TYPE_STRING,buf);
+    snprintf(buf,40,"%lu",(unsigned long)st->im->parent_estate_id);
+    soup_value_hash_insert(hash,"parent_estate_id",G_TYPE_STRING,buf);
+    soup_value_hash_insert(hash, "from_group", G_TYPE_STRING,
+			   st->im->from_group ? "TRUE" : "FALSE");
+
+    snprintf(uri, 256, "http://%s:%i/", block->sim_ip,
+	     block->http_port);
+
+    msg = soup_xmlrpc_request_new(uri, "grid_instant_message",
+				  G_TYPE_HASH_TABLE, hash,
+				  G_TYPE_INVALID);
+    g_hash_table_destroy(hash);
+    if (!msg) {
+      CAJ_ERROR("Could not create grid_instant_message request\n");
+      done_sending_im(st, false);
+      return;
+    }
+
+    caj_queue_soup_message(st->sgrp, msg, send_im_got_response, st);
+  }
+}
+
+static void send_im_got_response(SoupSession *session, SoupMessage *msg, 
+				 gpointer user_data) {
+  im_sender_state *st = (im_sender_state*)user_data;
+  GRID_PRIV_DEF_SGRP(st->sgrp);
+  GHashTable *hash = NULL; char *s; bool success = false;
+
+  if(msg->status_code != 200) {
+    CAJ_WARN("WARNING: sending IM to region failed: %i %s",
+	     (int)msg->status_code, msg->reason_phrase);
+    send_im_via_grid(st); return;
+  }
+
+  if(soup_xmlrpc_extract_method_response(msg->response_body->data,
+                                         msg->response_body->length,
+                                         NULL,
+                                         G_TYPE_HASH_TABLE, &hash)) {
+    if(soup_value_hash_lookup(hash, "success",
+                              G_TYPE_STRING, &s)) {
+      if(strcasecmp(s,"TRUE") == 0)
+	success = true;
+      else if(strcasecmp(s,"FALSE") == 0)
+	success = false;
+      else CAJ_WARN("WARNING: bad grid_instant_message response\n");
+    } else CAJ_WARN("WARNING: bad grid_instant_message response\n");
+    g_hash_table_destroy(hash);
+  } else {
+    CAJ_WARN("WARNING: couldn't extract grid_instant_message response\n");
+  }
+  if(success) {
+    done_sending_im(st, true);
+  } else {
+    CAJ_WARN("WARNING: failure sending IM, retrying...\n");
+    send_im_via_grid(st); return;
   }
 }
 
@@ -1891,6 +2165,32 @@ void map_region_by_name_v2(struct simgroup_ctx* sgrp, const char* name,
 			 new map_region_state(sgrp,cb,cb_priv));
 }
 
+void map_region_by_uuid_v2(struct simgroup_ctx* sgrp, const uuid_t id,
+			   caj_find_region_cb cb, void *cb_priv) {
+  char grid_uri[256]; char *req_body; char id_str[40];
+  uuid_t zero_uuid; char zero_uuid_str[40];
+  //GError *error = NULL;
+  SoupMessage *msg;
+  GRID_PRIV_DEF_SGRP(sgrp);
+
+  uuid_clear(zero_uuid); uuid_unparse(zero_uuid, zero_uuid_str);
+
+  uuid_unparse(id, id_str);
+  CAJ_DEBUG("DEBUG: map uuid request %s\n", id_str);
+
+  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
+			      "SCOPEID", zero_uuid_str, "REGIONID", id_str,
+			      "METHOD", "get_region_by_uuid",
+			      NULL);
+  msg = soup_message_new(SOUP_METHOD_POST, grid_uri);
+  soup_message_set_request(msg, "application/x-www-form-urlencoded",
+			   SOUP_MEMORY_TAKE, req_body, strlen(req_body));
+
+  caj_shutdown_hold(sgrp);
+  caj_queue_soup_message(sgrp, msg, got_map_single_resp_v2, 
+			 new map_region_state(sgrp,cb,cb_priv));
+}
 
 void osglue_teleport_failed(os_teleport_desc *tp_priv, const char* reason) {
   user_teleport_failed(tp_priv->tp, reason);
@@ -2275,11 +2575,13 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
     hooks->map_block_request = map_block_request_v1;
     hooks->map_name_request = map_name_request_v1;
     hooks->map_region_by_name = map_region_by_name_v1;
+    // hooks->map_region_by_uuid = ???; - TODO!
   } else {
     hooks->do_grid_login = do_grid_login_v2;
     hooks->map_block_request = map_block_request_v2;
     hooks->map_name_request = map_name_request_v2;
     hooks->map_region_by_name = map_region_by_name_v2;
+    hooks->map_region_by_uuid = map_region_by_uuid_v2;
   }
   hooks->user_created = user_created;
   hooks->user_deleted = user_deleted;
@@ -2312,6 +2614,7 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
 
   hooks->get_asset = osglue_get_asset;
   hooks->put_asset = osglue_put_asset;
+  hooks->send_im = send_im;
   hooks->cleanup = cleanup;
 
   grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","grid_server");

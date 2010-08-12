@@ -3000,17 +3000,8 @@ static void handle_ImprovedInstantMessage_msg(struct omuser_ctx* lctx,
   im.from_agent_name = (char*)msgblk->FromAgentName.data;
   im.message = (char*)msgblk->Message.data;
   im.bucket = msgblk->BinaryBucket;
-
-  switch(im.im_type) {
-  case IM_TYPE_NORMAL:
-    
-  default:
-    {
-      char buf[128];
-      snprintf(buf, 128, "Unhandled IM type %i!", (int)im.im_type);
-      user_send_message(lctx->u, buf);
-    }
-  }
+  
+  user_send_im(lctx->u, &im);
 }
 
 // FIXME - incomplete

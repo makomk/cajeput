@@ -114,4 +114,6 @@ void user_stand_up(struct user_ctx *ctx);
 // FIXME - this is really hacky and wrong
 int32_t user_get_an_anim_seq(struct user_ctx *ctx);
 
+void user_send_im(struct user_ctx *ctx, struct caj_instant_message *im);
+
 #endif

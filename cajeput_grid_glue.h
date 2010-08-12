@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-  struct caj_instant_message;
+struct caj_instant_message;
 
 struct cajeput_grid_hooks {
   void(*do_grid_login)(struct simgroup_ctx *sgrp, 
@@ -106,6 +106,13 @@ struct cajeput_grid_hooks {
 			       void *user_priv, inventory_item *inv,
 			       void(*cb)(void* priv, int success),
 			       void *cb_priv);
+
+  void(*map_region_by_uuid)(struct simgroup_ctx* sgrp, const uuid_t id,
+			    caj_find_region_cb cb, void *cb_priv);
+
+  // FIXME - shouldn't be part of the grid module.
+  void (*send_im)(simgroup_ctx *sgrp, const caj_instant_message *im,
+		  void(*cb)(void *priv, int success), void *cb_priv);
 };
 
 int cajeput_grid_glue_init(int api_major, int api_minor,
