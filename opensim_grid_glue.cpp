@@ -734,12 +734,11 @@ static void xmlrpc_instant_message(SoupServer *server,
   if(params->n_values != 1 || 
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
-  // TODO
 
-  if(!soup_value_hash_lookup(args,"region_handle",G_TYPE_INT,
-			     &i)) goto bad_args;
-  // region_handle doesn't appear to be meaningful - was 0 in the message I saw.
-  // Are we sending bad info to the presence server or something?
+  // region_handle isn't used anymore.
+  /* if(!soup_value_hash_lookup(args,"region_handle",G_TYPE_INT,
+     &i)) goto bad_args; */
+
   if(!soup_value_hash_lookup(args,"im_session_id",G_TYPE_STRING,
 			     &s)) goto bad_args;
   // FIXME - where does im_session_id go?
@@ -1345,7 +1344,7 @@ static void send_im_got_region(void* cb_priv, struct map_block_info* block) {
     char buf[40]; uuid_t u; gchar *s;
     GHashTable *hash; SoupMessage *msg;
     hash = soup_value_hash_new();    
-    soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,"0"); // unused
+    soup_value_hash_insert(hash,"region_handle",G_TYPE_INT,0); // unused
     uuid_unparse(st->im->id, buf);
     soup_value_hash_insert(hash,"im_session_id",G_TYPE_STRING,buf);
     snprintf(buf,40,"%f",(double)st->im->position.x);
