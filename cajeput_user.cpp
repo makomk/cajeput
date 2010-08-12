@@ -1980,6 +1980,7 @@ static void im_sent_cb_user(void *priv, int success) {
 void user_send_im(struct user_ctx *ctx, struct caj_instant_message *im) {
   im->timestamp = time(NULL);
   im->offline = FALSE; // HACK!
+  im->from_agent_name = ctx->name;
   switch(im->im_type) {
   case IM_TYPE_NORMAL:
     //uuid_copy(im->region_id, ctx->sim->region_uuid); // HACK!
@@ -2007,3 +2008,29 @@ void user_send_im(struct user_ctx *ctx, struct caj_instant_message *im) {
 
   // TODO
 }
+
+
+void caj_send_im_from_script(struct simulator_ctx *sim, 
+			     struct primitive_obj *prim,
+			     struct caj_instant_message *im) {
+  im->timestamp = time(NULL);
+  im->offline = FALSE;
+  uuid_copy(im->from_agent_id, prim->ob.id); // FIXME - ???
+  im->from_group = FALSE; // FIXME - is this right? Probably not.
+  im->parent_estate_id = 1; // FIXME.
+  uuid_copy(im->region_id, sim->region_id);
+  im->position = prim->ob.world_pos; // FIXME - will this always be up to date?
+  im->from_agent_name = prim->name;
+  switch(im->im_type) {
+  case IM_TYPE_FROM_SCRIPT:
+    uuid_copy(im->from_agent_id, prim->owner);
+    uuid_copy(im->id, prim->ob.id);
+    // FIXME - binary bucket should be the slurl of the object.
+    if(sim->sgrp->gridh.send_im != NULL) 
+      sim->sgrp->gridh.send_im(sim->sgrp, im, im_sent_cb_null, NULL);
+    break;    
+  default:
+    printf("DEBUG: unhandled IM type %i from script\n", (int)im->im_type);
+  }  
+}
+			   

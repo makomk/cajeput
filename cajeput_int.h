@@ -286,6 +286,10 @@ struct simulator_ctx {
   caj_callback<sim_generic_cb> shutdown_hook;
 };
 
+void caj_send_im_from_script(struct simulator_ctx *sim, 
+			     struct primitive_obj *prim,
+			     struct caj_instant_message *im);
+
 // ------ CALLBACKS ----------------
 
 void sim_call_shutdown_hook(struct simulator_ctx *sim);

@@ -434,6 +434,9 @@ void user_send_script_dialog(user_ctx *ctx, primitive_obj* prim,
 			     char *msg, int num_buttons, char** buttons,
 			     int32_t channel);
 
+void world_prim_send_im(struct simulator_ctx* sim, struct primitive_obj *prim,
+			uuid_t dest, char *msg);
+
 struct caj_sit_info {
   uuid_t target;
   caj_vector3 offset;

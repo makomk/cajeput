@@ -1237,6 +1237,27 @@ static void llDialog_rpc(script_state *st, sim_script *scr, int func_id) {
 }
 RPC_TO_MAIN(llDialog, 1.0);
 
+static void llInstantMessage_rpc(script_state *st, sim_script *scr, int func_id) {
+  char *avatar_id, *msg;
+  uuid_t avatar_uuid;
+  vm_func_get_args(st, func_id, &avatar_id, &msg);
+
+  if(uuid_parse(avatar_id, avatar_uuid) || uuid_is_null(avatar_uuid)) {
+    world_chat_from_prim(scr->simscr->sim, scr->prim, DEBUG_CHANNEL,
+			 "Bad avatar ID passed to llInstantMessage",
+			 CHAT_TYPE_SHOUT);
+  } else {
+    world_prim_send_im(scr->simscr->sim, scr->prim, avatar_uuid, msg);
+  }
+
+ out:
+  free(avatar_id); free(msg);
+  rpc_func_return(st, scr, func_id);
+
+}
+
+RPC_TO_MAIN(llInstantMessage, 2.0);
+
 
 static void script_upd_evmask(sim_script *scr) {
   int evmask = 0;
@@ -2121,6 +2142,9 @@ int caj_scripting_init(int api_version, struct simulator_ctx* sim,
   vm_world_add_func(simscr->vmw, "llDialog", VM_TYPE_NONE,
 		    llDialog_cb, 4, VM_TYPE_KEY, VM_TYPE_STR, 
 		    VM_TYPE_LIST, VM_TYPE_INT);
+
+  vm_world_add_func(simscr->vmw, "llInstantMessage", VM_TYPE_NONE, 
+		    llInstantMessage_cb, 2, VM_TYPE_KEY, VM_TYPE_STR);
 
   vm_world_add_func(simscr->vmw, "llListen", VM_TYPE_INT, llListen_cb,
 		    4, VM_TYPE_INT, VM_TYPE_STR, VM_TYPE_KEY, VM_TYPE_STR);

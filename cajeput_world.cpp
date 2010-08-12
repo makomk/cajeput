@@ -1880,3 +1880,15 @@ void world_script_link_message(struct simulator_ctx* sim,
       send_link_message(sim, root->children[link_num], sender_num, num, str, id);
   }
 }
+
+void world_prim_send_im(struct simulator_ctx* sim, struct primitive_obj *prim,
+			uuid_t dest, char *msg) {
+  // FIXME - restrict message length.
+  struct caj_instant_message im;
+  im.im_type = IM_TYPE_FROM_SCRIPT;
+  im.message = msg;
+  uuid_copy(im.to_agent_id, dest);
+  caj_string_set(&im.bucket, "");
+  caj_send_im_from_script(sim, prim, &im);
+  caj_string_free(&im.bucket);
+}
