@@ -190,6 +190,8 @@ static void agent_POST_stage2(void *priv, int is_ok) {
   JsonObject *object = json_node_get_object(json_parser_get_root(st->parser));
   struct sim_new_user uinfo; JsonNode *node;
   user_ctx *user; simulator_ctx *sim;
+
+  if(!is_ok) goto out;
  
   soup_server_unpause_message(st->server,st->msg);
   if(helper_json_get_uuid(object, "agent_id", uinfo.user_id)) {
