@@ -30,6 +30,8 @@
 #include <fcntl.h>
 #include <deque>
 #include <set>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /* This code is reasonably robust, but a tad interesting internally.
    A few rules for dealing with the message-passing stuff:

@@ -26,6 +26,7 @@
 #include "caj_logging.h"
 #include "terrain_compress.h"
 #include "caj_parse_nini.h"
+#include <sys/stat.h>
 #include <sys/types.h> 
 #include <stdio.h>
 #include <stdlib.h>
