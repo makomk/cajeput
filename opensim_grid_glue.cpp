@@ -159,7 +159,7 @@ static void do_grid_login_v1(struct simgroup_ctx *sgrp,
   soup_value_hash_insert(hash,"originUUID",G_TYPE_STRING,buf);
   
 
-  msg = soup_xmlrpc_request_new(grid->gridserver, "simulator_login",
+  msg = soup_xmlrpc_request_new(grid->grid_server, "simulator_login",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -254,7 +254,7 @@ static void do_grid_login_v2(struct simgroup_ctx *sgrp,
   snprintf(region_uri,256,"http://%s:%i",ip_addr, (int)sim_get_udp_port(sim));
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("uuid", region_id,
 			      "locX", loc_x, "locY", loc_y,
@@ -462,7 +462,7 @@ void osglue_validate_session_v1(struct simgroup_ctx* sgrp, const char* agent_id,
   soup_value_hash_insert(hash,"session_id",G_TYPE_STRING,session_id);
   soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,agent_id);
   
-  val_msg = soup_xmlrpc_request_new(grid->userserver, "check_auth_session",
+  val_msg = soup_xmlrpc_request_new(grid->user_server, "check_auth_session",
 				    G_TYPE_HASH_TABLE, hash,
 				    G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -572,7 +572,7 @@ void osglue_validate_session_v2(struct simgroup_ctx* sgrp, const char* agent_id,
   SoupMessage *msg;
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(user_uri,256, "%spresence", grid->gridserver);
+  snprintf(user_uri,256, "%spresence", grid->presence_server);
 
   req_body = soup_form_encode("SessionID", session_id,
 			      "VERSIONMIN", MIN_V2_PROTO_VERSION,
@@ -618,7 +618,7 @@ static void xmlrpc_expect_user(SoupServer *server,
      !soup_value_array_get_nth (params, 0, G_TYPE_HASH_TABLE, &args)) 
     goto bad_args;
   CAJ_INFO("DEBUG: Got an expect_user call\n");
-  if(grid->userserver == NULL) goto return_fail; // not ready yet
+  if(grid->user_server == NULL) goto return_fail; // not ready yet
   if(!soup_value_hash_lookup(args,"agent_id",G_TYPE_STRING,
 			     &agent_id)) goto bad_args;
   if(!soup_value_hash_lookup(args,"session_id",G_TYPE_STRING,
@@ -947,7 +947,7 @@ static void user_logoff_v1(struct simgroup_ctx *sgrp, struct simulator_ctx* sim,
   soup_value_hash_insert(hash,"lookat_z",G_TYPE_STRING,buf);
  
 
-  msg = soup_xmlrpc_request_new(grid->userserver, "logout_of_simulator",
+  msg = soup_xmlrpc_request_new(grid->user_server, "logout_of_simulator",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -996,7 +996,7 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
 	   look_at->x, look_at->y, look_at->z);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%spresence", grid->userserver);
+  snprintf(uri,256, "%spresence", grid->presence_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -1018,7 +1018,7 @@ static void user_logoff_v2(struct simgroup_ctx *sgrp,
   uuid_unparse(u, region_id_str);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%sgriduser", grid->userserver);
+  snprintf(uri,256, "%sgriduser", grid->grid_user_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -1104,7 +1104,7 @@ static void user_update_presence_v2(struct simgroup_ctx *sgrp,
 	   0.0, 0.0, 0.0); // FIXME!
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  snprintf(presence_uri,256, "%spresence", grid->presence_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -1228,7 +1228,7 @@ static void get_presence_for_im_v2(struct simgroup_ctx *sgrp, uuid_t user_id,
   uuid_unparse(user_id, user_id_str);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(presence_uri,256, "%spresence", grid->userserver);
+  snprintf(presence_uri,256, "%spresence", grid->presence_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -1584,7 +1584,7 @@ static void map_block_request_v1(struct simgroup_ctx *sgrp, int min_x, int max_x
   soup_value_hash_insert(hash,"ymax",G_TYPE_INT,max_y);
   
 
-  msg = soup_xmlrpc_request_new(grid->gridserver, "map_block",
+  msg = soup_xmlrpc_request_new(grid->grid_server, "map_block",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -1757,7 +1757,7 @@ static void map_block_request_v2(struct simgroup_ctx *sgrp, int min_x, int max_x
   snprintf(ymin_s, 20, "%i", min_y*256);
   snprintf(ymax_s, 20, "%i", max_y*256);
 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
 			      "SCOPEID", zero_uuid_str,
 			      "XMIN", xmin_s, "XMAX", xmax_s,
@@ -1859,7 +1859,7 @@ static void req_region_info_v1(struct simgroup_ctx* sgrp, uint64_t handle,
   soup_value_hash_insert(hash,"region_handle",G_TYPE_STRING,buf);
   soup_value_hash_insert(hash,"authkey",G_TYPE_STRING,grid->grid_sendkey);
 
-  msg = soup_xmlrpc_request_new(grid->gridserver, "simulator_data_request",
+  msg = soup_xmlrpc_request_new(grid->grid_server, "simulator_data_request",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -1937,7 +1937,7 @@ static void req_region_info_v2(struct simgroup_ctx* sgrp, uint64_t handle,
   CAJ_INFO("DEBUG: region info request (%s,%s)\n",
 	 x_s, y_s);
 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
 			      "SCOPEID", zero_uuid_str,
 			      "X", x_s, "Y", y_s,
@@ -2080,7 +2080,7 @@ static void map_name_request_v1(struct simgroup_ctx* sgrp, const char* name,
   soup_value_hash_insert(hash,"name",G_TYPE_STRING,name);
   soup_value_hash_insert(hash,"maxNumber",G_TYPE_STRING,"20"); // FIXME
 
-  msg = soup_xmlrpc_request_new(grid->gridserver, "search_for_region_by_name",
+  msg = soup_xmlrpc_request_new(grid->grid_server, "search_for_region_by_name",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -2115,7 +2115,7 @@ static void map_name_request_v2(struct simgroup_ctx* sgrp, const char* name,
 
   snprintf(max_results, 20, "%i", 20); // FIXME!
 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
 			      "SCOPEID", zero_uuid_str,
 			      "NAME", name, "MAX", max_results,
@@ -2150,7 +2150,7 @@ void map_region_by_name_v2(struct simgroup_ctx* sgrp, const char* name,
 
   snprintf(max_results, 20, "%i", 20); // FIXME!
 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
 			      "SCOPEID", zero_uuid_str,
 			      "NAME", name, "METHOD", "get_region_by_name",
@@ -2177,7 +2177,7 @@ void map_region_by_uuid_v2(struct simgroup_ctx* sgrp, const uuid_t id,
   uuid_unparse(id, id_str);
   CAJ_DEBUG("DEBUG: map uuid request %s\n", id_str);
 
-  snprintf(grid_uri,256, "%sgrid", grid->gridserver);
+  snprintf(grid_uri,256, "%sgrid", grid->grid_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, grid_uri,
 			      "SCOPEID", zero_uuid_str, "REGIONID", id_str,
 			      "METHOD", "get_region_by_uuid",
@@ -2365,7 +2365,7 @@ static void user_profile_by_id_v1(struct simgroup_ctx *sgrp, uuid_t id,
   uuid_unparse(id, buf);
   soup_value_hash_insert(hash,"avatar_uuid",G_TYPE_STRING,buf);
 
-  msg = soup_xmlrpc_request_new(grid->userserver, "get_user_by_uuid",
+  msg = soup_xmlrpc_request_new(grid->user_server, "get_user_by_uuid",
 				G_TYPE_HASH_TABLE, hash,
 				G_TYPE_INVALID);
   g_hash_table_destroy(hash);
@@ -2522,7 +2522,7 @@ static void uuid_to_name_v2(struct simgroup_ctx *sgrp, uuid_t id,
 
   uuid_unparse(id, av_uuid_str);
   
-  snprintf(accounts_uri,256, "%saccounts", grid->userserver);
+  snprintf(accounts_uri,256, "%saccounts", grid->user_server);
   req_body = soup_form_encode(SOUP_METHOD_POST, accounts_uri,
 			      "VERSIONMIN", MIN_V2_PROTO_VERSION,
 			      "VERSIONMAX", MAX_V2_PROTO_VERSION,
@@ -2542,10 +2542,14 @@ static void uuid_to_name_v2(struct simgroup_ctx *sgrp, uuid_t id,
 
 static void cleanup(struct simgroup_ctx* sgrp) {
   GRID_PRIV_DEF_SGRP(sgrp);
-  g_free(grid->userserver);
-  g_free(grid->gridserver);
-  g_free(grid->assetserver);
-  g_free(grid->inventoryserver);
+  g_free(grid->user_server);
+  g_free(grid->grid_server);
+  g_free(grid->asset_server);
+  g_free(grid->inventory_server);
+  g_free(grid->avatar_server);
+  g_free(grid->presence_server);
+  g_free(grid->grid_user_server);
+
   g_free(grid->grid_recvkey);
   g_free(grid->grid_sendkey);
   delete grid;
@@ -2616,18 +2620,30 @@ int cajeput_grid_glue_init(int api_major, int api_minor,
   hooks->send_im = send_im;
   hooks->cleanup = cleanup;
 
-  grid->gridserver = sgrp_config_get_value(grid->sgrp,"grid","grid_server");
-  grid->inventoryserver = sgrp_config_get_value(grid->sgrp,"grid","inventory_server");
-  grid->userserver =  sgrp_config_get_value(grid->sgrp,"grid","user_server");
-  grid->assetserver = sgrp_config_get_value(grid->sgrp,"grid","asset_server");
+  grid->grid_server = sgrp_config_get_value(grid->sgrp,"grid","grid_server");
+  grid->inventory_server = sgrp_config_get_value(grid->sgrp,"grid","inventory_server");
+  grid->user_server =  sgrp_config_get_value(grid->sgrp,"grid","user_server");
+  grid->asset_server = sgrp_config_get_value(grid->sgrp,"grid","asset_server");
+  grid->avatar_server =  sgrp_config_get_value(grid->sgrp,"grid","avatar_server");
+  grid->presence_server =  sgrp_config_get_value(grid->sgrp,"grid","presence_server");
+  grid->grid_user_server =  sgrp_config_get_value(grid->sgrp,"grid","grid_user_server");
   // FIXME - remove send/recv keys (not used anymore)
   grid->grid_recvkey = sgrp_config_get_value(grid->sgrp,"grid","grid_recvkey");
   grid->grid_sendkey = sgrp_config_get_value(grid->sgrp,"grid","grid_sendkey");
 
-  if(grid->gridserver == NULL || grid->inventoryserver == NULL ||
-     grid->userserver == NULL || grid->assetserver == NULL) {
+  if(grid->grid_server == NULL || grid->inventory_server == NULL ||
+     grid->user_server == NULL || grid->asset_server == NULL) {
     CAJ_ERROR("ERROR: grid not configured properly\n"); exit(1);
   }
+  
+  if(grid->avatar_server == NULL)
+    grid->avatar_server = g_strdup(grid->user_server);
+  if(grid->presence_server == NULL)
+    grid->presence_server = g_strdup(grid->user_server);
+  if(grid->grid_user_server == NULL)
+    grid->grid_user_server = g_strdup(grid->user_server);
+  
+  
 
   caj_http_add_handler(sgrp, "/", xmlrpc_handler, 
 		       sgrp, NULL);

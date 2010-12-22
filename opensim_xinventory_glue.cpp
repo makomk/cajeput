@@ -204,7 +204,7 @@ void fetch_inventory_folder_x(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(folder_id, folder_id_str);
   
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  snprintf(uri,256, "%sxinventory", grid->inventory_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("PRINCIPAL", user_id_str,
 			      "FOLDER", folder_id_str,
@@ -294,7 +294,7 @@ void fetch_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
   uuid_unparse(item_id, item_id_str);
   
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  snprintf(uri,256, "%sxinventory", grid->inventory_server);
   // I would use soup_message_set_request, but it has a memory leak...
   req_body = soup_form_encode("ID", item_id_str,
 			      "METHOD", "GETITEM",
@@ -432,7 +432,7 @@ void add_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
   USER_PRIV_DEF(user_priv);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  snprintf(uri,256, "%sxinventory", grid->inventory_server);
   req_body = build_xinv_req(user, inv, "ADDITEM");
   msg = soup_message_new(SOUP_METHOD_POST, uri);
   soup_message_set_request(msg, "application/x-www-form-urlencoded",
@@ -510,7 +510,7 @@ void update_inventory_item_x(simgroup_ctx *sgrp, user_ctx *user,
   USER_PRIV_DEF(user_priv);
 
   // FIXME - don't use fixed-size buffer 
-  snprintf(uri,256, "%sxinventory", grid->inventoryserver);
+  snprintf(uri,256, "%sxinventory", grid->inventory_server);
   req_body = build_xinv_req(user, inv, "UPDATEITEM");
   msg = soup_message_new(SOUP_METHOD_POST, uri);
   soup_message_set_request(msg, "application/x-www-form-urlencoded",

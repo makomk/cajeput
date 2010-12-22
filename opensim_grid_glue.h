@@ -37,8 +37,8 @@ struct grid_glue_ctx {
   int old_xmlrpc_grid_proto, new_userserver, use_xinventory;
   simgroup_ctx *sgrp;
   caj_logger *log;
-  gchar *userserver, *gridserver, *assetserver;
-  gchar *inventoryserver;
+  gchar *user_server, *grid_server, *asset_server;
+  gchar *inventory_server, *avatar_server, *presence_server, *grid_user_server;
   gchar *grid_recvkey, *grid_sendkey;
   uuid_t region_secret;
 

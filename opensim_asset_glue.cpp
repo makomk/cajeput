@@ -129,10 +129,10 @@ void osglue_get_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset) {
   GRID_PRIV_DEF_SGRP(sgrp);
   // FIXME - should allocate proper buffer
   char url[255], asset_id[40];
-  assert(grid->assetserver != NULL);
+  assert(grid->asset_server != NULL);
 
   uuid_unparse(asset->id, asset_id);
-  snprintf(url, 255, "%sassets/%s/", grid->assetserver, asset_id);
+  snprintf(url, 255, "%sassets/%s/", grid->asset_server, asset_id);
   CAJ_DEBUG("DEBUG: requesting asset %s\n", url);
 
   SoupMessage *msg = soup_message_new ("GET", url);
@@ -203,7 +203,7 @@ void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
   SoupMessage *msg; put_asset_req_desc *req;
   os_asset oasset;
   char url[255], asset_id[40];
-  assert(grid->assetserver != NULL);
+  assert(grid->asset_server != NULL);
   assert(asset != NULL && asset->data.data != NULL);
 
   buf = xmlBufferCreate();
@@ -215,7 +215,7 @@ void osglue_put_asset(struct simgroup_ctx *sgrp, struct simple_asset *asset,
   }
 
   uuid_unparse(asset->id, asset_id);
-  snprintf(url, 255, "%sassets/", grid->assetserver);
+  snprintf(url, 255, "%sassets/", grid->asset_server);
   CAJ_DEBUG("DEBUG: uploading asset %s\n", asset_id);
   
   if(xmlTextWriterStartDocument(writer,NULL,"UTF-8",NULL) < 0) {

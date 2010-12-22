@@ -306,7 +306,7 @@ void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   SoupMessage *msg;
   inv_items_req *req;
   
-  assert(grid->inventoryserver != NULL);
+  assert(grid->inventory_server != NULL);
 
   buf = xmlBufferCreate();
   if(buf == NULL) goto fail;
@@ -339,7 +339,7 @@ void fetch_inventory_folder(simgroup_ctx *sgrp, user_ctx *user,
   }
 
   // FIXME - don't use fixed-length buffer, and handle missing trailing /
-  snprintf(uri, 256, "%sGetFolderContent/", grid->inventoryserver);
+  snprintf(uri, 256, "%sGetFolderContent/", grid->inventory_server);
   printf("DEBUG: sending inventory request to %s\n", uri);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
@@ -446,7 +446,7 @@ void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   inv_item_req *req;
   struct os_inv_item invitem; // don't ask. Please.
   
-  assert(grid->inventoryserver != NULL);
+  assert(grid->inventory_server != NULL);
 
   buf = xmlBufferCreate();
   if(buf == NULL) goto fail;
@@ -494,7 +494,7 @@ void fetch_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   }
 
   // FIXME - don't use fixed-length buffer, and handle missing trailing /
-  snprintf(uri, 256, "%sQueryItem/", grid->inventoryserver);
+  snprintf(uri, 256, "%sQueryItem/", grid->inventory_server);
   printf("DEBUG: sending inventory request to %s\n", uri);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
@@ -592,7 +592,7 @@ void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
   add_inv_item_req *req;
   struct os_inv_item invitem;
   
-  assert(grid->inventoryserver != NULL);
+  assert(grid->inventory_server != NULL);
 
   buf = xmlBufferCreate();
   if(buf == NULL) goto fail;
@@ -632,7 +632,7 @@ void add_inventory_item(simgroup_ctx *sgrp, user_ctx *user,
 
   // FIXME - don't use fixed-length buffer, and handle missing trailing /
   // (note: not AddNewItem, as that's not meant for sim use!)
-  snprintf(uri, 256, "%sNewItem/", grid->inventoryserver);
+  snprintf(uri, 256, "%sNewItem/", grid->inventory_server);
   printf("DEBUG: sending inventory add request to %s\n", uri);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
@@ -724,7 +724,7 @@ void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
   SoupMessage *msg;
   inv_items_req *req;
   
-  assert(grid->inventoryserver != NULL);
+  assert(grid->inventory_server != NULL);
 
   buf = xmlBufferCreate();
   if(buf == NULL) goto fail;
@@ -756,7 +756,7 @@ void fetch_system_folders(simgroup_ctx *sgrp, user_ctx *user,
   }
 
   // FIXME - don't use fixed-length buffer, and handle missing trailing /
-  snprintf(uri, 256, "%sSystemFolders/", grid->inventoryserver);
+  snprintf(uri, 256, "%sSystemFolders/", grid->inventory_server);
   printf("DEBUG: sending inventory request to %s\n", uri);
   msg = soup_message_new ("POST", uri);
   // FIXME - avoid unnecessary strlen
